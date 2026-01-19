@@ -1,0 +1,374 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Enums removed for SQLite compatibility, handled as Strings
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          String    @default("FREELANCER") // Was UserRole
+  
+  // Custom fields
+  phone         String?   @unique
+  isVerified    Boolean   @default(false)
+  trustScore    Float     @default(100.0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // NextAuth relations
+  accounts      Account[]
+  sessions      Session[]
+
+  // App relations
+  freelancerProfile FreelancerProfile?
+  clientProfile     ClientProfile?
+  sentMessages      Message[]
+  notifications     Notification[]
+  wallets           WalletLedger[]
+  adminLog          AuditLog[]
+  deviceFingerprints DeviceFingerprint[]
+  strikes           Strike[]
+  
+  // Conversations participation (simplification for m-n)
+  conversations     ConversationParticipant[]
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String? // Removed @db.Text
+  access_token       String? // Removed @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String? // Removed @db.Text
+  session_state      String?
+ 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+ 
+  @@unique([identifier, token])
+}
+
+// App Specific Models
+
+model FreelancerProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           String
+  bio             String   // Removed @db.Text
+  hourlyRate      Float
+  
+  availability    Boolean  @default(true)
+  maxConcurrent   Int      @default(3)
+  
+  skills          SkillTag[]
+  services        ServiceListing[]
+  proposals       Proposal[]
+  contracts       Contract[]
+  reputation      ReputationMetrics?
+  portfolio       PortfolioItem[]
+}
+
+model ClientProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName String?
+  
+  jobPosts    JobPost[]
+  contracts   Contract[]
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  parentId  String?
+  
+  parentCategory Category? @relation("SubCats", fields: [parentId], references: [id])
+  subCategories  Category[] @relation("SubCats")
+  
+  jobs      JobPost[]
+  services  ServiceListing[]
+}
+
+model SkillTag {
+  id        String @id @default(cuid())
+  name      String @unique
+  profiles  FreelancerProfile[]
+  jobs      JobPost[]
+}
+
+model JobPost {
+  id          String   @id @default(cuid())
+  clientId    String
+  client      ClientProfile @relation(fields: [clientId], references: [id])
+  title       String
+  description String   // Removed @db.Text
+  budget      Float
+  isRemote    Boolean  @default(true)
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now())
+
+  skills      SkillTag[]
+  proposals   Proposal[]
+}
+
+model ServiceListing {
+  id            String   @id @default(cuid())
+  freelancerId  String
+  freelancer    FreelancerProfile @relation(fields: [freelancerId], references: [id])
+  title         String
+  description   String
+  basePrice     Float
+  categoryId    String
+  category      Category @relation(fields: [categoryId], references: [id])
+  isVerifiedWork Boolean @default(false)
+  
+  packages      PackageTier[]
+}
+
+model PackageTier {
+  id          String @id @default(cuid())
+  serviceId   String
+  service     ServiceListing @relation(fields: [serviceId], references: [id])
+  name        String
+  price       Float
+  deliveryDays Int
+  revisions   Int
+}
+
+model Proposal {
+  id           String @id @default(cuid())
+  jobId        String
+  job          JobPost @relation(fields: [jobId], references: [id])
+  freelancerId String
+  freelancer   FreelancerProfile @relation(fields: [freelancerId], references: [id])
+  
+  coverLetter  String   // Removed @db.Text
+  price        Float
+  status       String   @default("PENDING")
+  createdAt    DateTime @default(now())
+  
+  attachments  Attachment[]
+  conversation Conversation?
+}
+
+model Contract {
+  id            String   @id @default(cuid())
+  clientId      String
+  client        ClientProfile @relation(fields: [clientId], references: [id])
+  freelancerId  String
+  freelancer    FreelancerProfile @relation(fields: [freelancerId], references: [id])
+  
+  title         String
+  totalBudget   Float
+  status        String @default("DRAFT") // Was ContractStatus
+  terms         String
+  type          String   @default("FIXED") // FIXED, HOURLY, TRIAL
+  startDate     DateTime @default(now())
+  endDate       DateTime?
+
+  milestones    Milestone[]
+  escrowAccount EscrowAccount?
+  conversation  Conversation?
+}
+
+model Milestone {
+  id          String   @id @default(cuid())
+  contractId  String
+  contract    Contract @relation(fields: [contractId], references: [id])
+  description String
+  amount      Float
+  dueDate     DateTime?
+  status      String   @default("PENDING")
+  
+  deliverables Deliverable[]
+}
+
+model Deliverable {
+  id          String   @id @default(cuid())
+  milestoneId String
+  milestone   Milestone @relation(fields: [milestoneId], references: [id])
+  fileUrl     String
+  comment     String?
+  createdAt   DateTime @default(now())
+}
+
+model EscrowAccount {
+  id            String   @id @default(cuid())
+  contractId    String   @unique
+  contract      Contract @relation(fields: [contractId], references: [id])
+  totalDeposited Float   @default(0)
+  totalReleased  Float   @default(0)
+  balance        Float   @default(0)
+  
+  transactions  EscrowTransaction[]
+}
+
+model EscrowTransaction {
+  id          String   @id @default(cuid())
+  escrowId    String
+  escrow      EscrowAccount @relation(fields: [escrowId], references: [id])
+  amount      Float
+  type        String
+  status      String // Was EscrowStatus
+  createdAt   DateTime @default(now())
+}
+
+model WalletLedger {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  amount    Float
+  type      String
+  reason    String
+  balanceAfter Float
+  createdAt DateTime @default(now())
+}
+
+model Conversation {
+  id          String   @id @default(cuid())
+  proposalId  String?  @unique
+  proposal    Proposal? @relation(fields: [proposalId], references: [id])
+  contractId  String?  @unique
+  contract    Contract? @relation(fields: [contractId], references: [id])
+  createdAt   DateTime @default(now())
+  
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id])
+  content        String
+  createdAt      DateTime     @default(now())
+  readAt         DateTime?
+  
+  attachments    Attachment[]
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  url         String
+  name        String
+  fileType    String
+  
+  messageId   String?
+  message     Message? @relation(fields: [messageId], references: [id])
+  proposalId  String?
+  proposal    Proposal? @relation(fields: [proposalId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model DeviceFingerprint {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  deviceHash String
+  ipHash    String
+  lastSeen  DateTime
+}
+
+model ReputationMetrics {
+  id            String   @id @default(cuid())
+  freelancerId  String   @unique
+  freelancer    FreelancerProfile @relation(fields: [freelancerId], references: [id])
+  
+  jobSuccess    Float    @default(100)
+  onTime        Float    @default(100)
+  communication Float    @default(5.0)
+  disputeCount  Int      @default(0)
+}
+
+model Strike {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  reason    String
+  severity  Int
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  appeals   Appeal[]
+}
+
+model Appeal {
+  id        String   @id @default(cuid())
+  strikeId  String
+  strike    Strike   @relation(fields: [strikeId], references: [id])
+  reason    String
+  status    String
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  details   String
+  createdAt DateTime @default(now())
+}
+
+model PortfolioItem {
+    id String @id @default(cuid())
+    freelancerId String
+    freelancer FreelancerProfile @relation(fields: [freelancerId], references: [id])
+    title String
+    description String
+    imageUrl String
+    url String?
+}
