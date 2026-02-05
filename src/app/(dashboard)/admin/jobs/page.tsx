@@ -128,10 +128,10 @@ export default async function AdminJobsPage() {
                                             {job.title}
                                         </Link>
                                         <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${job.status === 'OPEN'
-                                                ? 'bg-emerald-500/20 text-emerald-400'
-                                                : job.status === 'IN_PROGRESS'
-                                                    ? 'bg-blue-500/20 text-blue-400'
-                                                    : 'bg-zinc-500/20 text-zinc-400'
+                                            ? 'bg-emerald-500/20 text-emerald-400'
+                                            : job.status === 'IN_PROGRESS'
+                                                ? 'bg-blue-500/20 text-blue-400'
+                                                : 'bg-zinc-500/20 text-zinc-400'
                                             }`}>
                                             {job.status.replace('_', ' ')}
                                         </span>
@@ -152,7 +152,7 @@ export default async function AdminJobsPage() {
                                         </span>
                                         <span className="flex items-center gap-1">
                                             <MapPin className="w-3.5 h-3.5" />
-                                            {job.location || 'Remote'}
+                                            {job.isRemote ? 'Remote' : 'On-site'}
                                         </span>
                                         <span className="flex items-center gap-1">
                                             <Calendar className="w-3.5 h-3.5" />

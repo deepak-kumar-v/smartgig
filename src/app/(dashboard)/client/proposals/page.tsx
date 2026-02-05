@@ -6,7 +6,9 @@ import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { Briefcase, User, Calendar, DollarSign, CheckCircle, Beaker } from 'lucide-react';
+import Image from 'next/image';
 import { createTrialContract } from '@/app/actions/contracts';
+import { EmptyState } from '@/components/ui/empty-state';
 
 async function getProposals(userId: string) {
     const client = await db.clientProfile.findUnique({
@@ -35,7 +37,7 @@ async function getProposals(userId: string) {
 
 export default async function ClientProposalsPage() {
     const session = await auth();
-    if (!session?.user) redirect('/login');
+    if (!session?.user?.id) redirect('/login');
 
     const proposals = await getProposals(session.user.id);
 
@@ -47,13 +49,15 @@ export default async function ClientProposalsPage() {
             </div>
 
             {proposals.length === 0 ? (
-                <GlassCard className="text-center py-12">
-                    <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mx-auto mb-4">
-                        <Briefcase className="w-8 h-8 text-zinc-500" />
-                    </div>
-                    <h3 className="text-lg font-medium text-white mb-2">No Proposals Yet</h3>
-                    <p className="text-zinc-400">Post a job to start receiving proposals from top talent.</p>
-                </GlassCard>
+                <EmptyState
+                    title="No Proposals Yet"
+                    description="Post a job to start receiving proposals from top talent."
+                    icon={Briefcase}
+                    action={{
+                        label: "Post a Job",
+                        href: "/client/post-job"
+                    }}
+                />
             ) : (
                 <div className="space-y-6">
                     {proposals.map((proposal) => (
@@ -63,7 +67,12 @@ export default async function ClientProposalsPage() {
                                     <div className="flex items-center gap-3 mb-4">
                                         <div className="w-10 h-10 rounded-full bg-zinc-800 overflow-hidden border border-white/10">
                                             {proposal.freelancer.user.image && (
-                                                <img src={proposal.freelancer.user.image} alt="User" />
+                                                <Image
+                                                    src={proposal.freelancer.user.image}
+                                                    alt="User"
+                                                    fill
+                                                    className="object-cover"
+                                                />
                                             )}
                                         </div>
                                         <div>
@@ -84,7 +93,7 @@ export default async function ClientProposalsPage() {
                                     </div>
 
                                     <div className="flex items-center gap-4 text-xs text-zinc-500">
-                                        <span>Price: ${proposal.price}</span>
+                                        <span>Price: ${proposal.proposedRate}</span>
                                         {/* <span>Est. Duration: {proposal.duration}</span> */}
                                     </div>
                                 </div>
@@ -95,7 +104,7 @@ export default async function ClientProposalsPage() {
                                         Hire Now
                                     </GlassButton>
 
-                                    <form action={createTrialContract}>
+                                    <form action={createTrialContract as any}>
                                         <input type="hidden" name="proposalId" value={proposal.id} />
                                         <input type="hidden" name="freelancerId" value={proposal.freelancerId} />
                                         <input type="hidden" name="clientId" value={proposal.job.clientId} />

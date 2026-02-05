@@ -1,7 +1,6 @@
 import React from 'react';
 import { db } from '@/lib/db';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -22,14 +21,14 @@ async function getTrustData() {
         suspendedUsers
     ] = await Promise.all([
         db.strike.count(),
-        db.strike.count({ where: { expiresAt: { gt: new Date() } } }),
-        db.appeal.count({ where: { status: 'PENDING' } }),
+        db.strike.count({ where: { isActive: true } }), // Using isActive instead of expiresAt
+        Promise.resolve(0), // Appeal model not available - return 0
         db.strike.findMany({
             take: 10,
             orderBy: { createdAt: 'desc' },
             include: {
-                user: { select: { id: true, name: true, email: true, role: true } },
-                appeals: true
+                user: { select: { id: true, name: true, email: true, role: true } }
+                // appeals relation not available
             }
         }),
         db.user.count({ where: { trustScore: { lt: 50 } } })
@@ -38,8 +37,9 @@ async function getTrustData() {
     return { totalStrikes, activeStrikes, pendingAppeals, recentStrikes, suspendedUsers };
 }
 
-function getSeverityConfig(severity: number) {
-    switch (severity) {
+function getSeverityConfig(severity: string | number) {
+    const severityNum = typeof severity === 'string' ? parseInt(severity, 10) || 1 : severity;
+    switch (severityNum) {
         case 1: return { label: 'Warning', color: 'text-amber-400', bg: 'bg-amber-500/20' };
         case 2: return { label: 'Minor', color: 'text-orange-400', bg: 'bg-orange-500/20' };
         case 3: return { label: 'Moderate', color: 'text-rose-400', bg: 'bg-rose-500/20' };
@@ -50,7 +50,7 @@ function getSeverityConfig(severity: number) {
 }
 
 export default async function TrustSafetyPage() {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
 
     if (!session?.user || session.user.role !== 'ADMIN') {
         redirect('/login');
@@ -178,8 +178,8 @@ export default async function TrustSafetyPage() {
                                 {data.recentStrikes.length > 0 ? (
                                     data.recentStrikes.map((strike) => {
                                         const severity = getSeverityConfig(strike.severity);
-                                        const isExpired = new Date(strike.expiresAt) < new Date();
-                                        const hasAppeal = strike.appeals.length > 0;
+                                        const isExpired = !strike.isActive; // Using isActive field
+                                        const hasAppeal = false; // Appeals not available
 
                                         return (
                                             <div

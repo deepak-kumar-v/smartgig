@@ -6,12 +6,13 @@ interface GlassButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>
     variant?: "primary" | "secondary" | "ghost" | "outline";
     size?: "sm" | "md" | "lg" | "icon";
     isLoading?: boolean;
+    asDiv?: boolean; // New prop to render as div
 }
 
-export const GlassButton = React.forwardRef<HTMLButtonElement, GlassButtonProps>(
-    ({ className, variant = "primary", size = "md", isLoading, children, ...props }, ref) => {
+export const GlassButton = React.forwardRef<any, GlassButtonProps>(
+    ({ className, variant = "primary", size = "md", isLoading, asDiv, children, ...props }, ref) => {
 
-        const baseStyles = "inline-flex items-center justify-center rounded-full font-medium transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 active:scale-95";
+        const baseStyles = "inline-flex items-center justify-center rounded-full font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 
         const variants = {
             primary: "bg-white text-black hover:bg-white/90 shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_rgba(255,255,255,0.5)] border-0",
@@ -27,16 +28,20 @@ export const GlassButton = React.forwardRef<HTMLButtonElement, GlassButtonProps>
             icon: "h-10 w-10",
         };
 
+        const Comp = asDiv ? "div" : "button";
+
         return (
-            <button
+            // @ts-ignore - Dynamic component typings are complex
+            <Comp
                 ref={ref}
                 className={cn(baseStyles, variants[variant], sizes[size], className)}
-                disabled={isLoading || props.disabled}
+                // Only pass disabled if it's a button, or handle aria-disabled for div
+                {...(asDiv ? { "aria-disabled": props.disabled } : { disabled: isLoading || props.disabled })}
                 {...props}
             >
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {children}
-            </button>
+            </Comp>
         );
     }
 );

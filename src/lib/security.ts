@@ -1,14 +1,14 @@
 import { db } from '@/lib/db';
 
-export async function checkDeviceBan(deviceHash: string) {
+export async function checkDeviceBan(fingerprint: string) {
     // Find all users who have used this device
     const usersOnDevice = await db.deviceFingerprint.findMany({
-        where: { deviceHash },
+        where: { fingerprint },
         include: {
             user: {
                 include: {
                     strikes: {
-                        where: { expiresAt: { gt: new Date() } }
+                        where: { isActive: true } // Using isActive instead of expiresAt
                     }
                 }
             }
@@ -29,23 +29,24 @@ export async function checkDeviceBan(deviceHash: string) {
     return { banned: false };
 }
 
-export async function recordDevice(userId: string, deviceHash: string, ipHash: string) {
+export async function recordDevice(userId: string, fingerprint: string, ipAddress: string, userAgent: string = '') {
     // Check if fingerprint exists for this user
     const existing = await db.deviceFingerprint.findFirst({
-        where: { userId, deviceHash }
+        where: { userId, fingerprint }
     });
 
     if (existing) {
         await db.deviceFingerprint.update({
             where: { id: existing.id },
-            data: { lastSeen: new Date(), ipHash }
+            data: { lastSeen: new Date(), ipAddress }
         });
     } else {
         await db.deviceFingerprint.create({
             data: {
                 userId,
-                deviceHash,
-                ipHash,
+                fingerprint,
+                userAgent,
+                ipAddress,
                 lastSeen: new Date()
             }
         });

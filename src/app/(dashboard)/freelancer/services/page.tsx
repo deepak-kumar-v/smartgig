@@ -19,8 +19,9 @@ async function getServices() {
             }
         },
         include: {
-            packages: true,
-            category: true
+            // packages: true, // Not in schema
+            // category: true // Not in schema
+            freelancer: true
         }
     });
 }
@@ -53,7 +54,7 @@ export default async function FreelancerServicesPage() {
                     </p>
                 </div>
                 <Link href="/freelancer/services/new">
-                    <GlassButton variant="primary">
+                    <GlassButton variant="primary" asDiv>
                         <Plus className="w-4 h-4 mr-2" />
                         Create New Listing
                     </GlassButton>
@@ -70,7 +71,7 @@ export default async function FreelancerServicesPage() {
                         You haven't posted any services yet. Create a listing to define your expertise, rates, and the type of work you're looking for.
                     </p>
                     <Link href="/freelancer/services/new">
-                        <GlassButton variant="primary">
+                        <GlassButton variant="primary" asDiv>
                             Create Your First Listing
                         </GlassButton>
                     </Link>
@@ -82,7 +83,7 @@ export default async function FreelancerServicesPage() {
                             <div className="p-6">
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs font-medium text-violet-400">
-                                        {service.category.name}
+                                        {service.category || 'General'}
                                     </div>
                                     <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors">
@@ -104,7 +105,7 @@ export default async function FreelancerServicesPage() {
                                 <div className="flex items-center justify-between pt-4 border-t border-white/5">
                                     <div className="flex items-center gap-2 text-zinc-400 text-sm">
                                         <Clock className="w-4 h-4" />
-                                        {service.packages[0]?.deliveryDays || 3} days avg
+                                        {service.deliveryDays || 7} days avg
                                     </div>
                                     <div className="flex items-center gap-1 text-white font-medium">
                                         <span className="text-zinc-500 text-xs font-normal mr-1">Starting at</span>
@@ -115,7 +116,7 @@ export default async function FreelancerServicesPage() {
                             </div>
                             <div className="px-6 py-3 bg-white/5 border-t border-white/5 flex items-center justify-between">
                                 <span className="text-xs text-zinc-500">
-                                    {service.packages.length} Packages Available
+                                    Standard Package
                                 </span>
                                 <Link href={`/services/${service.id}`} className="text-xs font-medium text-violet-400 hover:text-violet-300 flex items-center gap-1">
                                     View Live <Eye className="w-3 h-3" />

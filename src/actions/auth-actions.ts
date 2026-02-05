@@ -32,42 +32,47 @@ export async function registerUser(formData: FormData) {
 
     const { email, password, name, role } = validatedFields.data;
 
-    // Check if user exists
-    const existingUser = await db.user.findUnique({
-        where: { email },
-    });
+    try {
+        // Check if user exists
+        const existingUser = await db.user.findUnique({
+            where: { email },
+        });
 
-    if (existingUser) {
-        return { error: "Email already in use!" };
+        if (existingUser) {
+            return { error: "Email already in use!" };
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        await db.user.create({
+            data: {
+                name,
+                email,
+                password: hashedPassword,
+                role,
+                // Create associated profile based on role
+                ...(role === "FREELANCER" && {
+                    freelancerProfile: {
+                        create: {
+                            title: "New Freelancer",
+                            bio: "Bio not updated yet.",
+                            hourlyRate: 0,
+                        }
+                    }
+                }),
+                ...(role === "CLIENT" && {
+                    clientProfile: {
+                        create: {
+                            companyName: "Individual",
+                        }
+                    }
+                })
+            },
+        });
+    } catch (error) {
+        console.error("Registration error:", error);
+        return { error: "Service temporarily unavailable. Please try again later." };
     }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    await db.user.create({
-        data: {
-            name,
-            email,
-            password: hashedPassword,
-            role,
-            // Create associated profile based on role
-            ...(role === "FREELANCER" && {
-                freelancerProfile: {
-                    create: {
-                        title: "New Freelancer",
-                        bio: "Bio not updated yet.",
-                        hourlyRate: 0,
-                    }
-                }
-            }),
-            ...(role === "CLIENT" && {
-                clientProfile: {
-                    create: {
-                        companyName: "Individual",
-                    }
-                }
-            })
-        },
-    });
 
     // Automatically sign in after registration (optional, but good UX)
     /* 

@@ -2,9 +2,9 @@
 
 import React, { useState, useTransition } from 'react';
 import { GlassButton } from '@/components/ui/glass-button';
-import { GlassModal } from '@/components/ui/glass-modal';
 import { GlassInput } from '@/components/ui/glass-input';
 import { GlassTextarea } from '@/components/ui/glass-textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { submitProposal } from '@/actions/proposal-actions';
 import { Send, Loader2, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -49,21 +49,23 @@ export const ApplyButton = ({ jobId, jobTitle, budget }: ApplyButtonProps) => {
     };
 
     return (
-        <>
-            <GlassButton
-                variant="primary"
-                size="lg"
-                onClick={() => setIsOpen(true)}
-                className="w-full md:w-auto"
-            >
-                Apply Now <Send className="w-4 h-4 ml-2" />
-            </GlassButton>
 
-            <GlassModal
-                isOpen={isOpen}
-                onClose={() => setIsOpen(false)}
-                title={`Apply for: ${jobTitle}`}
-            >
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <DialogTrigger asChild>
+                <GlassButton
+                    variant="primary"
+                    size="lg"
+                    className="w-full md:w-auto"
+                >
+                    Apply Now <Send className="w-4 h-4 ml-2" />
+                </GlassButton>
+            </DialogTrigger>
+
+            <DialogContent className="sm:max-w-[600px] bg-zinc-900 delay-0 animate-in fade-in zoom-in-95 duration-200 border-white/10 text-white">
+                <DialogHeader>
+                    <DialogTitle className="text-xl font-bold">Apply for: {jobTitle}</DialogTitle>
+                </DialogHeader>
+
                 {message && message.type === 'success' ? (
                     <div className="flex flex-col items-center justify-center py-10 text-center animate-in fade-in zoom-in duration-300">
                         <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mb-4 text-green-500">
@@ -73,7 +75,7 @@ export const ApplyButton = ({ jobId, jobTitle, budget }: ApplyButtonProps) => {
                         <p className="text-white/60">Good luck! The client will review your application shortly.</p>
                     </div>
                 ) : (
-                    <form action={handleSubmit} className="space-y-6">
+                    <form action={handleSubmit} className="space-y-6 mt-4">
                         {/* Error Display */}
                         {message && message.type === 'error' && (
                             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -128,7 +130,8 @@ export const ApplyButton = ({ jobId, jobTitle, budget }: ApplyButtonProps) => {
                         </div>
                     </form>
                 )}
-            </GlassModal>
-        </>
+            </DialogContent>
+        </Dialog>
     );
 };
+

@@ -32,17 +32,28 @@ export function Navbar() {
 
     return (
         <header
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                zIndex: 9999,
+            }}
             className={cn(
-                'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
+                'transition-all duration-300',
                 scrolled ? 'py-3' : 'py-6'
             )}
         >
             <div className="container mx-auto px-4 sm:px-6">
                 <nav
+                    style={{
+                        backdropFilter: scrolled ? 'blur(24px)' : 'none',
+                        WebkitBackdropFilter: scrolled ? 'blur(24px)' : 'none',
+                    }}
                     className={cn(
                         'mx-auto flex items-center justify-between rounded-full px-6 transition-all duration-300',
                         scrolled
-                            ? 'bg-black/40 backdrop-blur-xl border border-white/10 shadow-lg py-3'
+                            ? 'bg-black/40 border border-white/10 shadow-lg py-3'
                             : 'bg-transparent border-transparent py-2'
                     )}
                 >
@@ -76,10 +87,13 @@ export function Navbar() {
 
                     {/* Mobile Menu Toggle */}
                     <button
-                        className="md:hidden text-white"
+                        className="md:hidden text-white p-2"
                         onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                        aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+                        aria-expanded={mobileMenuOpen}
+                        aria-controls="mobile-menu"
                     >
-                        {mobileMenuOpen ? <X /> : <Menu />}
+                        {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
                     </button>
                 </nav>
             </div>
@@ -88,6 +102,7 @@ export function Navbar() {
             <AnimatePresence>
                 {mobileMenuOpen && (
                     <motion.div
+                        id="mobile-menu"
                         initial={{ opacity: 0, y: -20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}

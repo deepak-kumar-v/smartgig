@@ -4,7 +4,7 @@ import { Footer } from '@/components/global/footer';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassInput } from '@/components/ui/glass-input';
-import { ScrollReveal } from '@/components/ui/scroll-reveal';
+
 import Link from 'next/link';
 import { Search, MapPin, Filter, DollarSign } from 'lucide-react';
 import { db } from '@/lib/db';
@@ -85,7 +85,7 @@ export default async function ExplorePage() {
                                 <p>No jobs found. Be the first to post one!</p>
                             </div>
                         ) : (
-                            <ScrollReveal className="space-y-4" stagger={0.1}>
+                            <div className="space-y-4">
                                 {jobs.map((job) => (
                                     <GlassCard key={job.id} variant="hoverable" className="p-6 transition-all">
                                         <div className="flex justify-between items-start">
@@ -116,12 +116,12 @@ export default async function ExplorePage() {
                                                 <span className="text-xs text-white/40">{job._count.proposals} Proposals</span>
                                             </div>
                                             <Link href={`/job/${job.id}`}>
-                                                <GlassButton size="sm" variant="outline">View Job</GlassButton>
+                                                <GlassButton size="sm" variant="outline" asDiv>View Job</GlassButton>
                                             </Link>
                                         </div>
                                     </GlassCard>
                                 ))}
-                            </ScrollReveal>
+                            </div>
                         )}
 
                         {jobs.length > 10 && (

@@ -39,24 +39,18 @@ export async function createTrialContract(formData: FormData) {
                 clientId,
                 freelancerId,
                 title: `Trial: ${job?.title || 'Project'}`,
-                totalBudget: 50.00, // Fixed trial price for MVP
-                status: 'DRAFT', // Client needs to fund/activate it
-                terms: 'This is a paid trial task to verify skills. Deliverables expected within 48 hours.',
-                type: 'TRIAL', // The new field
-                startDate: new Date(),
-                endDate: new Date(Date.now() + 48 * 60 * 60 * 1000), // 48h deadline
-            } as any // Casting to any to bypass TS error if type is missing in generated client
+                totalBudget: 0,
+                type: 'TRIAL',
+                terms: '',
+                status: "DRAFT",
+                // Dates must be explicitly set
+                startDate: null,
+                endDate: null
+            } as any
         });
 
-        // Add a milestone for the trial
-        await db.milestone.create({
-            data: {
-                contractId: contract.id,
-                description: 'Complete Trial Task',
-                amount: 50.00,
-                status: 'PENDING'
-            }
-        });
+        // trial contracts do not have milestones anymore - they are simple fixed price tasks
+        // await db.milestone.create({...});
 
     } catch (error) {
         console.error('Failed to create trial contract:', error);

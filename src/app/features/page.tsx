@@ -218,13 +218,13 @@ export default function FeaturesPage() {
 
                         <div className="flex flex-wrap items-center justify-center gap-4">
                             <Link href="/register">
-                                <GlassButton variant="primary" className="px-8 py-4 text-base">
+                                <GlassButton variant="primary" className="px-8 py-4 text-base" asDiv>
                                     Start Free Today
                                     <ArrowRight className="w-4 h-4 ml-2" />
                                 </GlassButton>
                             </Link>
                             <Link href="/explore">
-                                <GlassButton variant="secondary" className="px-8 py-4 text-base">
+                                <GlassButton variant="secondary" className="px-8 py-4 text-base" asDiv>
                                     Explore Platform
                                 </GlassButton>
                             </Link>
@@ -345,12 +345,12 @@ export default function FeaturesPage() {
                         </p>
                         <div className="flex flex-wrap items-center justify-center gap-4">
                             <Link href="/register">
-                                <GlassButton variant="primary" className="px-8 py-4">
+                                <GlassButton variant="primary" className="px-8 py-4" asDiv>
                                     Create Free Account
                                 </GlassButton>
                             </Link>
                             <Link href="/pricing">
-                                <GlassButton variant="secondary" className="px-8 py-4">
+                                <GlassButton variant="secondary" className="px-8 py-4" asDiv>
                                     View Pricing
                                 </GlassButton>
                             </Link>

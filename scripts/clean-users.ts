@@ -30,9 +30,15 @@ async function main() {
         // Note: Deleting JobPosts. 
         await prisma.jobPost.deleteMany();
 
-        await prisma.packageTier.deleteMany();
         await prisma.serviceListing.deleteMany();
         await prisma.portfolioItem.deleteMany();
+        await prisma.review.deleteMany();
+        await prisma.invoice.deleteMany();
+        await prisma.invoiceLineItem.deleteMany();
+        await prisma.withdrawal.deleteMany();
+        await prisma.paymentMethod.deleteMany();
+        await prisma.videoRoom.deleteMany();
+        await prisma.callParticipant.deleteMany();
 
         // 5. Profiles
         await prisma.freelancerProfile.deleteMany();
@@ -43,6 +49,7 @@ async function main() {
         await prisma.session.deleteMany();
         await prisma.auditLog.deleteMany();
         await prisma.strike.deleteMany();
+        await prisma.deviceFingerprint.deleteMany();
 
         // 7. finally Users
         const { count } = await prisma.user.deleteMany();

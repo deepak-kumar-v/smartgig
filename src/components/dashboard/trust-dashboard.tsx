@@ -7,6 +7,8 @@ import {
     Shield, AlertTriangle, CheckCircle, Clock, Scale,
     ChevronRight, X, Send, Info
 } from 'lucide-react';
+import { submitAppeal } from '@/actions/trust-actions';
+import { toast } from 'sonner';
 
 interface Strike {
     id: string;
@@ -146,10 +148,17 @@ export function TrustDashboard({ trustScore, strikes, totalStrikes }: TrustDashb
     const accountStatus = getAccountStatus(activeStrikes.length);
     const StatusIcon = accountStatus.icon;
 
-    const handleSubmitAppeal = (reason: string) => {
-        // TODO: Implement API call to submit appeal
-        console.log('Submitting appeal:', reason);
-        setAppealingStrike(null);
+    const handleSubmitAppeal = async (reason: string) => {
+        if (!appealingStrike) return;
+
+        toast.promise(submitAppeal(appealingStrike.id, reason), {
+            loading: 'Submitting appeal...',
+            success: () => {
+                setAppealingStrike(null);
+                return 'Appeal submitted successfully';
+            },
+            error: 'Failed to submit appeal'
+        });
     };
 
     return (
@@ -179,9 +188,9 @@ export function TrustDashboard({ trustScore, strikes, totalStrikes }: TrustDashb
                 <div className="h-3 bg-zinc-800 rounded-full overflow-hidden mb-4">
                     <div
                         className={`h-full rounded-full transition-all duration-500 ${trustScore >= 80 ? 'bg-emerald-500' :
-                                trustScore >= 60 ? 'bg-amber-500' :
-                                    trustScore >= 40 ? 'bg-orange-500' :
-                                        'bg-rose-500'
+                            trustScore >= 60 ? 'bg-amber-500' :
+                                trustScore >= 40 ? 'bg-orange-500' :
+                                    'bg-rose-500'
                             }`}
                         style={{ width: `${trustScore}%` }}
                     />
@@ -252,8 +261,8 @@ export function TrustDashboard({ trustScore, strikes, totalStrikes }: TrustDashb
                                                     )}
                                                     {hasAppeal && (
                                                         <span className={`px-2 py-0.5 rounded text-xs ${appealStatus === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400' :
-                                                                appealStatus === 'REJECTED' ? 'bg-rose-500/20 text-rose-400' :
-                                                                    'bg-violet-500/20 text-violet-400'
+                                                            appealStatus === 'REJECTED' ? 'bg-rose-500/20 text-rose-400' :
+                                                                'bg-violet-500/20 text-violet-400'
                                                             }`}>
                                                             Appeal {appealStatus?.toLowerCase()}
                                                         </span>

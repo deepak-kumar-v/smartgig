@@ -40,12 +40,12 @@ export function HeroSection() {
     }, []);
 
     return (
-        <section ref={containerRef} className="relative min-h-screen flex items-center pt-20 overflow-hidden">
+        <section ref={containerRef} className="relative min-h-screen flex items-center overflow-hidden">
             {/* 3D Background - Disabled for stability */}
             {/* <HeroScene /> */}
             <div className="absolute inset-0 z-0 bg-gradient-to-br from-indigo-900/20 via-black to-cyan-900/20 pointer-events-none" />
 
-            <div className="container mx-auto px-6 relative z-10">
+            <div className="container mx-auto px-6 relative z-10 pt-20">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
 
                     {/* Text Content */}

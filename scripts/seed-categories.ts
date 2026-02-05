@@ -3,6 +3,11 @@ import { PrismaClient } from '@prisma/client';
 const db = new PrismaClient();
 
 async function main() {
+    // NOTE: Category model not currently in schema
+    // This script is deprecated for now
+    console.log('Category model not in schema - skipping seed');
+
+    /* 
     const categories = [
         { name: 'Web Development', slug: 'web-development' },
         { name: 'Mobile Apps', slug: 'mobile-apps' },
@@ -28,6 +33,7 @@ async function main() {
             console.log(`Category exists: ${cat.name}`);
         }
     }
+    */
 }
 
 main()

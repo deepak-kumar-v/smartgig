@@ -6,12 +6,49 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassInput } from '@/components/ui/glass-input';
 import { Logo } from '@/components/ui/logo';
-import { Github, Mail } from 'lucide-react';
-import { loginUser, loginWithGoogle, loginWithGithub } from '@/actions/auth-actions';
+import { loginUser } from '@/actions/auth-actions';
+import { SocialLogin, SocialLoginDivider } from '@/components/auth/social-login';
+import { z } from 'zod';
+
+const loginSchema = z.object({
+    email: z.string().email('Please enter a valid email address'),
+    password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
+type FormErrors = {
+    email?: string;
+    password?: string;
+    general?: string;
+};
 
 export default function LoginPage() {
     const [isPending, startTransition] = useTransition();
-    const [error, setError] = useState<string | undefined>("");
+    const [errors, setErrors] = useState<FormErrors>({});
+
+    const handleSubmit = async (formData: FormData) => {
+        const data = {
+            email: formData.get('email') as string,
+            password: formData.get('password') as string,
+        };
+
+        // Client-side validation
+        const result = loginSchema.safeParse(data);
+        if (!result.success) {
+            const fieldErrors: FormErrors = {};
+            result.error.issues.forEach((err) => {
+                if (err.path[0] === 'email') fieldErrors.email = err.message;
+                if (err.path[0] === 'password') fieldErrors.password = err.message;
+            });
+            setErrors(fieldErrors);
+            return;
+        }
+
+        setErrors({});
+        startTransition(async () => {
+            const res = await loginUser(undefined, formData);
+            if (res) setErrors({ general: res });
+        });
+    };
 
     return (
         <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
@@ -26,50 +63,46 @@ export default function LoginPage() {
                         <Logo />
                     </div>
                     <h1 className="text-2xl font-bold text-white mb-2">Welcome Back</h1>
-                    <p className="text-white/50 text-sm">Enter you credentials to access your workspace.</p>
+                    <p className="text-white/50 text-sm">Enter your credentials to access your workspace.</p>
                 </div>
 
-                <div className="flex gap-4">
-                    <form action={loginWithGithub} className="w-full">
-                        <GlassButton variant="secondary" className="w-full text-xs">
-                            <Github className="w-4 h-4 mr-2" /> GitHub
-                        </GlassButton>
-                    </form>
-                    <form action={loginWithGoogle} className="w-full">
-                        <GlassButton variant="secondary" className="w-full text-xs">
-                            <Mail className="w-4 h-4 mr-2" /> Google
-                        </GlassButton>
-                    </form>
-                </div>
+                <SocialLogin />
+                <SocialLoginDivider />
 
-                <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                        <span className="w-full border-t border-white/10" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-[#0f1115] px-2 text-white/30">Or continue with</span>
-                    </div>
-                </div>
-
-                <form action={async (formData) => {
-                    startTransition(async () => {
-                        const res = await loginUser(undefined, formData);
-                        if (res) setError(res);
-                    });
-                }} className="space-y-6">
+                <form action={handleSubmit} className="space-y-6">
                     <div className="space-y-2">
                         <label className="text-xs font-medium text-white/70 ml-1">Email</label>
-                        <GlassInput name="email" type="email" placeholder="name@example.com" required />
+                        <GlassInput
+                            name="email"
+                            type="email"
+                            placeholder="name@example.com"
+                            className={errors.email ? 'border-rose-500/50' : ''}
+                        />
+                        {errors.email && (
+                            <p className="text-rose-400 text-xs ml-1">{errors.email}</p>
+                        )}
                     </div>
                     <div className="space-y-2">
                         <label className="text-xs font-medium text-white/70 ml-1 flex justify-between">
                             Password
                             <Link href="/forgot-password" className="text-indigo-400 hover:text-indigo-300">Forgot?</Link>
                         </label>
-                        <GlassInput name="password" type="password" placeholder="••••••••" required />
+                        <GlassInput
+                            name="password"
+                            type="password"
+                            placeholder="••••••••"
+                            className={errors.password ? 'border-rose-500/50' : ''}
+                        />
+                        {errors.password && (
+                            <p className="text-rose-400 text-xs ml-1">{errors.password}</p>
+                        )}
                     </div>
 
-                    {error && <div className="text-red-400 text-xs text-center">{error}</div>}
+                    {errors.general && (
+                        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm text-center">
+                            {errors.general}
+                        </div>
+                    )}
 
                     <GlassButton type="submit" className="w-full mt-4" disabled={isPending}>
                         {isPending ? "Signing In..." : "Sign In"}

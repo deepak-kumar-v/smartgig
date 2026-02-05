@@ -8,6 +8,7 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { FileText, Clock, AlertTriangle, Shield, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 
 async function getContracts(userId: string) {
     const client = await db.clientProfile.findUnique({
@@ -26,13 +27,13 @@ async function getContracts(userId: string) {
             },
             milestones: true
         },
-        orderBy: { updatedAt: 'desc' }
+        orderBy: { startDate: 'desc' }
     });
 }
 
 export default async function ClientContractsPage() {
     const session = await auth();
-    if (!session?.user) redirect('/login');
+    if (!session?.user?.id) redirect('/login');
 
     const contracts = await getContracts(session.user.id);
 
@@ -44,13 +45,15 @@ export default async function ClientContractsPage() {
             </div>
 
             {contracts.length === 0 ? (
-                <GlassCard className="text-center py-12">
-                    <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mx-auto mb-4">
-                        <FileText className="w-8 h-8 text-zinc-500" />
-                    </div>
-                    <h3 className="text-lg font-medium text-white mb-2">No Active Contracts</h3>
-                    <p className="text-zinc-400">Contracts will appear here once you hire a freelancer.</p>
-                </GlassCard>
+                <EmptyState
+                    title="No Active Contracts"
+                    description="Contracts will appear here once you hire a freelancer. Start by posting a job or browsing services."
+                    icon={FileText}
+                    action={{
+                        label: "Post a Job",
+                        href: "/client/post-job"
+                    }}
+                />
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {contracts.map((contract: any) => {

@@ -12,16 +12,56 @@ interface GlassModalProps {
 }
 
 export const GlassModal = ({ isOpen, onClose, children, title }: GlassModalProps) => {
-    // Prevent scrolling when open
+    const titleId = React.useId();
+
+    // Prevent scrolling and handle ESC key
     useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = 'unset';
+
+            const handleEsc = (e: KeyboardEvent) => {
+                if (e.key === 'Escape') onClose();
+            };
+            window.addEventListener('keydown', handleEsc);
+            return () => {
+                document.body.style.overflow = 'unset';
+                window.removeEventListener('keydown', handleEsc);
+            };
         }
-        return () => {
-            document.body.style.overflow = 'unset';
-        };
+    }, [isOpen, onClose]);
+
+    // Simple focus trap
+    const modalRef = React.useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (isOpen && modalRef.current) {
+            const focusableElements = modalRef.current.querySelectorAll(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            const firstElement = focusableElements[0] as HTMLElement;
+            const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+
+            const handleTab = (e: KeyboardEvent) => {
+                if (e.key === 'Tab') {
+                    if (e.shiftKey) {
+                        if (document.activeElement === firstElement) {
+                            e.preventDefault();
+                            lastElement?.focus();
+                        }
+                    } else {
+                        if (document.activeElement === lastElement) {
+                            e.preventDefault();
+                            firstElement?.focus();
+                        }
+                    }
+                }
+            };
+
+            const modal = modalRef.current;
+            modal.addEventListener('keydown', handleTab);
+            firstElement?.focus();
+
+            return () => modal.removeEventListener('keydown', handleTab);
+        }
     }, [isOpen]);
 
     return (
@@ -35,10 +75,15 @@ export const GlassModal = ({ isOpen, onClose, children, title }: GlassModalProps
                         exit={{ opacity: 0 }}
                         onClick={onClose}
                         className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+                        aria-hidden="true"
                     />
 
                     {/* Modal Content */}
                     <motion.div
+                        ref={modalRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby={title ? titleId : undefined}
                         initial={{ opacity: 0, scale: 0.95, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -47,10 +92,15 @@ export const GlassModal = ({ isOpen, onClose, children, title }: GlassModalProps
                         <div className="bg-[#0A0A1B]/90 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-xl overflow-hidden relative">
                             {/* Header */}
                             <div className="flex items-center justify-between p-6 border-b border-white/5">
-                                <h2 className="text-xl font-bold text-white shadow-black drop-shadow-md">{title}</h2>
+                                {title && (
+                                    <h2 id={titleId} className="text-xl font-bold text-white shadow-black drop-shadow-md">
+                                        {title}
+                                    </h2>
+                                )}
                                 <button
                                     onClick={onClose}
-                                    className="p-2 rounded-full hover:bg-white/5 text-white/50 hover:text-white transition-colors"
+                                    className="p-2 rounded-full hover:bg-white/5 text-white/50 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                                    aria-label="Close modal"
                                 >
                                     <X className="w-5 h-5" />
                                 </button>

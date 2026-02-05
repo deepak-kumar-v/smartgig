@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import { db } from '@/lib/db';
 import { Navbar } from '@/components/global/navbar';
 import { Footer } from '@/components/global/footer';
@@ -6,8 +7,14 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { Star, Clock, CheckCircle, Shield, Briefcase, ArrowRight } from 'lucide-react';
 import { notFound } from 'next/navigation';
+import Image from 'next/image';
+import { Metadata } from 'next';
+import { cache } from 'react';
 
-async function getService(id: string) {
+export const dynamic = 'force-dynamic';
+
+// Cache the fetch to deduplicate requests between page and metadata
+const getService = cache(async (id: string) => {
     return db.serviceListing.findUnique({
         where: { id },
         include: {
@@ -19,10 +26,31 @@ async function getService(id: string) {
                     skills: true,
                 }
             },
-            category: true,
-            packages: true
+            // category: true, // Not in schema
+            // packages: true // Not in schema
         }
     });
+});
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+    const { id } = await params;
+    const service = await getService(id);
+
+    if (!service) {
+        return {
+            title: 'Service Not Found | SmartGIG',
+        };
+    }
+
+    return {
+        title: `${service.title} | SmartGIG`,
+        description: service.description.slice(0, 160) + '...',
+        openGraph: {
+            title: service.title,
+            description: service.description.slice(0, 160) + '...',
+            images: service.freelancer.user.image ? [service.freelancer.user.image] : [],
+        },
+    };
 }
 
 export default async function ServiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -44,7 +72,7 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
                             <div>
                                 <div className="flex items-center gap-2 text-violet-400 text-sm font-medium mb-4">
                                     <span className="bg-violet-500/10 px-3 py-1 rounded-full border border-violet-500/20">
-                                        {service.category.name}
+                                        {service.category || 'General'}
                                     </span>
                                 </div>
                                 <h1 className="text-3xl md:text-4xl font-bold text-white mb-6">
@@ -53,9 +81,14 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
 
                                 <div className="flex items-center gap-4 mb-4">
                                     <div className="items-center flex gap-3">
-                                        <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center overflow-hidden border border-white/10">
+                                        <div className="relative w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center overflow-hidden border border-white/10">
                                             {service.freelancer.user.image ? (
-                                                <img src={service.freelancer.user.image} alt={service.freelancer.user.name || 'User'} className="w-full h-full object-cover" />
+                                                <Image
+                                                    src={service.freelancer.user.image}
+                                                    alt={service.freelancer.user.name || 'User'}
+                                                    fill
+                                                    className="object-cover"
+                                                />
                                             ) : (
                                                 <span className="text-sm font-bold text-zinc-400">
                                                     {(service.freelancer.user.name || 'U').charAt(0)}
@@ -108,11 +141,11 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
                                     <div className="space-y-4 mb-8">
                                         <div className="flex items-center gap-3 text-zinc-300">
                                             <Clock className="w-5 h-5 text-violet-400" />
-                                            <span>{service.packages[0]?.deliveryDays || 3} Days Delivery</span>
+                                            <span>{service.deliveryDays || 7} Days Delivery</span>
                                         </div>
                                         <div className="flex items-center gap-3 text-zinc-300">
                                             <Briefcase className="w-5 h-5 text-violet-400" />
-                                            <span>{service.packages[0]?.revisions || 1} Revision</span>
+                                            <span>{service.revisions || 2} Revisions</span>
                                         </div>
                                         <div className="flex items-center gap-3 text-zinc-300">
                                             <Shield className="w-5 h-5 text-emerald-400" />
@@ -120,9 +153,11 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
                                         </div>
                                     </div>
 
-                                    <GlassButton variant="primary" className="w-full h-12 text-lg">
-                                        Apply for this Service <ArrowRight className="w-5 h-5 ml-2" />
-                                    </GlassButton>
+                                    <Link href={`/services/${service.id}/checkout`}>
+                                        <GlassButton variant="primary" className="w-full h-12 text-lg" asDiv>
+                                            Apply for this Service <ArrowRight className="w-5 h-5 ml-2" />
+                                        </GlassButton>
+                                    </Link>
 
                                     <p className="text-xs text-center text-zinc-500 mt-4">
                                         You are applying to work with this freelancer. They will review your project requirements.
