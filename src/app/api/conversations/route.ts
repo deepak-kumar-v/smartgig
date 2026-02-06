@@ -37,7 +37,8 @@ export async function GET(request: NextRequest) {
                     select: {
                         id: true,
                         title: true,
-                        status: true
+                        status: true,
+                        type: true
                     }
                 },
                 participants: {
@@ -74,6 +75,7 @@ export async function GET(request: NextRequest) {
                 contractId: conv.contractId,
                 contractTitle: title,
                 contractStatus: conv.contract?.status || conv.proposal?.status || null,
+                contractType: conv.contract?.type || null,
                 otherParticipant: otherParticipant ? {
                     id: otherParticipant.id,
                     name: otherParticipant.name,

@@ -171,10 +171,19 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                         ) : (
                             <h1 className="text-2xl font-bold text-white">{contract.title}</h1>
                         )}
-                        <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor}`}>
+                        {isLocked && <Lock className="w-4 h-4 text-zinc-500" />}
+                    </div>
+
+                    <div className="flex items-center gap-2 mb-2">
+                        {/* Contract Type Badge */}
+                        <span className="text-xs px-2 py-0.5 rounded-full border bg-indigo-500/10 text-indigo-400 border-indigo-500/20 font-medium tracking-wide uppercase">
+                            {contract.type === 'TRIAL' ? 'Paid Trial' : 'Standard Contract'}
+                        </span>
+
+                        {/* Contract Status Badge */}
+                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium tracking-wide uppercase ${statusColor}`}>
                             {contract.status}
                         </span>
-                        {isLocked && <Lock className="w-4 h-4 text-zinc-500" />}
                     </div>
                     <p className="text-zinc-400">
                         Contract with {contract.freelancerName}

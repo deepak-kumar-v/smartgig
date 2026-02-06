@@ -1,20 +1,26 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
-import { useChat, ChatMessage, Conversation } from '@/hooks/use-chat';
+import { useChat, ChatMessage, Conversation, getConversationLabel, getConversationTooltip } from '@/hooks/use-chat';
 import { useSocket } from '@/providers/socket-provider';
 import { useCall } from '@/hooks/use-call';
 import { VideoCallModal } from '@/components/video/VideoCallModal';
 import {
     Send, Paperclip, Search, MoreVertical, Phone, Video,
     CheckCheck, Clock, FileText, Image as ImageIcon, Download,
-    ChevronLeft, Wifi, WifiOff, MessageSquare
+    ChevronLeft, Wifi, WifiOff, MessageSquare, Info
 } from 'lucide-react';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 function formatTime(dateString: string) {
     const date = new Date(dateString);
@@ -37,15 +43,20 @@ function ConversationItem({
     conversation,
     isActive,
     currentUserId,
-    onClick
+    onClick,
+    currentUserRole
 }: {
     conversation: Conversation;
     isActive: boolean;
     currentUserId: string;
     onClick: () => void;
+    currentUserRole?: string | null;
 }) {
     const initials = conversation.otherParticipant?.name?.split(' ').map(n => n[0]).join('') || '?';
     const isOwnLastMessage = conversation.lastMessage?.senderId === currentUserId;
+
+    const tooltipText = getConversationTooltip(conversation, currentUserRole);
+
 
     return (
         <button
@@ -60,6 +71,13 @@ function ConversationItem({
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold">
                         {initials}
                     </div>
+                    {(conversation.unreadCount || 0) > 0 && (
+                        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 border-2 border-black flex items-center justify-center">
+                            <span className="text-[10px] font-bold text-white">
+                                {conversation.unreadCount}
+                            </span>
+                        </div>
+                    )}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
@@ -72,9 +90,25 @@ function ConversationItem({
                             </span>
                         )}
                     </div>
-                    {conversation.contractTitle && (
-                        <p className="text-indigo-400 text-xs mb-1 truncate">{conversation.contractTitle}</p>
-                    )}
+                    <div className="flex items-center gap-1.5 mb-1">
+                        <p className="text-indigo-400 text-xs truncate">
+                            {getConversationLabel(conversation, currentUserRole)}
+                        </p>
+                        {tooltipText && (
+                            <TooltipProvider delayDuration={0}>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="shrink-0 cursor-help" onClick={(e) => e.stopPropagation()}>
+                                            <Info className="w-3.5 h-3.5 text-indigo-400" />
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right" className="max-w-[200px] whitespace-pre-wrap text-xs bg-zinc-900 border-zinc-700 text-zinc-300">
+                                        {tooltipText}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                    </div>
                     {conversation.lastMessage && (
                         <p className="text-zinc-400 text-sm truncate flex items-center gap-1">
                             {isOwnLastMessage && <CheckCheck className="w-3 h-3 text-indigo-400" />}
@@ -151,9 +185,10 @@ export default function MessagesPage() {
     const [newMessage, setNewMessage] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [showMobileList, setShowMobileList] = useState(true);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const currentUserId = session?.user?.id || '';
+    // Use raw role for helper functions (expects uppercase CLIENT/FREELANCER)
+    const currentUserRole = session?.user?.role || null;
     const activeConversation = conversations.find(c => c.id === activeConversationId);
 
     // Determine if video call modal should show
@@ -188,11 +223,6 @@ export default function MessagesPage() {
             }
         }
     }, [searchParams, conversations, activeConversationId]);
-
-    // Scroll to bottom when messages change
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
 
     const handleSelectConversation = (conversationId: string) => {
         setActiveConversationId(conversationId);
@@ -257,6 +287,7 @@ export default function MessagesPage() {
                                     conversation={conv}
                                     isActive={activeConversationId === conv.id}
                                     currentUserId={currentUserId}
+                                    currentUserRole={currentUserRole}
                                     onClick={() => handleSelectConversation(conv.id)}
                                 />
                             ))
@@ -293,12 +324,33 @@ export default function MessagesPage() {
                                 </div>
                                 <div>
                                     <p className="text-white font-medium">{activeConversation.otherParticipant?.name || 'Unknown'}</p>
-                                    <p className="text-zinc-500 text-xs">{activeConversation.contractTitle}</p>
+
+                                    {/* Active Chat Header Subtitle */}
+                                    <div className="flex items-center gap-1.5">
+                                        <p className="text-zinc-500 text-xs">{getConversationLabel(activeConversation, currentUserRole)}</p>
+                                        {getConversationTooltip(activeConversation, currentUserRole) && (
+                                            <TooltipProvider delayDuration={0}>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <div className="shrink-0 cursor-help">
+                                                            <Info className="w-3.5 h-3.5 text-zinc-500 hover:text-zinc-300 transition-colors" />
+                                                        </div>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="bottom" className="max-w-[200px] whitespace-pre-wrap text-xs bg-zinc-900 border-zinc-700 text-zinc-300">
+                                                        {getConversationTooltip(activeConversation, currentUserRole)}
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
                                 {activeConversation.contractId && (
-                                    <a href={`/contracts/${activeConversation.contractId}`} className="text-xs text-indigo-400 hover:underline px-2">
+                                    <a
+                                        href={`/${currentUserRole === 'CLIENT' ? 'client' : 'freelancer'}/contracts/${activeConversation.contractId}`}
+                                        className="text-xs text-indigo-400 hover:underline px-2"
+                                    >
                                         View Contract
                                     </a>
                                 )}
@@ -319,21 +371,10 @@ export default function MessagesPage() {
                             </div>
                         </div>
 
-                        {/* Contract Banner */}
-                        {activeConversation.contractTitle && (
-                            <div className="px-4 py-2 bg-indigo-500/10 border-b border-indigo-500/20 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <FileText className="w-4 h-4 text-indigo-400" />
-                                    <span className="text-indigo-400 text-sm">{activeConversation.contractTitle}</span>
-                                </div>
-                                <span className={`text-xs ${activeConversation.contractStatus === 'ACTIVE' ? 'text-emerald-400' : 'text-zinc-400'}`}>
-                                    {activeConversation.contractStatus}
-                                </span>
-                            </div>
-                        )}
+
 
                         {/* Messages */}
-                        <div className="flex-1 overflow-y-auto p-4">
+                        <div className="flex-1 overflow-y-auto p-4 flex flex-col-reverse gap-4">
                             {messages.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center">
                                     <MessageSquare className="w-12 h-12 text-zinc-700 mb-4" />
@@ -342,22 +383,20 @@ export default function MessagesPage() {
                                 </div>
                             ) : (
                                 <>
-                                    {/* Date divider */}
-                                    <div className="flex items-center justify-center my-4">
-                                        <span className="px-3 py-1 bg-zinc-800 rounded-full text-zinc-500 text-xs">Today</span>
-                                    </div>
-
-                                    {messages.map((message) => (
+                                    {[...messages].reverse().map((message) => (
                                         <MessageBubble
                                             key={message.id}
                                             message={message}
                                             isOwn={message.senderId === currentUserId}
                                         />
                                     ))}
+
+                                    {/* Date divider (rendered last = shown at top) */}
+                                    <div className="flex items-center justify-center my-4">
+                                        <span className="px-3 py-1 bg-zinc-800 rounded-full text-zinc-500 text-xs">Today</span>
+                                    </div>
                                 </>
                             )}
-
-                            <div ref={messagesEndRef} />
                         </div>
 
                         {/* Input Area */}
