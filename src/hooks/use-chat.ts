@@ -13,6 +13,12 @@ export interface ChatMessage {
         image: string | null;
     };
     content: string;
+    type?: string; // TEXT, CALL
+    callMeta?: {
+        mode: 'audio' | 'video';
+        provider: string;
+        meetingUrl: string;
+    };
     createdAt: string;
     readAt: string | null;
     attachments?: {
@@ -140,10 +146,22 @@ export function useChat(options?: UseChatOptions) {
         setMessages([]);
     }, []);
 
-    // Send a message
-    const sendMessage = useCallback(async (content: string, attachments: any[] = []) => {
+    // Send a message (text, attachment, or call)
+    const sendMessage = useCallback(async (
+        content: string,
+        attachments: any[] = [],
+        type: string = 'TEXT',
+        callMeta?: { mode: 'audio' | 'video'; provider: string; meetingUrl: string }
+    ) => {
         const conversationId = currentConversationRef.current;
-        if (!conversationId || (!content.trim() && attachments.length === 0)) return;
+
+        // For CALL messages, only need callMeta. For TEXT, need content or attachments.
+        if (!conversationId) return;
+        if (type === 'CALL') {
+            if (!callMeta?.meetingUrl) return;
+        } else if (!content.trim() && attachments.length === 0) {
+            return;
+        }
 
         // Try socket first
         if (socket && isConnected) {
@@ -151,7 +169,8 @@ export function useChat(options?: UseChatOptions) {
                 conversationId,
                 content,
                 attachments,
-                attachmentsType: Array.isArray(attachments),
+                type,
+                hasCallMeta: !!callMeta
             });
 
             const hasFileObject = attachments.some(a => a instanceof File);
@@ -161,7 +180,7 @@ export function useChat(options?: UseChatOptions) {
                 return;
             }
 
-            socket.emit('send-message', { conversationId, content, attachments });
+            socket.emit('send-message', { conversationId, content, attachments, type, callMeta });
             return;
         }
 
@@ -170,7 +189,7 @@ export function useChat(options?: UseChatOptions) {
             const res = await fetch('/api/messages', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId, content, attachments })
+                body: JSON.stringify({ conversationId, content, attachments, type, callMeta })
             });
 
             if (!res.ok) throw new Error('Failed to send message');
@@ -186,7 +205,9 @@ export function useChat(options?: UseChatOptions) {
                     prev,
                     conversationId,
                     {
-                        content: content || 'Sent an attachment',
+                        content: type === 'CALL'
+                            ? `Started a ${callMeta?.mode || 'video'} call`
+                            : (content || 'Sent an attachment'),
                         createdAt: new Date().toISOString(),
                         senderId: 'current-user', // specific ID updated by server later
                         senderName: null

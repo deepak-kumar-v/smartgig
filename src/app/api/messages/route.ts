@@ -61,8 +61,14 @@ export async function GET(request: NextRequest) {
             ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {})
         });
 
+        // Parse callMeta JSON for each message
+        const parsedMessages = messages.map((msg: any) => ({
+            ...msg,
+            callMeta: msg.callMeta ? JSON.parse(msg.callMeta) : null
+        }));
+
         return NextResponse.json({
-            messages: messages.reverse(), // Return in chronological order
+            messages: parsedMessages.reverse(), // Return in chronological order
             nextCursor: messages.length === limit ? messages[0]?.id : null
         });
     } catch (error) {
@@ -80,9 +86,14 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { conversationId, content, attachments = [] } = body;
+        const { conversationId, content, attachments = [], type = 'TEXT', callMeta } = body;
 
-        if (!conversationId || (!content?.trim() && (!attachments || attachments.length === 0))) {
+        // Validation: For TEXT messages, need content or attachments. For CALL messages, need callMeta.
+        if (type === 'CALL') {
+            if (!conversationId || !callMeta) {
+                return NextResponse.json({ error: 'conversationId and callMeta are required for calls' }, { status: 400 });
+            }
+        } else if (!conversationId || (!content?.trim() && (!attachments || attachments.length === 0))) {
             return NextResponse.json({ error: 'conversationId and content or attachment are required' }, { status: 400 });
         }
 
@@ -106,12 +117,14 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Access denied' }, { status: 403 });
         }
 
-        // Create message with attachments
+        // Create message with attachments (and optionally call metadata)
         const message = await db.message.create({
             data: {
                 conversationId,
                 senderId: session.user.id,
-                content: content?.trim() || 'Sent an attachment',
+                content: content?.trim() || (type === 'CALL' ? `Started a ${callMeta?.mode || 'video'} call` : 'Sent an attachment'),
+                type,
+                callMeta: callMeta ? JSON.stringify(callMeta) : null,
                 attachments: {
                     create: attachments.map((att: any) => ({
                         name: att.name,
@@ -129,7 +142,13 @@ export async function POST(request: NextRequest) {
             }
         });
 
-        return NextResponse.json({ message });
+        // Parse callMeta for response
+        const responseMessage = {
+            ...message,
+            callMeta: (message as any).callMeta ? JSON.parse((message as any).callMeta) : null
+        };
+
+        return NextResponse.json({ message: responseMessage });
     } catch (error) {
         console.error('POST /api/messages error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

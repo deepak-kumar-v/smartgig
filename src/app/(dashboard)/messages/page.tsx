@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { uploadChatAttachment } from '@/actions/chat-upload-actions';
 import { ChatAttachmentCard } from '@/components/chat/chat-attachment-card';
+import { ChatCallCard } from '@/components/chat/chat-call-card';
 import {
     Tooltip,
     TooltipContent,
@@ -130,26 +131,33 @@ function MessageBubble({
     message: ChatMessage;
     isOwn: boolean;
 }) {
+    const isCall = message.type === 'CALL' && message.callMeta;
+
     return (
         <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4`}>
             <div className={`max-w-[70%] ${isOwn ? 'order-2' : ''}`}>
-                <div className={`p-4 rounded-2xl ${isOwn
-                    ? 'bg-indigo-500 text-white rounded-br-md'
-                    : 'bg-zinc-800 text-white rounded-bl-md'
-                    }`}>
-                    {/* Only show content if it's real text, not placeholder when attachments exist */}
-                    {(message.content && message.content !== 'Sent an attachment') ||
-                        !(message.attachments && message.attachments.length > 0) ? (
-                        <p className="text-sm border-0 focus:ring-0">{message.content}</p>
-                    ) : null}
-                    {message.attachments && message.attachments.length > 0 && (
-                        <div className={`flex flex-col gap-2 ${message.content && message.content !== 'Sent an attachment' ? 'mt-2' : ''}`}>
-                            {message.attachments.map((att: any) => (
-                                <ChatAttachmentCard key={att.id || att.url} attachment={att} />
-                            ))}
-                        </div>
-                    )}
-                </div>
+                {/* Call Message Card */}
+                {isCall ? (
+                    <ChatCallCard callMeta={message.callMeta!} isOwn={isOwn} />
+                ) : (
+                    <div className={`p-4 rounded-2xl ${isOwn
+                        ? 'bg-indigo-500 text-white rounded-br-md'
+                        : 'bg-zinc-800 text-white rounded-bl-md'
+                        }`}>
+                        {/* Only show content if it's real text, not placeholder when attachments exist */}
+                        {(message.content && message.content !== 'Sent an attachment') ||
+                            !(message.attachments && message.attachments.length > 0) ? (
+                            <p className="text-sm border-0 focus:ring-0">{message.content}</p>
+                        ) : null}
+                        {message.attachments && message.attachments.length > 0 && (
+                            <div className={`flex flex-col gap-2 ${message.content && message.content !== 'Sent an attachment' ? 'mt-2' : ''}`}>
+                                {message.attachments.map((att: any) => (
+                                    <ChatAttachmentCard key={att.id || att.url} attachment={att} />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'justify-end' : ''}`}>
                     <span className="text-zinc-500 text-xs">{formatTime(message.createdAt)}</span>
                     {isOwn && (
@@ -472,11 +480,44 @@ export default function MessagesPage() {
                                     className={`p-2 hover:bg-zinc-800 rounded-lg ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     onClick={() => fileInputRef.current?.click()}
                                     disabled={isUploading}
+                                    title="Attach file"
                                 >
                                     <Paperclip className={`w-5 h-5 text-zinc-600 ${isUploading ? 'animate-pulse' : ''}`} />
                                 </button>
-                                <button className="p-2 hover:bg-zinc-800 rounded-lg" disabled>
+                                <button className="p-2 hover:bg-zinc-800 rounded-lg" disabled title="Image">
                                     <ImageIcon className="w-5 h-5 text-zinc-600" />
+                                </button>
+                                {/* Audio Call Button */}
+                                <button
+                                    className="p-2 hover:bg-zinc-800 rounded-lg group"
+                                    onClick={() => {
+                                        const meetingUrl = 'https://meet.google.com/new';
+                                        sendMessage(`Started an audio call`, [], 'CALL', {
+                                            mode: 'audio',
+                                            provider: 'Google Meet',
+                                            meetingUrl
+                                        });
+                                        window.open(meetingUrl, '_blank', 'noopener,noreferrer');
+                                    }}
+                                    title="Start audio call"
+                                >
+                                    <Phone className="w-5 h-5 text-blue-400 group-hover:text-blue-300" />
+                                </button>
+                                {/* Video Call Button */}
+                                <button
+                                    className="p-2 hover:bg-zinc-800 rounded-lg group"
+                                    onClick={() => {
+                                        const meetingUrl = 'https://meet.google.com/new';
+                                        sendMessage(`Started a video call`, [], 'CALL', {
+                                            mode: 'video',
+                                            provider: 'Google Meet',
+                                            meetingUrl
+                                        });
+                                        window.open(meetingUrl, '_blank', 'noopener,noreferrer');
+                                    }}
+                                    title="Start video call"
+                                >
+                                    <Video className="w-5 h-5 text-purple-400 group-hover:text-purple-300" />
                                 </button>
                                 <input
                                     type="text"

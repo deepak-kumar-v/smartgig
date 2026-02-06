@@ -84,16 +84,23 @@ io.on('connection', (socket) => {
         console.log(`[Socket] User ${userId} left conversation:${data.conversationId}`);
     });
 
-    // Send message
-    socket.on('send-message', async (data: { conversationId: string; content: string; attachments?: any[] }) => {
-        const { conversationId, content, attachments = [] } = data;
+    // Send message (text, attachment, or call)
+    socket.on('send-message', async (data: {
+        conversationId: string;
+        content: string;
+        attachments?: any[];
+        type?: string;
+        callMeta?: { mode: string; provider: string; meetingUrl: string };
+    }) => {
+        const { conversationId, content, attachments = [], type = 'TEXT', callMeta } = data;
 
         // --- EXPLICIT LOGGING (DEBUG) ---
         console.log('[SOCKET RECEIVE] send-message payload:', {
             conversationId,
             contentLen: content?.length,
             attachmentsCount: attachments?.length,
-            attachmentsType: Array.isArray(attachments) ? 'Array' : typeof attachments
+            type,
+            hasCallMeta: !!callMeta
         });
 
         if (attachments && attachments.length > 0) {
@@ -107,7 +114,13 @@ io.on('connection', (socket) => {
             return;
         }
 
-        if (!content?.trim() && (!attachments || attachments.length === 0)) {
+        // For CALL messages, only need callMeta
+        if (type === 'CALL') {
+            if (!callMeta?.meetingUrl) {
+                socket.emit('error', { message: 'Call requires meetingUrl' });
+                return;
+            }
+        } else if (!content?.trim() && (!attachments || attachments.length === 0)) {
             socket.emit('error', { message: 'Empty message: content or attachment required' });
             return;
         }
@@ -153,11 +166,18 @@ io.on('connection', (socket) => {
 
         try {
             // --- STEP 1: CREATE MESSAGE ONLY ---
+            // Determine content based on type
+            const messageContent = type === 'CALL'
+                ? `Started a ${callMeta?.mode || 'video'} call`
+                : (content?.trim() || 'Sent an attachment');
+
             const message = await prisma.message.create({
                 data: {
                     conversationId,
                     senderId: userId,
-                    content: content?.trim() || 'Sent an attachment',
+                    content: messageContent,
+                    type,
+                    callMeta: callMeta ? JSON.stringify(callMeta) : null,
                 },
                 include: {
                     sender: {
@@ -241,12 +261,16 @@ io.on('connection', (socket) => {
                 senderId: fullMessage.senderId,
                 sender: fullMessage.sender,
                 content: fullMessage.content,
+                type: (fullMessage as any).type || 'TEXT',
+                callMeta: (fullMessage as any).callMeta
+                    ? JSON.parse((fullMessage as any).callMeta)
+                    : null,
                 createdAt: fullMessage.createdAt.toISOString(),
                 readAt: null,
                 attachments: fullMessage.attachments
             });
 
-            console.log(`[Socket] Message sent in conversation:${conversationId} by ${userId} with ${fullMessage.attachments.length} attachments`);
+            console.log(`[Socket] Message sent in conversation:${conversationId} by ${userId} (type: ${type}) with ${fullMessage.attachments.length} attachments`);
 
         } catch (error) {
             console.error('[Socket] CRITICAL DB ERROR:', error);

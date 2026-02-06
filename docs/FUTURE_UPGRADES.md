@@ -321,3 +321,14 @@ All features listed here:
 - Will be implemented only when core workflows stabilize
 
 This document serves as an **architectural memory**, not an active task list.
+
+## Chat — Calls (Future Enhancements)
+
+- Replace Google Meet links with OAuth-based Meet creation
+- Add Jitsi self-hosted option
+- Add call duration tracking
+- Add call ended state
+- Add call history filter
+- Add permission checks (only client can start call)
+- Add scheduled calls
+- Add call reminders
