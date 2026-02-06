@@ -206,25 +206,47 @@ io.on('connection', (socket) => {
                 console.log(`[DB] Created ${createdAttachments.length} attachments.`);
             }
 
-            // re-assemble full object for broadcast
-            const finalMessage = {
-                ...message,
-                attachments: createdAttachments
-            };
+            // CRITICAL: Re-fetch the FULL message with attachments included
+            // This ensures socket payload matches API response shape exactly
+            const fullMessage = await prisma.message.findUnique({
+                where: { id: message.id },
+                include: {
+                    sender: {
+                        select: {
+                            id: true,
+                            name: true,
+                            image: true
+                        }
+                    },
+                    attachments: {
+                        select: {
+                            id: true,
+                            name: true,
+                            url: true,
+                            fileType: true,
+                            size: true
+                        }
+                    }
+                }
+            });
+
+            if (!fullMessage) {
+                throw new Error('Message created but not found on refetch');
+            }
 
             // Broadcast to all participants in the room
             io.to(`conversation:${conversationId}`).emit('new-message', {
-                id: finalMessage.id,
-                conversationId: finalMessage.conversationId,
-                senderId: finalMessage.senderId,
-                sender: finalMessage.sender,
-                content: finalMessage.content,
-                createdAt: finalMessage.createdAt.toISOString(),
+                id: fullMessage.id,
+                conversationId: fullMessage.conversationId,
+                senderId: fullMessage.senderId,
+                sender: fullMessage.sender,
+                content: fullMessage.content,
+                createdAt: fullMessage.createdAt.toISOString(),
                 readAt: null,
-                attachments: finalMessage.attachments
+                attachments: fullMessage.attachments
             });
 
-            console.log(`[Socket] Message sent in conversation:${conversationId} by ${userId}`);
+            console.log(`[Socket] Message sent in conversation:${conversationId} by ${userId} with ${fullMessage.attachments.length} attachments`);
 
         } catch (error) {
             console.error('[Socket] CRITICAL DB ERROR:', error);

@@ -39,3 +39,6 @@ next-env.d.ts
 
 # Misc
 *.log
+
+# Chat uploads (runtime files)
+public/uploads/chat/

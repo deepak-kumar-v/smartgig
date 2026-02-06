@@ -137,9 +137,13 @@ function MessageBubble({
                     ? 'bg-indigo-500 text-white rounded-br-md'
                     : 'bg-zinc-800 text-white rounded-bl-md'
                     }`}>
-                    <p className="text-sm border-0 focus:ring-0">{message.content}</p>
+                    {/* Only show content if it's real text, not placeholder when attachments exist */}
+                    {(message.content && message.content !== 'Sent an attachment') ||
+                        !(message.attachments && message.attachments.length > 0) ? (
+                        <p className="text-sm border-0 focus:ring-0">{message.content}</p>
+                    ) : null}
                     {message.attachments && message.attachments.length > 0 && (
-                        <div className="mt-2 flex flex-col gap-2">
+                        <div className={`flex flex-col gap-2 ${message.content && message.content !== 'Sent an attachment' ? 'mt-2' : ''}`}>
                             {message.attachments.map((att: any) => (
                                 <ChatAttachmentCard key={att.id || att.url} attachment={att} />
                             ))}

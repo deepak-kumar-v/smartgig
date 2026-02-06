@@ -39,12 +39,21 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Access denied' }, { status: 403 });
         }
 
-        // Fetch messages
+        // Fetch messages WITH attachments
         const messages = await db.message.findMany({
             where: { conversationId },
             include: {
                 sender: {
                     select: { id: true, name: true, image: true }
+                },
+                attachments: {
+                    select: {
+                        id: true,
+                        name: true,
+                        url: true,
+                        fileType: true,
+                        size: true
+                    }
                 }
             },
             orderBy: { createdAt: 'desc' },
