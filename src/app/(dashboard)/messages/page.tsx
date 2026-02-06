@@ -18,6 +18,7 @@ import {
 import { uploadChatAttachment } from '@/actions/chat-upload-actions';
 import { ChatAttachmentCard } from '@/components/chat/chat-attachment-card';
 import { ChatCallCard } from '@/components/chat/chat-call-card';
+import { CallProviderMenu } from '@/components/chat/call-provider-menu';
 import {
     Tooltip,
     TooltipContent,
@@ -487,38 +488,30 @@ export default function MessagesPage() {
                                 <button className="p-2 hover:bg-zinc-800 rounded-lg" disabled title="Image">
                                     <ImageIcon className="w-5 h-5 text-zinc-600" />
                                 </button>
-                                {/* Audio Call Button */}
-                                <button
-                                    className="p-2 hover:bg-zinc-800 rounded-lg group"
-                                    onClick={() => {
-                                        const meetingUrl = 'https://meet.google.com/new';
+                                {/* Audio Call with Provider Selection */}
+                                <CallProviderMenu
+                                    intent="audio"
+                                    onSelectProvider={(intent, provider, meetingUrl) => {
                                         sendMessage(`Started an audio call`, [], 'CALL', {
                                             mode: 'audio',
-                                            provider: 'Google Meet',
+                                            provider,
                                             meetingUrl
                                         });
                                         window.open(meetingUrl, '_blank', 'noopener,noreferrer');
                                     }}
-                                    title="Start audio call"
-                                >
-                                    <Phone className="w-5 h-5 text-blue-400 group-hover:text-blue-300" />
-                                </button>
-                                {/* Video Call Button */}
-                                <button
-                                    className="p-2 hover:bg-zinc-800 rounded-lg group"
-                                    onClick={() => {
-                                        const meetingUrl = 'https://meet.google.com/new';
+                                />
+                                {/* Video Call with Provider Selection */}
+                                <CallProviderMenu
+                                    intent="video"
+                                    onSelectProvider={(intent, provider, meetingUrl) => {
                                         sendMessage(`Started a video call`, [], 'CALL', {
                                             mode: 'video',
-                                            provider: 'Google Meet',
+                                            provider,
                                             meetingUrl
                                         });
                                         window.open(meetingUrl, '_blank', 'noopener,noreferrer');
                                     }}
-                                    title="Start video call"
-                                >
-                                    <Video className="w-5 h-5 text-purple-400 group-hover:text-purple-300" />
-                                </button>
+                                />
                                 <input
                                     type="text"
                                     value={newMessage}

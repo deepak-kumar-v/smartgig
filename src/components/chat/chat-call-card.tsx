@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Phone, Video, ExternalLink } from 'lucide-react';
+import { Phone, Video, ExternalLink, Sparkles } from 'lucide-react';
 
 interface CallMeta {
     mode: 'audio' | 'video';
@@ -16,38 +16,69 @@ interface ChatCallCardProps {
 
 export function ChatCallCard({ callMeta, isOwn }: ChatCallCardProps) {
     const isVideo = callMeta.mode === 'video';
+    const isSmartGig = callMeta.provider === 'smartgig_custom' || callMeta.provider === 'SmartGig';
+    const isGoogleMeet = callMeta.provider === 'google_meet' || callMeta.provider === 'Google Meet';
 
     const handleJoinCall = () => {
         window.open(callMeta.meetingUrl, '_blank', 'noopener,noreferrer');
     };
 
+    // Provider display name
+    const providerLabel = isGoogleMeet ? 'Google Meet' : isSmartGig ? 'SmartGig' : callMeta.provider;
+
     return (
         <div
-            className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${isOwn
-                    ? 'bg-indigo-600/30 hover:bg-indigo-600/40 border border-indigo-500/30'
-                    : 'bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30'
+            className={`flex items-center gap-3 p-4 rounded-xl cursor-pointer transition-all group ${isOwn
+                    ? 'bg-gradient-to-r from-indigo-600/30 to-purple-600/20 hover:from-indigo-600/40 hover:to-purple-600/30 border border-indigo-500/30'
+                    : 'bg-gradient-to-r from-emerald-600/20 to-teal-600/10 hover:from-emerald-600/30 hover:to-teal-600/20 border border-emerald-500/30'
                 }`}
             onClick={handleJoinCall}
         >
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isVideo ? 'bg-purple-500/20' : 'bg-blue-500/20'
+            {/* Icon */}
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${isVideo ? 'bg-purple-500/20' : 'bg-blue-500/20'
                 }`}>
                 {isVideo ? (
-                    <Video className="w-5 h-5 text-purple-400" />
+                    <Video className="w-6 h-6 text-purple-400" />
                 ) : (
-                    <Phone className="w-5 h-5 text-blue-400" />
+                    <Phone className="w-6 h-6 text-blue-400" />
                 )}
             </div>
 
+            {/* Content */}
             <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white">
-                    {isVideo ? 'Video Call' : 'Audio Call'}
-                </p>
-                <p className="text-xs text-zinc-400 truncate">
-                    {callMeta.provider} • Click to join
-                </p>
+                <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-white">
+                        {isVideo ? '🎥 Video Call' : '🎧 Audio Call'}
+                    </p>
+                    {isSmartGig && (
+                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5" />
+                            Beta
+                        </span>
+                    )}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-xs font-medium ${isGoogleMeet ? 'text-emerald-400' : 'text-indigo-400'
+                        }`}>
+                        {providerLabel}
+                    </span>
+                    <span className="text-zinc-600">•</span>
+                    <span className="text-xs text-zinc-400">
+                        Click to join
+                    </span>
+                </div>
             </div>
 
-            <ExternalLink className="w-4 h-4 text-zinc-400" />
+            {/* Join Button */}
+            <div className="flex items-center gap-2">
+                <span className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${isOwn
+                        ? 'bg-indigo-500/30 text-indigo-300 group-hover:bg-indigo-500/50'
+                        : 'bg-emerald-500/30 text-emerald-300 group-hover:bg-emerald-500/50'
+                    }`}>
+                    Join
+                </span>
+                <ExternalLink className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-colors" />
+            </div>
         </div>
     );
 }
