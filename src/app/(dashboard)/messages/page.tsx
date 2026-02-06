@@ -13,8 +13,10 @@ import { VideoCallModal } from '@/components/video/VideoCallModal';
 import {
     Send, Paperclip, Search, MoreVertical, Phone, Video,
     CheckCheck, Clock, FileText, Image as ImageIcon, Download,
-    ChevronLeft, Wifi, WifiOff, MessageSquare, Info
+    ChevronLeft, Wifi, WifiOff, MessageSquare, Info, X
 } from 'lucide-react';
+import { uploadChatAttachment } from '@/actions/chat-upload-actions';
+import { ChatAttachmentCard } from '@/components/chat/chat-attachment-card';
 import {
     Tooltip,
     TooltipContent,
@@ -135,7 +137,14 @@ function MessageBubble({
                     ? 'bg-indigo-500 text-white rounded-br-md'
                     : 'bg-zinc-800 text-white rounded-bl-md'
                     }`}>
-                    <p className="text-sm">{message.content}</p>
+                    <p className="text-sm border-0 focus:ring-0">{message.content}</p>
+                    {message.attachments && message.attachments.length > 0 && (
+                        <div className="mt-2 flex flex-col gap-2">
+                            {message.attachments.map((att: any) => (
+                                <ChatAttachmentCard key={att.id || att.url} attachment={att} />
+                            ))}
+                        </div>
+                    )}
                 </div>
                 <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'justify-end' : ''}`}>
                     <span className="text-zinc-500 text-xs">{formatTime(message.createdAt)}</span>
@@ -183,6 +192,10 @@ export default function MessagesPage() {
 
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
     const [newMessage, setNewMessage] = useState('');
+    const [draftAttachments, setDraftAttachments] = useState<any[]>([]);
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     const [searchQuery, setSearchQuery] = useState('');
     const [showMobileList, setShowMobileList] = useState(true);
 
@@ -231,9 +244,37 @@ export default function MessagesPage() {
     };
 
     const handleSend = () => {
-        if (!newMessage.trim()) return;
-        sendMessage(newMessage);
+        if (!newMessage.trim() && draftAttachments.length === 0) return;
+        sendMessage(newMessage, draftAttachments);
         setNewMessage('');
+        setDraftAttachments([]);
+    };
+
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            setIsUploading(true);
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const result = await uploadChatAttachment(formData);
+
+            if (result.success && result.data) {
+                setDraftAttachments(prev => [...prev, result.data]);
+            } else {
+                console.error("Upload failed", result.error);
+                // Optionally show toast error
+            }
+            setIsUploading(false);
+
+            // Reset input
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const removeDraftAttachment = (index: number) => {
+        setDraftAttachments(prev => prev.filter((_, i) => i !== index));
     };
 
     const filteredConversations = conversations.filter(c =>
@@ -401,9 +442,34 @@ export default function MessagesPage() {
 
                         {/* Input Area */}
                         <div className="p-4 border-t border-zinc-800">
+                            {/* Draft Attachments Preview */}
+                            {draftAttachments.length > 0 && (
+                                <div className="mb-3 flex flex-wrap gap-2">
+                                    {draftAttachments.map((att, index) => (
+                                        <ChatAttachmentCard
+                                            key={index}
+                                            attachment={att}
+                                            isDraft
+                                            onRemove={() => removeDraftAttachment(index)}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+
                             <div className="flex items-center gap-3">
-                                <button className="p-2 hover:bg-zinc-800 rounded-lg" disabled>
-                                    <Paperclip className="w-5 h-5 text-zinc-600" />
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    className="hidden"
+                                    onChange={handleFileSelect}
+                                    accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.zip"
+                                />
+                                <button
+                                    className={`p-2 hover:bg-zinc-800 rounded-lg ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isUploading}
+                                >
+                                    <Paperclip className={`w-5 h-5 text-zinc-600 ${isUploading ? 'animate-pulse' : ''}`} />
                                 </button>
                                 <button className="p-2 hover:bg-zinc-800 rounded-lg" disabled>
                                     <ImageIcon className="w-5 h-5 text-zinc-600" />
@@ -420,7 +486,7 @@ export default function MessagesPage() {
                                     variant="primary"
                                     size="sm"
                                     onClick={handleSend}
-                                    disabled={!newMessage.trim()}
+                                    disabled={!newMessage.trim() && draftAttachments.length === 0}
                                 >
                                     <Send className="w-4 h-4" />
                                 </GlassButton>

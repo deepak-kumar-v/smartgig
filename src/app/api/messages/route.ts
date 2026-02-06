@@ -71,10 +71,10 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { conversationId, content } = body;
+        const { conversationId, content, attachments = [] } = body;
 
-        if (!conversationId || !content?.trim()) {
-            return NextResponse.json({ error: 'conversationId and content are required' }, { status: 400 });
+        if (!conversationId || (!content?.trim() && (!attachments || attachments.length === 0))) {
+            return NextResponse.json({ error: 'conversationId and content or attachment are required' }, { status: 400 });
         }
 
         // Verify user has access to this conversation via participants
@@ -97,17 +97,26 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Access denied' }, { status: 403 });
         }
 
-        // Create message
+        // Create message with attachments
         const message = await db.message.create({
             data: {
                 conversationId,
                 senderId: session.user.id,
-                content: content.trim()
+                content: content?.trim() || 'Sent an attachment',
+                attachments: {
+                    create: attachments.map((att: any) => ({
+                        name: att.name,
+                        url: att.url,
+                        fileType: att.type,
+                        size: att.size || 0
+                    }))
+                }
             },
             include: {
                 sender: {
                     select: { id: true, name: true, image: true }
-                }
+                },
+                attachments: true
             }
         });
 

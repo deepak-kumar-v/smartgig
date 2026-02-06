@@ -15,6 +15,13 @@ export interface ChatMessage {
     content: string;
     createdAt: string;
     readAt: string | null;
+    attachments?: {
+        id: string;
+        url: string;
+        name: string;
+        fileType: string;
+        size: number;
+    }[];
 }
 
 export interface Conversation {
@@ -134,13 +141,27 @@ export function useChat(options?: UseChatOptions) {
     }, []);
 
     // Send a message
-    const sendMessage = useCallback(async (content: string) => {
+    const sendMessage = useCallback(async (content: string, attachments: any[] = []) => {
         const conversationId = currentConversationRef.current;
-        if (!conversationId || !content.trim()) return;
+        if (!conversationId || (!content.trim() && attachments.length === 0)) return;
 
         // Try socket first
         if (socket && isConnected) {
-            socket.emit('send-message', { conversationId, content });
+            console.log('[CHAT SEND PAYLOAD]', {
+                conversationId,
+                content,
+                attachments,
+                attachmentsType: Array.isArray(attachments),
+            });
+
+            const hasFileObject = attachments.some(a => a instanceof File);
+            if (hasFileObject) {
+                console.error('[CRITICAL] FILE OBJECT LEAK DETECTED IN SOCKET EMIT');
+                setError('Internal Error: Cannot send raw file objects');
+                return;
+            }
+
+            socket.emit('send-message', { conversationId, content, attachments });
             return;
         }
 
@@ -149,7 +170,7 @@ export function useChat(options?: UseChatOptions) {
             const res = await fetch('/api/messages', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId, content })
+                body: JSON.stringify({ conversationId, content, attachments })
             });
 
             if (!res.ok) throw new Error('Failed to send message');
@@ -165,7 +186,7 @@ export function useChat(options?: UseChatOptions) {
                     prev,
                     conversationId,
                     {
-                        content: content,
+                        content: content || 'Sent an attachment',
                         createdAt: new Date().toISOString(),
                         senderId: 'current-user', // specific ID updated by server later
                         senderName: null

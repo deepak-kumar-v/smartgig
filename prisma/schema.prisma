@@ -374,6 +374,7 @@ model Attachment {
   id          String   @id @default(cuid())
   url         String
   name        String
+  size        Int      @default(0) // Added for Phase 2 Chat Attachments
   fileType    String
   
   messageId   String?

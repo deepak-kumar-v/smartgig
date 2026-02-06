@@ -85,13 +85,65 @@ io.on('connection', (socket) => {
     });
 
     // Send message
-    socket.on('send-message', async (data: { conversationId: string; content: string }) => {
-        const { conversationId, content } = data;
+    socket.on('send-message', async (data: { conversationId: string; content: string; attachments?: any[] }) => {
+        const { conversationId, content, attachments = [] } = data;
 
-        if (!content?.trim()) {
-            socket.emit('error', { message: 'Message content is required' });
+        // --- EXPLICIT LOGGING (DEBUG) ---
+        console.log('[SOCKET RECEIVE] send-message payload:', {
+            conversationId,
+            contentLen: content?.length,
+            attachmentsCount: attachments?.length,
+            attachmentsType: Array.isArray(attachments) ? 'Array' : typeof attachments
+        });
+
+        if (attachments && attachments.length > 0) {
+            console.log('[ATTACHMENTS RAW]', JSON.stringify(attachments, null, 2));
+        }
+        // --------------------------------
+
+        // --- VALIDATION AND FAIL FAST ---
+        if (!conversationId) {
+            socket.emit('error', { message: 'Missing conversationId' });
             return;
         }
+
+        if (!content?.trim() && (!attachments || attachments.length === 0)) {
+            socket.emit('error', { message: 'Empty message: content or attachment required' });
+            return;
+        }
+
+        // Validate Attachments Structure strictly
+        if (attachments && attachments.length > 0) {
+            if (!Array.isArray(attachments)) {
+                socket.emit('error', { message: 'Attachments must be an array' });
+                return;
+            }
+
+            for (const [i, att] of attachments.entries()) {
+                if (!att.name) {
+                    socket.emit('error', { message: `Attachment ${i} missing name` });
+                    return;
+                }
+                if (!att.url) {
+                    socket.emit('error', { message: `Attachment ${i} missing url` });
+                    return;
+                }
+                if (!att.type && !att.fileType) { // Allow either for now but prefer passed 'type'
+                    socket.emit('error', { message: `Attachment ${i} missing type` });
+                    return;
+                }
+                // Size check - be lenient on 0 but ensuring it's a number
+                if (typeof att.size !== 'number' && typeof att.size !== 'undefined') {
+                    // Try to parse if string
+                    const parsed = parseInt(att.size);
+                    if (isNaN(parsed)) {
+                        socket.emit('error', { message: `Attachment ${i} invalid size: ${att.size}` });
+                        return;
+                    }
+                }
+            }
+        }
+        // --------------------------------
 
         const hasAccess = await canAccessConversation(userId, conversationId);
         if (!hasAccess) {
@@ -100,12 +152,12 @@ io.on('connection', (socket) => {
         }
 
         try {
-            // Persist message to database
+            // --- STEP 1: CREATE MESSAGE ONLY ---
             const message = await prisma.message.create({
                 data: {
                     conversationId,
                     senderId: userId,
-                    content: content.trim()
+                    content: content?.trim() || 'Sent an attachment',
                 },
                 include: {
                     sender: {
@@ -114,21 +166,70 @@ io.on('connection', (socket) => {
                 }
             });
 
+            console.log('[DB] Message created:', message.id);
+
+            // --- STEP 2: CREATE ATTACHMENTS (if any) ---
+            let createdAttachments: any[] = [];
+
+            if (attachments && attachments.length > 0) {
+                console.log('[DB] Attempting to create attachments...');
+
+                // Map to correct prisma model fields
+                // Ensure 'size' is an Int
+                const attachmentData = attachments.map(att => ({
+                    name: String(att.name),
+                    url: String(att.url),
+                    fileType: String(att.type || att.fileType), // Handle simple mapping
+                    size: typeof att.size === 'number' ? att.size : parseInt(att.size || '0', 10),
+                    message: {
+                        connect: { id: message.id }
+                    }
+                }));
+
+                // Use createMany if expecting multiple, or loop if you want individual errors?
+                // createMany is cleaner but supported? Yes on most DBs.
+                // Note: SQLite doesn't support createMany in older Prisma versions, assuming Postgres/MySQL or recent Prisma.
+                // Safest for debugging: Loop create so we catch exact failure if schema mismatch
+
+                for (const attData of attachmentData) {
+                    try {
+                        const createdAtt = await prisma.attachment.create({
+                            data: attData
+                        });
+                        createdAttachments.push(createdAtt);
+                    } catch (attError) {
+                        console.error('[DB] Failed to create individual attachment:', attData, attError);
+                        throw new Error(`DB Attachment Insert Failed: ${(attError as Error).message}`);
+                    }
+                }
+
+                console.log(`[DB] Created ${createdAttachments.length} attachments.`);
+            }
+
+            // re-assemble full object for broadcast
+            const finalMessage = {
+                ...message,
+                attachments: createdAttachments
+            };
+
             // Broadcast to all participants in the room
             io.to(`conversation:${conversationId}`).emit('new-message', {
-                id: message.id,
-                conversationId: message.conversationId,
-                senderId: message.senderId,
-                sender: message.sender,
-                content: message.content,
-                createdAt: message.createdAt.toISOString(),
-                readAt: null
+                id: finalMessage.id,
+                conversationId: finalMessage.conversationId,
+                senderId: finalMessage.senderId,
+                sender: finalMessage.sender,
+                content: finalMessage.content,
+                createdAt: finalMessage.createdAt.toISOString(),
+                readAt: null,
+                attachments: finalMessage.attachments
             });
 
             console.log(`[Socket] Message sent in conversation:${conversationId} by ${userId}`);
+
         } catch (error) {
-            console.error('[Socket] Error saving message:', error);
-            socket.emit('error', { message: 'Failed to send message' });
+            console.error('[Socket] CRITICAL DB ERROR:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown database error';
+            socket.emit('error', { message: `Failed to send: ${errorMessage}` });
         }
     });
 
