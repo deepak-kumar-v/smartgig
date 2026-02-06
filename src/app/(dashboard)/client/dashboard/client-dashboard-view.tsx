@@ -1,3 +1,6 @@
+// Client Dashboard v2 — Exact duplicate of v1 for future experimentation
+// This file is currently an intentional mirror of v1. Do not modify logic without planning.
+
 'use client';
 
 import React from 'react';
@@ -8,9 +11,10 @@ import { GlassButton } from '@/components/ui/glass-button';
 import {
     Plus, Users, Briefcase, DollarSign,
     ArrowUpRight, ArrowDownRight, ChevronRight,
-    CheckCircle, FileText, Star, TrendingUp,
-    Calendar
+    Calendar, Send, MessageSquare, UserCheck, CheckCircle,
+    Star, FileText, TrendingUp
 } from 'lucide-react';
+import { JobPostCard } from '@/components/job/job-post-card';
 
 // Types
 export interface DashboardStats {
@@ -177,10 +181,54 @@ export function ClientDashboardView({
                     />
                 </div>
 
-                {/* Two Column Layout */}
+                {/* Active Jobs Section - Custom Card Layout */}
+                <div className="col-span-12">
+                    <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-xl font-semibold text-white">Active Job Posts</h3>
+
+                        {/* Toggle Buttons (Visual Pattern from Design) */}
+                        <div className="flex bg-zinc-800/50 rounded-lg p-1 border border-white/5">
+                            <div className="px-3 py-1.5 rounded-md bg-zinc-700 text-white shadow-sm flex items-center">
+                                <span className="bg-white w-2 h-2 rounded-[1px] mr-1 opacity-80"></span>
+                                <span className="bg-white w-2 h-2 rounded-[1px] opacity-80"></span>
+                            </div>
+                            <div className="px-3 py-1.5 rounded-md text-zinc-500 flex items-center hover:text-zinc-400">
+                                <div className="flex flex-col gap-[2px]">
+                                    <span className="bg-current w-3 h-[2px] rounded-full"></span>
+                                    <span className="bg-current w-3 h-[2px] rounded-full"></span>
+                                    <span className="bg-current w-3 h-[2px] rounded-full"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {activeJobs.length === 0 ? (
+                        <div className="text-center py-12 text-zinc-500 bg-zinc-800/20 rounded-xl border border-dashed border-zinc-700/50">
+                            <Briefcase className="w-10 h-10 mx-auto mb-3 text-zinc-600" />
+                            <p>No active job posts.</p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {activeJobs.map((job) => (
+                                    <JobPostCard key={job.id} job={job} />
+                                ))}
+                            </div>
+
+                            {/* View All Button */}
+                            <div className="mt-8 flex justify-center">
+                                <Link href="/client/jobs" className="px-6 py-2.5 rounded-lg border border-white/10 text-white font-medium hover:bg-white/5 transition-colors text-sm">
+                                    View all job posts
+                                </Link>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                {/* Two Column Layout (Proposals + Stats) */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-                    {/* Left Column - Recent Proposals */}
+                    {/* Left Column - Recent Proposals (Now simpler) */}
                     <div className="lg:col-span-2 space-y-6">
                         <GlassCard className="p-6">
                             <div className="flex items-center justify-between mb-6">
@@ -234,48 +282,6 @@ export function ClientDashboardView({
                                                 </div>
                                             </div>
                                         </div>
-                                    ))
-                                )}
-                            </div>
-                        </GlassCard>
-
-                        {/* Active Jobs */}
-                        <GlassCard className="p-6">
-                            <div className="flex items-center justify-between mb-6">
-                                <h3 className="text-lg font-semibold text-white">Active Job Posts</h3>
-                                <Link href="/client/jobs" className="text-sm text-indigo-400 hover:text-indigo-300">
-                                    Manage Jobs
-                                </Link>
-                            </div>
-
-                            <div className="space-y-3">
-                                {activeJobs.length === 0 ? (
-                                    <div className="text-center py-8 text-zinc-500">
-                                        No active job posts.
-                                    </div>
-                                ) : (
-                                    activeJobs.map((job) => (
-                                        <Link key={job.id} href={`/client/jobs/${job.id}`} className="block p-4 bg-zinc-800/50 rounded-lg hover:bg-zinc-800 transition-colors">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <h4 className="font-medium text-white">{job.title}</h4>
-                                                    <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
-                                                        <span>{job.proposalsCount} proposals</span>
-                                                        <span>•</span>
-                                                        <span>${(job.budget ?? 0).toLocaleString()} budget</span>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <span className={`px-2 py-1 rounded text-xs ${job.status === 'reviewing' ? 'bg-amber-500/20 text-amber-400' :
-                                                        job.status === 'interviewing' ? 'bg-blue-500/20 text-blue-400' :
-                                                            'bg-emerald-500/20 text-emerald-400'
-                                                        }`}>
-                                                        {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-                                                    </span>
-                                                    <ChevronRight className="w-4 h-4 text-zinc-500" />
-                                                </div>
-                                            </div>
-                                        </Link>
                                     ))
                                 )}
                             </div>

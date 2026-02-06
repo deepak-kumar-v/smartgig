@@ -8,6 +8,8 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { useChat, ChatMessage, Conversation } from '@/hooks/use-chat';
 import { useSocket } from '@/providers/socket-provider';
+import { useCall } from '@/hooks/use-call';
+import { VideoCallModal } from '@/components/video/VideoCallModal';
 import {
     Send, Paperclip, Search, MoreVertical, Phone, Video,
     CheckCheck, Clock, FileText, Image as ImageIcon, Download,
@@ -127,6 +129,24 @@ export default function MessagesPage() {
         sendMessage
     } = useChat();
 
+    // Video call hook
+    const {
+        callState,
+        localStream,
+        remoteStream,
+        startCall,
+        acceptCall,
+        rejectCall,
+        endCall,
+        toggleMute,
+        toggleCamera,
+        isMuted,
+        isCameraOff,
+        error: callError,
+        incomingCallFrom,
+        activeConversationId: callConversationId
+    } = useCall();
+
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
     const [newMessage, setNewMessage] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
@@ -135,6 +155,21 @@ export default function MessagesPage() {
 
     const currentUserId = session?.user?.id || '';
     const activeConversation = conversations.find(c => c.id === activeConversationId);
+
+    // Determine if video call modal should show
+    const showCallModal = callState !== 'idle' && callState !== 'ended';
+
+    // Get other participant name for call modal
+    const callParticipantName = callConversationId
+        ? conversations.find(c => c.id === callConversationId)?.otherParticipant?.name || 'Unknown'
+        : activeConversation?.otherParticipant?.name || 'Unknown';
+
+    // Handle starting a video call
+    const handleStartCall = () => {
+        if (activeConversationId && isConnected) {
+            startCall(activeConversationId);
+        }
+    };
 
     // Fetch conversations on mount
     useEffect(() => {
@@ -271,11 +306,12 @@ export default function MessagesPage() {
                                     <Phone className="w-5 h-5 text-zinc-400" />
                                 </button>
                                 <button
-                                    className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
-                                    onClick={() => window.location.href = `/video-call/demo-room-${Math.floor(Math.random() * 1000)}`}
-                                    title="Start Secure Video Call"
+                                    className="p-2 hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    onClick={handleStartCall}
+                                    disabled={!isConnected || callState !== 'idle'}
+                                    title={isConnected ? 'Start Video Call' : 'Connect to start calls'}
                                 >
-                                    <Video className="w-5 h-5 text-indigo-400" />
+                                    <Video className={`w-5 h-5 ${isConnected ? 'text-indigo-400' : 'text-zinc-600'}`} />
                                 </button>
                                 <button className="p-2 hover:bg-zinc-800 rounded-lg">
                                     <MoreVertical className="w-5 h-5 text-zinc-400" />
@@ -366,6 +402,24 @@ export default function MessagesPage() {
                     </div>
                 )}
             </div>
+
+            {/* Video Call Modal */}
+            <VideoCallModal
+                isOpen={showCallModal}
+                callState={callState}
+                localStream={localStream}
+                remoteStream={remoteStream}
+                isMuted={isMuted}
+                isCameraOff={isCameraOff}
+                error={callError}
+                incomingCallFrom={incomingCallFrom}
+                otherParticipantName={callParticipantName}
+                onAccept={acceptCall}
+                onReject={rejectCall}
+                onEnd={endCall}
+                onToggleMute={toggleMute}
+                onToggleCamera={toggleCamera}
+            />
         </DashboardShell>
     );
 }

@@ -1,3 +1,6 @@
+// Client Dashboard v2 — Exact duplicate of v1 for future experimentation
+// This file is currently an intentional mirror of v1. Do not modify logic without planning.
+
 import React from 'react';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
@@ -51,7 +54,7 @@ export default async function ClientDashboardPage() {
             const recentProposalsRaw = await db.proposal.findMany({
                 where: {
                     job: { clientId: client.id },
-                    status: 'PENDING'
+                    status: 'SUBMITTED'
                 },
                 include: {
                     job: true,
@@ -83,7 +86,7 @@ export default async function ClientDashboardPage() {
                 id: j.id,
                 title: j.title,
                 proposalsCount: j._count.proposals,
-                budget: j.budget,
+                budget: j.budgetMax,
                 status: j.status.toLowerCase()
             }));
 

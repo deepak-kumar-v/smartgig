@@ -192,7 +192,7 @@ export async function submitProposalV2(payload: ProposalPayload) {
         revalidatePath(`/freelancer/jobs/${payload.jobId}`);
         revalidatePath('/freelancer/proposals');
         revalidatePath('/client/dashboard');
-        revalidatePath('/client/dashboard-v2');
+        revalidatePath('/client/dashboard');
         revalidatePath('/client/dashboard-v3');
         revalidatePath('/client/jobs');
         revalidatePath(`/client/jobs/${payload.jobId}`);

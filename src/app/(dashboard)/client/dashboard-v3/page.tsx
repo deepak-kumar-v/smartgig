@@ -6,7 +6,7 @@ import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 // Import V2 View Component (Content Only)
-import { ClientDashboardView, type ProposalItem, type JobItem, type DashboardStats } from '../dashboard-v2/client-dashboard-view';
+import { ClientDashboardView, type ProposalItem, type JobItem, type DashboardStats } from '../dashboard/client-dashboard-view';
 import { formatDistanceToNow } from 'date-fns';
 
 export default async function ClientDashboardPageV3() {

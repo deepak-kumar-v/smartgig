@@ -45,6 +45,9 @@ const io = new SocketIOServer(httpServer, {
 // Store user-to-socket mapping
 const userSockets = new Map<string, string>();
 
+// Track active calls per conversation (conversationId -> callerId)
+const activeCalls = new Map<string, string>();
+
 io.on('connection', (socket) => {
     console.log(`[Socket] Client connected: ${socket.id}`);
 
@@ -129,8 +132,143 @@ io.on('connection', (socket) => {
         }
     });
 
+    // ==================== VIDEO CALL SIGNALING ====================
+
+    // Start a call
+    socket.on('call:start', async (data: { conversationId: string }) => {
+        const { conversationId } = data;
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) return; // Silent reject for non-participants
+
+        // Enforce one active call per conversation
+        if (activeCalls.has(conversationId)) {
+            socket.emit('call:busy', { conversationId, message: 'Call already in progress' });
+            return;
+        }
+
+        activeCalls.set(conversationId, userId);
+        console.log(`[Call] User ${userId} started call in conversation:${conversationId}`);
+
+        // Notify other participants
+        socket.to(`conversation:${conversationId}`).emit('call:incoming', {
+            conversationId,
+            callerId: userId
+        });
+
+        // Confirm to caller
+        socket.emit('call:started', { conversationId });
+    });
+
+    // Accept incoming call
+    socket.on('call:accept', async (data: { conversationId: string }) => {
+        const { conversationId } = data;
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) return;
+
+        console.log(`[Call] User ${userId} accepted call in conversation:${conversationId}`);
+
+        // Notify caller that call was accepted
+        socket.to(`conversation:${conversationId}`).emit('call:accepted', {
+            conversationId,
+            acceptedBy: userId
+        });
+    });
+
+    // Reject incoming call
+    socket.on('call:reject', async (data: { conversationId: string }) => {
+        const { conversationId } = data;
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) return;
+
+        console.log(`[Call] User ${userId} rejected call in conversation:${conversationId}`);
+        activeCalls.delete(conversationId);
+
+        socket.to(`conversation:${conversationId}`).emit('call:rejected', {
+            conversationId,
+            rejectedBy: userId
+        });
+    });
+
+    // WebRTC SDP Offer
+    socket.on('call:offer', async (data: { conversationId: string; offer: RTCSessionDescriptionInit }) => {
+        const { conversationId, offer } = data;
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) return;
+
+        console.log(`[Call] SDP Offer from ${userId} in conversation:${conversationId}`);
+        socket.to(`conversation:${conversationId}`).emit('call:offer', {
+            conversationId,
+            offer,
+            from: userId
+        });
+    });
+
+    // WebRTC SDP Answer
+    socket.on('call:answer', async (data: { conversationId: string; answer: RTCSessionDescriptionInit }) => {
+        const { conversationId, answer } = data;
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) return;
+
+        console.log(`[Call] SDP Answer from ${userId} in conversation:${conversationId}`);
+        socket.to(`conversation:${conversationId}`).emit('call:answer', {
+            conversationId,
+            answer,
+            from: userId
+        });
+    });
+
+    // ICE Candidate exchange
+    socket.on('call:ice-candidate', async (data: { conversationId: string; candidate: RTCIceCandidateInit }) => {
+        const { conversationId, candidate } = data;
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) return;
+
+        socket.to(`conversation:${conversationId}`).emit('call:ice-candidate', {
+            conversationId,
+            candidate,
+            from: userId
+        });
+    });
+
+    // End call
+    socket.on('call:end', async (data: { conversationId: string }) => {
+        const { conversationId } = data;
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) return;
+
+        console.log(`[Call] User ${userId} ended call in conversation:${conversationId}`);
+        activeCalls.delete(conversationId);
+
+        socket.to(`conversation:${conversationId}`).emit('call:ended', {
+            conversationId,
+            endedBy: userId
+        });
+    });
+
+    // ==================== END VIDEO CALL SIGNALING ====================
+
     // Handle disconnect
     socket.on('disconnect', () => {
+        // Clean up any active calls this user was in
+        for (const [conversationId, callerId] of activeCalls.entries()) {
+            if (callerId === userId) {
+                activeCalls.delete(conversationId);
+                io.to(`conversation:${conversationId}`).emit('call:ended', {
+                    conversationId,
+                    endedBy: userId,
+                    reason: 'disconnected'
+                });
+                console.log(`[Call] Cleaned up call in ${conversationId} due to disconnect`);
+            }
+        }
+
         userSockets.delete(userId);
         console.log(`[Socket] Client disconnected: ${socket.id} (user: ${userId})`);
     });
@@ -139,3 +277,4 @@ io.on('connection', (socket) => {
 httpServer.listen(port, () => {
     console.log(`> Socket.IO server running on http://${hostname}:${port}`);
 });
+
