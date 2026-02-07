@@ -322,13 +322,207 @@ All features listed here:
 
 This document serves as an **architectural memory**, not an active task list.
 
-## Chat — Calls (Future Enhancements)
+## 💬 Chat System — Phase 3 (Planned, Not Implemented)
 
-- Replace Google Meet links with OAuth-based Meet creation
-- Add Jitsi self-hosted option
-- Add call duration tracking
-- Add call ended state
-- Add call history filter
-- Add permission checks (only client can start call)
-- Add scheduled calls
-- Add call reminders
+### Status
+**Planned / Deferred**  
+Chat Phase 2 (attachments + basic messaging) is stable and production-safe.  
+Phase 3 was intentionally rolled back due to instability risks and is deferred for a later iteration.
+
+---
+
+### 🎯 Goal
+Improve **chat reliability and user feedback** under unstable network or socket conditions without breaking existing attachment behavior.
+
+---
+
+### 🚀 Proposed Enhancements
+
+#### 1. Message Delivery States
+Introduce explicit delivery states for messages:
+- `sending` — message queued locally
+- `sent` — confirmed by server
+- `failed` — delivery failed (network / auth / server error)
+
+UX indicators:
+- Clock icon → Sending
+- Checkmark → Sent
+- Warning + Retry → Failed
+
+---
+
+#### 2. Retry Mechanism
+Allow users to retry failed messages:
+- Retry uses the **same frozen payload**
+- Attachments are **not re-uploaded**
+- Prevents duplicate messages
+
+---
+
+#### 3. Socket Acknowledgements (ACK)
+Enhance socket communication:
+- Use socket acknowledgements for `send-message`
+- Timeout fallback (e.g. 3–5 seconds)
+- Automatic fallback to REST API if socket fails
+
+---
+
+#### 4. Unified Socket + API Fallback
+Single delivery pipeline:
+- Socket first (real-time)
+- REST API fallback (reliability)
+- Consistent success/error handling
+
+---
+
+#### 5. Improved Error UX
+- Inline, dismissible error banners instead of page-level crashes
+- Retry CTA when message load fails
+- Disable input when conversation becomes invalid (e.g., deleted job)
+
+---
+
+### 🛑 Explicit Non-Goals (For Phase 3)
+The following are **out of scope** and intentionally excluded:
+- No changes to job-post attachments
+- No changes to chat attachment upload flow (Phase 2 is locked)
+- No message editing or deletion
+- No read receipts or typing indicators
+
+---
+
+### 🔒 Stability Guardrails
+- Phase 2 attachment logic **must remain untouched**
+- No schema changes without explicit approval
+- Any Phase 3 work must start from `chat-phase2-stable` tag
+- Changes must be feature-flagged or isolated
+
+---
+
+### 🧠 Rationale for Deferral
+Initial Phase 3 attempts introduced:
+- Socket timing inconsistencies
+- Attachment visibility regressions after reload
+- State reconciliation complexity
+
+Given the platform’s current stage, **reliability > sophistication**.  
+Phase 3 will be revisited once core job → proposal → hire flows are complete.
+
+---
+
+### 📌 Revisit Criteria
+Phase 3 should be reconsidered only when:
+- Freelancer proposal flow is stable
+- Job lifecycle management is complete
+- Chat usage increases enough to justify delivery-state UX
+
+---
+
+
+## ⏱️ Hourly Work Tracking & Verification (Future Enhancement)
+
+### Context
+For hourly-priced projects, ensuring fair, transparent, and trustworthy time tracking is critical. Platforms like Upwork use a combination of automated tracking, user confirmation, and dispute mechanisms to protect both clients and freelancers.
+
+This feature is **intentionally deferred** until the contracts and payments system is fully stabilized.
+
+---
+
+### 🎯 Goals
+- Prevent time fraud without over-surveillance
+- Build trust between client and freelancer
+- Offer fallbacks if automated systems fail
+- Keep UX simple and non-intrusive
+
+---
+
+### 🧱 Proposed Phased Approach
+
+#### **Phase 1 — Manual & Trust-Based (MVP)**
+- Freelancer logs hours manually per contract
+- Each entry includes:
+  - Date
+  - Duration
+  - Short work note (required)
+- Client reviews and approves weekly hours
+- Disputes handled manually
+
+**Pros**
+- Simple
+- Fast to implement
+
+**Cons**
+- Relies on honesty
+
+---
+
+#### **Phase 2 — Assisted Tracking**
+- Optional built-in time tracker:
+  - Start / Pause / Stop timer
+  - Auto-attach session to contract
+- Mandatory short description per session
+- Client sees:
+  - Total hours
+  - Session-level breakdown
+- Client approval still required
+
+**Pros**
+- Better accuracy
+- Still respectful of privacy
+
+**Cons**
+- Can be gamed
+
+---
+
+#### **Phase 3 — Proof-Based (Advanced)**
+- Optional advanced verification:
+  - Periodic screenshots (configurable, opt-in)
+  - Active window / app name
+  - Idle time detection
+- Clear visibility rules:
+  - Freelancer always knows what’s tracked
+  - Client sees summaries, not raw surveillance
+- Strong dispute resolution tools
+
+**Pros**
+- High trust
+
+**Cons**
+- Complex
+- Legal & privacy sensitive
+
+---
+
+### 🔄 Fallback Strategy
+- Hourly contracts always support:
+  - Manual override
+  - Client approval
+  - Dispute escalation
+- Automated tracking is **assistive**, never mandatory
+
+---
+
+### 🚧 Explicitly Out of Scope (For Now)
+- Keystroke logging
+- Always-on monitoring
+- Background tracking without consent
+- Automatic payment blocking
+
+---
+
+### 🧠 Design Principles
+- Transparency over control
+- Consent-first tracking
+- Human review before automation
+- Graceful degradation when technology fails
+
+---
+
+### 📌 Status
+**ON HOLD**
+
+To be revisited after:
+- Contracts lifecycle is finalized
+- Payments & escrow logic is stable
+- Chat, calls, and attachments are fully mature
