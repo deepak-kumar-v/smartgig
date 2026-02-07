@@ -133,7 +133,7 @@ function MessageBubble({
     message: ChatMessage;
     isOwn: boolean;
 }) {
-    const isCall = (message.type === 'CALL' || message.type === 'CALL_INVITE') && message.callMeta;
+    const isCall = (message.type === 'CALL' || message.type === 'CALL_INVITE' || message.type === 'CALL_EVENT') && message.callMeta;
 
     return (
         <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4`}>
@@ -233,6 +233,13 @@ export default function MessagesPage() {
     const handleStartCall = () => {
         if (activeConversationId && isConnected) {
             startCall(activeConversationId);
+
+            // Send background history message for SmartGig Video
+            sendMessage('Video call — SmartGig Video', [], 'CALL_EVENT', {
+                mode: 'video',
+                provider: 'smartgig_custom',
+                meetingUrl: '#' // No-op URL for history card
+            });
         }
     };
 

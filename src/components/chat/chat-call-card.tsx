@@ -26,6 +26,7 @@ export function ChatCallCard({ callMeta, isOwn }: ChatCallCardProps) {
     const isGoogleMeet = callMeta.provider === 'google_meet' || callMeta.provider === 'Google Meet';
 
     const handleJoinCall = () => {
+        if (callMeta.meetingUrl === '#') return; // History-only card
         window.open(callMeta.meetingUrl, '_blank', 'noopener,noreferrer');
     };
 
@@ -40,10 +41,10 @@ export function ChatCallCard({ callMeta, isOwn }: ChatCallCardProps) {
 
     return (
         <div
-            className={`flex items-center gap-3 p-4 rounded-xl cursor-pointer transition-all group ${isOwn
-                ? 'bg-gradient-to-r from-indigo-600/30 to-purple-600/20 hover:from-indigo-600/40 hover:to-purple-600/30 border border-indigo-500/30'
-                : 'bg-gradient-to-r from-emerald-600/20 to-teal-600/10 hover:from-emerald-600/30 hover:to-teal-600/20 border border-emerald-500/30'
-                }`}
+            className={`flex items-center gap-3 p-4 rounded-xl transition-all group ${isOwn
+                ? 'bg-gradient-to-r from-indigo-600/30 to-purple-600/20 border border-indigo-500/30'
+                : 'bg-gradient-to-r from-emerald-600/20 to-teal-600/10 border border-emerald-500/30'
+                } ${callMeta.meetingUrl !== '#' ? 'cursor-pointer hover:from-indigo-600/40 hover:to-purple-600/30' : ''}`}
             onClick={handleJoinCall}
         >
             {/* Icon */}
@@ -91,21 +92,23 @@ export function ChatCallCard({ callMeta, isOwn }: ChatCallCardProps) {
                     </span>
                     <span className="text-zinc-600">•</span>
                     <span className="text-xs text-zinc-400">
-                        Click to join
+                        {callMeta.meetingUrl === '#' ? 'Call started' : 'Click to join'}
                     </span>
                 </div>
             </div>
 
             {/* Join Button */}
-            <div className="flex items-center gap-2">
-                <span className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${isOwn
-                    ? 'bg-indigo-500/30 text-indigo-300 group-hover:bg-indigo-500/50'
-                    : 'bg-emerald-500/30 text-emerald-300 group-hover:bg-emerald-500/50'
-                    }`}>
-                    Join
-                </span>
-                <ExternalLink className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-colors" />
-            </div>
+            {callMeta.meetingUrl !== '#' && (
+                <div className="flex items-center gap-2">
+                    <span className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${isOwn
+                        ? 'bg-indigo-500/30 text-indigo-300 group-hover:bg-indigo-500/50'
+                        : 'bg-emerald-500/30 text-emerald-300 group-hover:bg-emerald-500/50'
+                        }`}>
+                        Join
+                    </span>
+                    <ExternalLink className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-colors" />
+                </div>
+            )}
         </div >
     );
 }
