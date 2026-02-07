@@ -64,6 +64,8 @@ export default async function FreelancerContractDetailPage({ params }: PageProps
         status: contract.status,
         terms: contract.terms,
         type: contract.type,
+        escrowStatus: contract.escrowStatus,
+        trialAmount: contract.trialAmount,
         startDate: contract.startDate,
         endDate: contract.endDate,
 

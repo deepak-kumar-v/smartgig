@@ -162,7 +162,7 @@ export async function createFullContractFromTrial(trialContractId: string) {
             return { success: false, error: "Client profile not found." };
         }
 
-        // 2. Get Trial Contract with Proposal
+        // 2. Get Trial Contract with Proposal and Conversation
         const trialContract = await db.contract.findUnique({
             where: { id: trialContractId },
             include: {
@@ -171,7 +171,8 @@ export async function createFullContractFromTrial(trialContractId: string) {
                         job: { select: { title: true, clientId: true } },
                         contracts: { select: { type: true } }
                     }
-                }
+                },
+                conversation: { select: { id: true } }
             }
         });
 
@@ -217,7 +218,16 @@ export async function createFullContractFromTrial(trialContractId: string) {
             }
         });
 
-        // 8. Revalidation
+        // 8. Attach contractId to existing conversation
+        // This ensures the conversation context moves to the new Standard contract
+        if (trialContract.conversation) {
+            await db.conversation.update({
+                where: { id: trialContract.conversation.id },
+                data: { contractId: fullContract.id }
+            });
+        }
+
+        // 9. Revalidation
         revalidatePath('/client/contracts');
         revalidatePath(`/client/contracts/${trialContractId}`);
         revalidatePath('/freelancer/contracts');
@@ -345,8 +355,22 @@ export async function acceptContract(contractId: string) {
         // 5. Update to ACTIVE (locks the contract)
         await db.contract.update({
             where: { id: contractId },
-            data: { status: "ACTIVE" }
+            data: {
+                status: "ACTIVE",
+                ...(contract.type === 'TRIAL' ? { escrowStatus: 'FUNDED' } : {})
+            }
         });
+
+        // Mock Escrow Transaction for TRIAL
+        if (contract.type === 'TRIAL') {
+            await db.mockEscrowTransaction.create({
+                data: {
+                    contractId: contract.id,
+                    amount: contract.totalBudget,
+                    status: 'FUNDED'
+                }
+            });
+        }
 
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);

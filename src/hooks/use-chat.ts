@@ -36,6 +36,7 @@ export interface Conversation {
     contractTitle: string | null;
     contractStatus: string | null;
     contractType: string | null;
+    jobAllowsTrial?: boolean;
     proposalId: string | null;
     otherParticipant: {
         id: string;
@@ -361,8 +362,8 @@ export function getConversationLabel(conversation: Conversation, userRole?: stri
     const { contractStatus, contractType, contractTitle, proposalId, contractId } = conversation;
     const title = contractTitle || 'Unknown Job';
 
-    // 1. ACTIVE / ENDED / CANCELLED Contracts (Highest Priority)
-    if (contractStatus === 'ACTIVE' || contractStatus === 'ENDED' || contractStatus === 'CANCELLED') {
+    // 1. ACTIVE / ENDED / CANCELLED / COMPLETED Contracts (Highest Priority)
+    if (contractStatus === 'ACTIVE' || contractStatus === 'ENDED' || contractStatus === 'CANCELLED' || contractStatus === 'COMPLETED') {
         const typeLabel = contractType === 'TRIAL' ? 'TRIAL' : 'STANDARD';
         return `${contractStatus} · ${typeLabel} · ${title}`;
     }
@@ -380,7 +381,12 @@ export function getConversationLabel(conversation: Conversation, userRole?: stri
         return "Contract rejected";
     }
 
-    // 4. Proposal-only (Proposal exists, but no contract created yet)
+    // 4. Proposal ACCEPTED (No contract yet)
+    if (!contractId && proposalId && contractStatus === 'ACCEPTED') {
+        return `Proposal accepted — ${title}`;
+    }
+
+    // 5. Proposal-only (Proposal exists, but no contract created yet)
 
     if (proposalId && !contractId) {
         if (userRole === 'CLIENT') return `Proposal Received — ${title}`;
@@ -396,7 +402,18 @@ export function getConversationLabel(conversation: Conversation, userRole?: stri
 export function getConversationTooltip(conversation: Conversation, userRole?: string | null): string | null {
     const { contractStatus, proposalId, contractId } = conversation;
 
-    // 1. Proposal-only
+    // 1. Proposal ACCEPTED (No contract yet)
+    if (!contractId && proposalId && contractStatus === 'ACCEPTED') {
+        const type = conversation.jobAllowsTrial ? 'Trial' : 'Standard';
+        if (userRole === 'CLIENT') {
+            return `Proposal from freelancer has been accepted.\n${type} contract creation is pending from your end.`;
+        }
+        if (userRole === 'FREELANCER') {
+            return `Your proposal has been accepted.\nAwaiting client to create the ${type} contract.`;
+        }
+    }
+
+    // 2. Proposal-only
     if (proposalId && !contractId) {
         if (userRole === 'CLIENT') {
             return "Proposal received from freelancer.\nApproval pending from your end.";

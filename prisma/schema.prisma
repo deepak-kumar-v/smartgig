@@ -276,12 +276,32 @@ model Contract {
   startDate     DateTime?
   endDate       DateTime?
 
+  // Trial Fields
+  escrowStatus  String?
+  trialAmount   Float?
+  
+  // Standard Contract linked to a Trial
+  sourceTrialId String?   @unique
+  sourceTrial   Contract? @relation("SourceTrial", fields: [sourceTrialId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  derivedStandard Contract? @relation("SourceTrial")
+
+  mockTransactions MockEscrowTransaction[]
+
   milestones    Milestone[]
   escrowAccount EscrowAccount?
   conversation  Conversation?
 
   // Allow one TRIAL and one FULL contract per proposal
   @@unique([proposalId, type])
+}
+
+model MockEscrowTransaction {
+  id          String   @id @default(cuid())
+  contractId  String
+  contract    Contract @relation(fields: [contractId], references: [id])
+  amount      Float
+  status      String   // FUNDED, RELEASED
+  createdAt   DateTime @default(now())
 }
 
 model Milestone {

@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
                 proposal: {
                     select: {
                         id: true,
-                        job: { select: { title: true } },
+                        job: { select: { title: true, allowTrialTask: true } },
                         status: true
                     }
                 },
@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
                 proposalId: conv.proposalId,
                 contractId: conv.contractId,
                 contractTitle: title,
+                jobAllowsTrial: conv.proposal?.job?.allowTrialTask || false,
                 contractStatus: conv.contract?.status || conv.proposal?.status || null,
                 contractType: conv.contract?.type || null,
                 otherParticipant: otherParticipant ? {
