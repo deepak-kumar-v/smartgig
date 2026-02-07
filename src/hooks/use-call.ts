@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSocket } from '@/providers/socket-provider';
 
+
 export type CallState = 'idle' | 'calling' | 'ringing' | 'connecting' | 'connected' | 'ended' | 'error';
+export type ConnectionMode = 'STUN' | 'TURN' | 'UNKNOWN';
 
 interface UseCallOptions {
     conversationId?: string;
@@ -24,14 +26,15 @@ interface UseCallReturn {
     error: string | null;
     incomingCallFrom: string | null;
     activeConversationId: string | null;
+    connectionMode: ConnectionMode;
 }
 
-const ICE_SERVERS: RTCConfiguration = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-    ]
-};
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+
 
 export function useCall(options?: UseCallOptions): UseCallReturn {
     const { socket, isConnected } = useSocket();
@@ -44,9 +47,19 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
     const [error, setError] = useState<string | null>(null);
     const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+    const [connectionMode, setConnectionMode] = useState<ConnectionMode>('UNKNOWN');
+    const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
 
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
     const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+    const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+    // cleanup stats interval
+    useEffect(() => {
+        return () => {
+            if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
+        };
+    }, []);
 
     // Cleanup function to stop all media and close connection
     const cleanup = useCallback(() => {
@@ -73,8 +86,14 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
             peerConnectionRef.current = null;
         }
 
+        if (statsIntervalRef.current) {
+            clearInterval(statsIntervalRef.current);
+            statsIntervalRef.current = null;
+        }
+
         pendingCandidatesRef.current = [];
         setIncomingCallFrom(null);
+        setConnectionMode('UNKNOWN');
     }, [localStream, remoteStream]);
 
     // Get user media
@@ -95,9 +114,28 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         }
     }, []);
 
+    // Fetch TURN servers on mount
+    useEffect(() => {
+        const fetchIceServers = async () => {
+            try {
+                const res = await fetch('/api/webrtc/turn');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.iceServers) {
+                        setIceServers((prev) => [...prev, ...data.iceServers]);
+                    }
+                }
+            } catch (error) {
+                console.error('[useCall] Failed to fetch TURN servers:', error);
+            }
+        };
+
+        fetchIceServers();
+    }, []);
+
     // Create peer connection
     const createPeerConnection = useCallback((conversationId: string) => {
-        const pc = new RTCPeerConnection(ICE_SERVERS);
+        const pc = new RTCPeerConnection({ iceServers });
 
         // Handle ICE candidates
         pc.onicecandidate = (event) => {
@@ -133,7 +171,7 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
         peerConnectionRef.current = pc;
         return pc;
-    }, [socket]);
+    }, [socket, iceServers]);
 
     // Start a call (caller side)
     const startCall = useCallback(async (conversationId: string) => {
@@ -408,6 +446,70 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         }
     }, [isConnected, callState, cleanup]);
 
+    // Monitor connection stats when connected
+    useEffect(() => {
+        if (callState === 'connected' && peerConnectionRef.current) {
+            const checkStats = async () => {
+                if (!peerConnectionRef.current) return;
+                try {
+                    const stats = await peerConnectionRef.current.getStats();
+                    let activeCandidatePairId: string | null = null;
+                    let localCandidateId: string | null = null;
+                    let candidateType: string | null = null;
+
+                    stats.forEach(report => {
+                        if (report.type === 'transport' && report.selectedCandidatePairId) {
+                            activeCandidatePairId = report.selectedCandidatePairId;
+                        }
+                    });
+
+                    // Fallback for some browsers: look for 'candidate-pair' with 'succeeded' state or just 'selected' property (older)
+                    // Modern spec: transport.selectedCandidatePairId -> candidate-pair -> local-candidate -> candidateType
+
+                    if (activeCandidatePairId) {
+                        const pair = stats.get(activeCandidatePairId);
+                        if (pair) {
+                            localCandidateId = pair.localCandidateId;
+                        }
+                    } else {
+                        // Iterating to find succeeding pair if transport stat wasn't clear
+                        stats.forEach(report => {
+                            if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.selected) {
+                                localCandidateId = report.localCandidateId;
+                            }
+                        });
+                    }
+
+                    if (localCandidateId) {
+                        const localCandidate = stats.get(localCandidateId);
+                        if (localCandidate) {
+                            candidateType = localCandidate.candidateType;
+                        }
+                    }
+
+                    if (candidateType) {
+                        // relay = TURN, host/srflx/prflx = STUN/Direct
+                        const mode = candidateType === 'relay' ? 'TURN' : 'STUN';
+                        setConnectionMode(mode);
+                    }
+                } catch (e) {
+                    console.error('[useCall] Stats error:', e);
+                }
+            };
+
+            // Check immediately and then interval
+            checkStats();
+            statsIntervalRef.current = setInterval(checkStats, 2000);
+        }
+
+        return () => {
+            if (statsIntervalRef.current) {
+                clearInterval(statsIntervalRef.current);
+                statsIntervalRef.current = null;
+            }
+        };
+    }, [callState]);
+
     // Cleanup on unmount
     useEffect(() => {
         return () => {
@@ -429,6 +531,7 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         isCameraOff,
         error,
         incomingCallFrom,
-        activeConversationId
+        activeConversationId,
+        connectionMode
     };
 }

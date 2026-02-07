@@ -200,7 +200,8 @@ export default function MessagesPage() {
         isCameraOff,
         error: callError,
         incomingCallFrom,
-        activeConversationId: callConversationId
+        activeConversationId: callConversationId,
+        connectionMode
     } = useCall();
 
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -562,6 +563,7 @@ export default function MessagesPage() {
                 onEnd={endCall}
                 onToggleMute={toggleMute}
                 onToggleCamera={toggleCamera}
+                connectionMode={connectionMode}
             />
         </DashboardShell>
     );

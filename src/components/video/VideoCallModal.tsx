@@ -6,7 +6,7 @@ import {
     Phone, PhoneOff, Mic, MicOff, Video, VideoOff,
     X, User, Loader2, AlertCircle
 } from 'lucide-react';
-import { CallState } from '@/hooks/use-call';
+import { CallState, ConnectionMode } from '@/hooks/use-call';
 
 interface VideoCallModalProps {
     isOpen: boolean;
@@ -23,6 +23,7 @@ interface VideoCallModalProps {
     onEnd: () => void;
     onToggleMute: () => void;
     onToggleCamera: () => void;
+    connectionMode: ConnectionMode;
 }
 
 export function VideoCallModal({
@@ -39,7 +40,8 @@ export function VideoCallModal({
     onReject,
     onEnd,
     onToggleMute,
-    onToggleCamera
+    onToggleCamera,
+    connectionMode
 }: VideoCallModalProps) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -89,12 +91,24 @@ export function VideoCallModal({
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={onEnd}
-                        className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                    >
-                        <X className="w-5 h-5 text-zinc-400" />
-                    </button>
+
+                    <div className="flex items-center gap-3">
+                        {/* Connection Mode Badge */}
+                        {isConnected && connectionMode !== 'UNKNOWN' && (
+                            <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${connectionMode === 'TURN'
+                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                    : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                }`}>
+                                {connectionMode === 'TURN' ? 'Relayed (TURN)' : 'Direct (STUN)'}
+                            </div>
+                        )}
+                        <button
+                            onClick={onEnd}
+                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                        >
+                            <X className="w-5 h-5 text-zinc-400" />
+                        </button>
+                    </div>
                 </div>
 
                 {/* Main Video Area */}
@@ -194,8 +208,8 @@ export function VideoCallModal({
                                 <button
                                     onClick={onToggleMute}
                                     className={`p-4 rounded-full transition-colors ${isMuted
-                                            ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                                            : 'bg-white/10 text-white hover:bg-white/20'
+                                        ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                                        : 'bg-white/10 text-white hover:bg-white/20'
                                         }`}
                                 >
                                     {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
@@ -204,8 +218,8 @@ export function VideoCallModal({
                                 <button
                                     onClick={onToggleCamera}
                                     className={`p-4 rounded-full transition-colors ${isCameraOff
-                                            ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                                            : 'bg-white/10 text-white hover:bg-white/20'
+                                        ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                                        : 'bg-white/10 text-white hover:bg-white/20'
                                         }`}
                                 >
                                     {isCameraOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
