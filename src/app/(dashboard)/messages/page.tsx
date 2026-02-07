@@ -19,6 +19,7 @@ import { uploadChatAttachment } from '@/actions/chat-upload-actions';
 import { ChatAttachmentCard } from '@/components/chat/chat-attachment-card';
 import { ChatCallCard } from '@/components/chat/chat-call-card';
 import { CallProviderMenu } from '@/components/chat/call-provider-menu';
+import { GoogleMeetDraftCard } from '@/components/chat/google-meet-draft-card';
 import {
     Tooltip,
     TooltipContent,
@@ -132,7 +133,7 @@ function MessageBubble({
     message: ChatMessage;
     isOwn: boolean;
 }) {
-    const isCall = message.type === 'CALL' && message.callMeta;
+    const isCall = (message.type === 'CALL' || message.type === 'CALL_INVITE') && message.callMeta;
 
     return (
         <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4`}>
@@ -208,6 +209,8 @@ export default function MessagesPage() {
     const [newMessage, setNewMessage] = useState('');
     const [draftAttachments, setDraftAttachments] = useState<any[]>([]);
     const [isUploading, setIsUploading] = useState(false);
+    const [showMeetDraft, setShowMeetDraft] = useState(false);
+    const [meetMode, setMeetMode] = useState<'audio' | 'video'>('video');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [searchQuery, setSearchQuery] = useState('');
@@ -259,9 +262,46 @@ export default function MessagesPage() {
 
     const handleSend = () => {
         if (!newMessage.trim() && draftAttachments.length === 0) return;
+
+        // BLOCK UNSAFE MEET LINKS
+        if (newMessage.includes('meet.google.com/new') || newMessage.includes('meet.google.com/')) {
+            // Check for valid pattern
+            const meetRegex = /https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}/;
+            const match = newMessage.match(meetRegex);
+
+            if (newMessage.includes('/new')) {
+                // Ideally show toast, but alert is fine for strict guard
+                alert("Please paste the actual meeting link, not the creation link (/new).");
+                return;
+            }
+
+            if (match) {
+                // Convert to Google Meet Call Card
+                sendMessage(newMessage, draftAttachments, 'CALL_INVITE', {
+                    mode: 'video', // Default to video for Meet
+                    provider: 'google_meet',
+                    meetingUrl: match[0]
+                });
+                setNewMessage('');
+                setDraftAttachments([]);
+                setShowMeetGuidance(false);
+                return;
+            }
+        }
+
         sendMessage(newMessage, draftAttachments);
         setNewMessage('');
         setDraftAttachments([]);
+    };
+
+    const handleMeetInvite = (url: string) => {
+        const isAudio = meetMode === 'audio';
+        sendMessage(isAudio ? 'Audio Call — Google Meet' : 'Video Call — Google Meet', [], 'CALL_INVITE', {
+            mode: meetMode,
+            provider: 'google_meet',
+            meetingUrl: url
+        });
+        setShowMeetDraft(false);
     };
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -455,7 +495,17 @@ export default function MessagesPage() {
                         </div>
 
                         {/* Input Area */}
-                        <div className="p-4 border-t border-zinc-800">
+                        <div className="p-4 border-t border-zinc-800 relative">
+                            {/* Inline Google Meet Draft Card */}
+                            {showMeetDraft && (
+                                <div className="absolute bottom-full left-0 right-0 px-4 pb-2 z-10 w-full max-w-lg mx-auto">
+                                    <GoogleMeetDraftCard
+                                        onSend={handleMeetInvite}
+                                        onCancel={() => setShowMeetDraft(false)}
+                                    />
+                                </div>
+                            )}
+
                             {/* Draft Attachments Preview */}
                             {draftAttachments.length > 0 && (
                                 <div className="mb-3 flex flex-wrap gap-2">
@@ -493,30 +543,45 @@ export default function MessagesPage() {
                                 <CallProviderMenu
                                     intent="audio"
                                     onSelectProvider={(intent, provider, meetingUrl) => {
+                                        if (provider === 'google_meet') {
+                                            // Open new tab for creation, but show inline draft
+                                            window.open('https://meet.google.com/new', '_blank');
+                                            setShowMeetDraft(true);
+                                            setMeetMode('audio');
+                                            return;
+                                        }
+
+                                        let finalUrl = meetingUrl;
+
                                         sendMessage(`Started an audio call`, [], 'CALL', {
                                             mode: 'audio',
                                             provider,
-                                            meetingUrl
+                                            meetingUrl: finalUrl
                                         });
-                                        window.open(meetingUrl, '_blank', 'noopener,noreferrer');
+
+                                        if (finalUrl) {
+                                            window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                                        }
                                     }}
                                 />
+                                {showMeetDraft && (
+                                    /* Removed from here, moved to top of container */
+                                    null
+                                )}
                                 {/* Video Call with Provider Selection */}
                                 <CallProviderMenu
                                     intent="video"
                                     onSelectProvider={(intent, provider, meetingUrl) => {
                                         if (provider === 'smartgig_custom') {
                                             handleStartCall();
-                                        } else {
-                                            sendMessage(`Started a video call`, [], 'CALL', {
-                                                mode: 'video',
-                                                provider,
-                                                meetingUrl
-                                            });
-                                            window.open(meetingUrl, '_blank', 'noopener,noreferrer');
+                                        } else if (provider === 'google_meet') {
+                                            window.open('https://meet.google.com/new', '_blank');
+                                            setShowMeetDraft(true);
+                                            setMeetMode('video');
                                         }
                                     }}
                                 />
+                                {/* Previously guidance was here, now removed in favor of inline draft card above */}
                                 <input
                                     type="text"
                                     value={newMessage}

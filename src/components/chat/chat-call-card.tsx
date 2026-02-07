@@ -1,7 +1,13 @@
 'use client';
 
 import React from 'react';
-import { Phone, Video, ExternalLink, Sparkles } from 'lucide-react';
+import { Phone, Video, ExternalLink, Sparkles, Info } from 'lucide-react';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface CallMeta {
     mode: 'audio' | 'video';
@@ -24,13 +30,19 @@ export function ChatCallCard({ callMeta, isOwn }: ChatCallCardProps) {
     };
 
     // Provider display name
-    const providerLabel = isGoogleMeet ? 'Google Meet' : isSmartGig ? 'SmartGig' : callMeta.provider;
+    const providerLabel = isGoogleMeet
+        ? (isVideo ? 'Google Meet' : 'Camera off · Google Meet')
+        : (isSmartGig ? 'SmartGig' : callMeta.provider);
+
+    const tooltipText = isVideo
+        ? "This is a video call."
+        : "This call is intended as audio-only. Camera is off by default.";
 
     return (
         <div
             className={`flex items-center gap-3 p-4 rounded-xl cursor-pointer transition-all group ${isOwn
-                    ? 'bg-gradient-to-r from-indigo-600/30 to-purple-600/20 hover:from-indigo-600/40 hover:to-purple-600/30 border border-indigo-500/30'
-                    : 'bg-gradient-to-r from-emerald-600/20 to-teal-600/10 hover:from-emerald-600/30 hover:to-teal-600/20 border border-emerald-500/30'
+                ? 'bg-gradient-to-r from-indigo-600/30 to-purple-600/20 hover:from-indigo-600/40 hover:to-purple-600/30 border border-indigo-500/30'
+                : 'bg-gradient-to-r from-emerald-600/20 to-teal-600/10 hover:from-emerald-600/30 hover:to-teal-600/20 border border-emerald-500/30'
                 }`}
             onClick={handleJoinCall}
         >
@@ -56,6 +68,21 @@ export function ChatCallCard({ callMeta, isOwn }: ChatCallCardProps) {
                             Beta
                         </span>
                     )}
+                    {/* Audio Only Badge for Google Meet Audio */}
+                    {!isVideo && isGoogleMeet && (
+                        <TooltipProvider delayDuration={0}>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 flex items-center gap-1 cursor-help">
+                                        Audio Only
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="bg-zinc-900 border-zinc-700 text-zinc-300 text-xs">
+                                    {tooltipText}
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
                 </div>
                 <div className="flex items-center gap-2 mt-0.5">
                     <span className={`text-xs font-medium ${isGoogleMeet ? 'text-emerald-400' : 'text-indigo-400'
@@ -72,13 +99,13 @@ export function ChatCallCard({ callMeta, isOwn }: ChatCallCardProps) {
             {/* Join Button */}
             <div className="flex items-center gap-2">
                 <span className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${isOwn
-                        ? 'bg-indigo-500/30 text-indigo-300 group-hover:bg-indigo-500/50'
-                        : 'bg-emerald-500/30 text-emerald-300 group-hover:bg-emerald-500/50'
+                    ? 'bg-indigo-500/30 text-indigo-300 group-hover:bg-indigo-500/50'
+                    : 'bg-emerald-500/30 text-emerald-300 group-hover:bg-emerald-500/50'
                     }`}>
                     Join
                 </span>
                 <ExternalLink className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-colors" />
             </div>
-        </div>
+        </div >
     );
 }

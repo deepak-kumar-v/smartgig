@@ -76,7 +76,7 @@ export function CallProviderMenu({ intent, onSelectProvider }: CallProviderMenuP
         // Generate meeting URL based on provider
         let meetingUrl: string;
         if (option.provider === 'google_meet') {
-            meetingUrl = 'https://meet.google.com/new';
+            meetingUrl = ''; // Let the parent handler generate/reuse the URL
         } else {
             // SmartGig custom - use internal route
             meetingUrl = `/call/${Date.now()}?intent=${intent}`;
@@ -116,15 +116,15 @@ export function CallProviderMenu({ intent, onSelectProvider }: CallProviderMenuP
                             <button
                                 key={option.provider}
                                 className={`w-full px-3 py-2.5 flex items-start gap-3 transition-colors ${option.enabled
-                                        ? 'hover:bg-zinc-800 cursor-pointer'
-                                        : 'opacity-50 cursor-not-allowed'
+                                    ? 'hover:bg-zinc-800 cursor-pointer'
+                                    : 'opacity-50 cursor-not-allowed'
                                     }`}
                                 onClick={() => handleProviderSelect(option)}
                                 disabled={!option.enabled}
                             >
                                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${option.provider === 'google_meet'
-                                        ? 'bg-emerald-500/10'
-                                        : 'bg-indigo-500/10'
+                                    ? 'bg-emerald-500/10'
+                                    : 'bg-indigo-500/10'
                                     }`}>
                                     {option.provider === 'google_meet' ? (
                                         <span className="text-lg">📞</span>
