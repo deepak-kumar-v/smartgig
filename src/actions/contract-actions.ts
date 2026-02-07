@@ -284,9 +284,11 @@ export async function updateContract(
             return { success: false, error: "Unauthorized. You do not own this contract." };
         }
 
-        // 4. Status check - only DRAFT can be edited
-        if (contract.status !== "DRAFT") {
-            return { success: false, error: "Only draft contracts can be edited." };
+        // 4. Status check - DRAFT or ACTIVE STANDARD
+        const canEdit = contract.status === "DRAFT" || (contract.status === "ACTIVE" && contract.type === "FULL");
+
+        if (!canEdit) {
+            return { success: false, error: "Only draft or active standard contracts can be edited." };
         }
 
         // 5. Update Contract

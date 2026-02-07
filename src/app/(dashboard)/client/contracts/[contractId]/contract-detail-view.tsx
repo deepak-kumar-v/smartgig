@@ -59,7 +59,12 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
     });
 
     const isTrial = contract.type === 'TRIAL';
-    const canEdit = role === 'CLIENT' && contract.status === 'DRAFT';
+    // Allow editing DRAFT contracts OR Active Standard contracts
+    const canEdit = (role === 'CLIENT') && (
+        contract.status === 'DRAFT' ||
+        (contract.status === 'ACTIVE' && contract.type === 'FULL')
+    );
+    const canDelete = role === 'CLIENT' && contract.status === 'DRAFT';
     const canDecide = role === 'FREELANCER' && contract.status === 'DRAFT';
     const isLocked = contract.status === 'ACTIVE' || contract.status === 'REJECTED' || contract.status === 'COMPLETED';
 
@@ -503,14 +508,18 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
             )}
 
             {/* Edit Actions */}
-            {canEdit && !isEditing && (
+            {(canEdit || canDelete) && !isEditing && (
                 <div className="flex justify-end gap-3">
-                    <GlassButton variant="ghost" onClick={handleDelete} className="text-red-400 hover:text-red-300">
-                        <Trash2 className="w-4 h-4 mr-2" /> Delete
-                    </GlassButton>
-                    <GlassButton variant="primary" onClick={() => setIsEditing(true)}>
-                        <Edit className="w-4 h-4 mr-2" /> Edit
-                    </GlassButton>
+                    {canDelete && (
+                        <GlassButton variant="ghost" onClick={handleDelete} className="text-red-400 hover:text-red-300">
+                            <Trash2 className="w-4 h-4 mr-2" /> Delete
+                        </GlassButton>
+                    )}
+                    {canEdit && (
+                        <GlassButton variant="primary" onClick={() => setIsEditing(true)}>
+                            <Edit className="w-4 h-4 mr-2" /> Edit
+                        </GlassButton>
+                    )}
                 </div>
             )}
             {canEdit && isEditing && (
