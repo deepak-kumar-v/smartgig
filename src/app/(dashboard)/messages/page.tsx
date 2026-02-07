@@ -505,12 +505,16 @@ export default function MessagesPage() {
                                 <CallProviderMenu
                                     intent="video"
                                     onSelectProvider={(intent, provider, meetingUrl) => {
-                                        sendMessage(`Started a video call`, [], 'CALL', {
-                                            mode: 'video',
-                                            provider,
-                                            meetingUrl
-                                        });
-                                        window.open(meetingUrl, '_blank', 'noopener,noreferrer');
+                                        if (provider === 'smartgig_custom') {
+                                            handleStartCall();
+                                        } else {
+                                            sendMessage(`Started a video call`, [], 'CALL', {
+                                                mode: 'video',
+                                                provider,
+                                                meetingUrl
+                                            });
+                                            window.open(meetingUrl, '_blank', 'noopener,noreferrer');
+                                        }
                                     }}
                                 />
                                 <input

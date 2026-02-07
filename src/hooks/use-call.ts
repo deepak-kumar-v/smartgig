@@ -54,6 +54,18 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
     const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
     const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+    const localStreamRef = useRef<MediaStream | null>(null);
+    const remoteStreamRef = useRef<MediaStream | null>(null);
+
+    // Sync refs with state
+    useEffect(() => {
+        localStreamRef.current = localStream;
+    }, [localStream]);
+
+    useEffect(() => {
+        remoteStreamRef.current = remoteStream;
+    }, [remoteStream]);
+
     // cleanup stats interval
     useEffect(() => {
         return () => {
@@ -66,8 +78,8 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         console.log('[useCall] Cleaning up...');
 
         // Stop local stream tracks
-        if (localStream) {
-            localStream.getTracks().forEach(track => {
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(track => {
                 track.stop();
                 console.log('[useCall] Stopped local track:', track.kind);
             });
@@ -75,13 +87,14 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         }
 
         // Stop remote stream tracks
-        if (remoteStream) {
-            remoteStream.getTracks().forEach(track => track.stop());
+        if (remoteStreamRef.current) {
+            remoteStreamRef.current.getTracks().forEach(track => track.stop());
             setRemoteStream(null);
         }
 
         // Close peer connection
         if (peerConnectionRef.current) {
+            console.log('[useCall] Closing peer connection');
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
         }
@@ -94,7 +107,7 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         pendingCandidatesRef.current = [];
         setIncomingCallFrom(null);
         setConnectionMode('UNKNOWN');
-    }, [localStream, remoteStream]);
+    }, []);
 
     // Get user media
     const getLocalMedia = useCallback(async (): Promise<MediaStream> => {
@@ -139,12 +152,17 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
         // Handle ICE candidates
         pc.onicecandidate = (event) => {
-            if (event.candidate && socket) {
-                console.log('[useCall] Sending ICE candidate:', event.candidate.candidate?.substring(0, 50));
-                socket.emit('call:ice-candidate', {
-                    conversationId,
-                    candidate: event.candidate.toJSON()
-                });
+            if (event.candidate) {
+                console.log('[WEBRTC] Local ICE candidate:', event.candidate.type);
+                if (socket) {
+                    console.log('[useCall] Sending ICE candidate:', event.candidate.candidate?.substring(0, 50));
+                    socket.emit('call:ice-candidate', {
+                        conversationId,
+                        candidate: event.candidate.toJSON()
+                    });
+                }
+            } else {
+                console.log('[WEBRTC] ICE gathering complete');
             }
         };
 
@@ -156,7 +174,7 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
         // Handle connection state changes
         pc.onconnectionstatechange = () => {
-            console.log('[useCall] Connection state:', pc.connectionState);
+            console.log('[WEBRTC] connectionState:', pc.connectionState);
             if (pc.connectionState === 'connected') {
                 setCallState('connected');
             } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
@@ -166,7 +184,11 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         };
 
         pc.oniceconnectionstatechange = () => {
-            console.log('[useCall] ICE connection state:', pc.iceConnectionState);
+            console.log('[WEBRTC] iceConnectionState:', pc.iceConnectionState);
+        };
+
+        pc.onsignalingstatechange = () => {
+            console.log('[WEBRTC] signalingState:', pc.signalingState);
         };
 
         peerConnectionRef.current = pc;
@@ -306,9 +328,11 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
             try {
                 // Create and send offer
+                console.log('[WEBRTC] Creating offer');
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
 
+                console.log('[WEBRTC] Sending offer');
                 socket.emit('call:offer', {
                     conversationId: data.conversationId,
                     offer: pc.localDescription
@@ -320,7 +344,7 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
         // Receive SDP offer (callee)
         const handleOffer = async (data: { conversationId: string; offer: RTCSessionDescriptionInit }) => {
-            console.log('[useCall] Received offer');
+            console.log('[WEBRTC] Received offer');
             const pc = peerConnectionRef.current;
             if (!pc) return;
 
@@ -334,9 +358,11 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
                 }
                 pendingCandidatesRef.current = [];
 
+                console.log('[WEBRTC] Creating answer');
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
 
+                console.log('[WEBRTC] Sending answer');
                 socket.emit('call:answer', {
                     conversationId: data.conversationId,
                     answer: pc.localDescription
@@ -348,7 +374,7 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
         // Receive SDP answer (caller)
         const handleAnswer = async (data: { conversationId: string; answer: RTCSessionDescriptionInit }) => {
-            console.log('[useCall] Received answer');
+            console.log('[WEBRTC] Received answer');
             const pc = peerConnectionRef.current;
             if (!pc) return;
 
@@ -368,7 +394,7 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
         // Receive ICE candidate
         const handleIceCandidate = async (data: { conversationId: string; candidate: RTCIceCandidateInit }) => {
-            console.log('[useCall] Received ICE candidate');
+            console.log('[WEBRTC] Remote ICE candidate received');
             const pc = peerConnectionRef.current;
 
             if (!pc || !pc.remoteDescription) {
