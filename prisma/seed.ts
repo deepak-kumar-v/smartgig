@@ -13,7 +13,7 @@ async function main() {
         update: {},
         create: {
             id: 'demo-user-id',
-            email: 'freelancer@smartgig.com',
+            email: 'demo@smartgig.com',
             name: 'Demo Freelancer',
             role: 'FREELANCER',
             freelancerProfile: {

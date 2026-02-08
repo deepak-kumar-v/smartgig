@@ -11,6 +11,7 @@ import {
     Star, Send, ArrowLeft, CheckCircle, Clock, MessageSquare,
     RefreshCw, DollarSign, Loader2, Lock, AlertCircle
 } from 'lucide-react';
+import { useSession } from 'next-auth/react';
 
 // Mock contract data
 const mockContract = {
@@ -58,8 +59,8 @@ function StarRating({
                 >
                     <Star
                         className={`${sizeClass} transition-colors ${(hovered !== null ? star <= hovered : star <= value)
-                                ? 'fill-amber-400 text-amber-400'
-                                : 'fill-zinc-700 text-zinc-600'
+                            ? 'fill-amber-400 text-amber-400'
+                            : 'fill-zinc-700 text-zinc-600'
                             }`}
                     />
                 </button>
@@ -71,7 +72,9 @@ function StarRating({
 export default function NewReviewPage() {
     const searchParams = useSearchParams();
     const contractId = searchParams.get('contractId') || mockContract.id;
-    const [isFreelancer] = useState(false); // Toggle for demo - would come from session
+    const { data: session } = useSession();
+    const userRole = session?.user?.role ? session.user.role.toLowerCase() as 'freelancer' | 'client' | 'admin' : 'freelancer';
+    const isFreelancer = userRole === 'freelancer';
 
     const [submitting, setSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
@@ -109,7 +112,7 @@ export default function NewReviewPage() {
     // Success state
     if (submitted) {
         return (
-            <DashboardShell role={isFreelancer ? 'freelancer' : 'client'}>
+            <DashboardShell role={userRole}>
                 <div className="max-w-2xl mx-auto text-center py-12">
                     <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-6">
                         <CheckCircle className="w-10 h-10 text-emerald-400" />
@@ -140,7 +143,7 @@ export default function NewReviewPage() {
     }
 
     return (
-        <DashboardShell role={isFreelancer ? 'freelancer' : 'client'}>
+        <DashboardShell role={userRole}>
             <div className="max-w-3xl mx-auto space-y-6">
                 {/* Header */}
                 <div>
@@ -254,8 +257,8 @@ export default function NewReviewPage() {
                         <button
                             onClick={() => setWouldRecommend(true)}
                             className={`flex-1 p-4 rounded-xl border transition-all ${wouldRecommend === true
-                                    ? 'border-emerald-500 bg-emerald-500/10'
-                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                                ? 'border-emerald-500 bg-emerald-500/10'
+                                : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
                                 }`}
                         >
                             <span className="text-3xl mb-2">👍</span>
@@ -266,8 +269,8 @@ export default function NewReviewPage() {
                         <button
                             onClick={() => setWouldRecommend(false)}
                             className={`flex-1 p-4 rounded-xl border transition-all ${wouldRecommend === false
-                                    ? 'border-rose-500 bg-rose-500/10'
-                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                                ? 'border-rose-500 bg-rose-500/10'
+                                : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
                                 }`}
                         >
                             <span className="text-3xl mb-2">👎</span>

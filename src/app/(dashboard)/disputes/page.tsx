@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
@@ -69,6 +70,8 @@ const reasonLabels: Record<string, string> = {
 };
 
 export default function DisputesListPage() {
+    const { data: session } = useSession();
+    const userRole = session?.user?.role ? session.user.role.toLowerCase() as 'freelancer' | 'client' | 'admin' : 'freelancer';
     const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all');
     const [searchQuery, setSearchQuery] = useState('');
 
@@ -85,7 +88,7 @@ export default function DisputesListPage() {
     const resolvedCount = disputes.filter(d => d.status === 'RESOLVED').length;
 
     return (
-        <DashboardShell role="freelancer">
+        <DashboardShell role={userRole}>
             <div className="max-w-5xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -152,8 +155,8 @@ export default function DisputesListPage() {
                                     key={f}
                                     onClick={() => setFilter(f as typeof filter)}
                                     className={`px-4 py-2 rounded-lg text-sm transition-all ${filter === f
-                                            ? 'bg-indigo-500 text-white'
-                                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                                        ? 'bg-indigo-500 text-white'
+                                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                                         }`}
                                 >
                                     {f.charAt(0).toUpperCase() + f.slice(1)}

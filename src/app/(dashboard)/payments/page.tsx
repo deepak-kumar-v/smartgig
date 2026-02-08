@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
@@ -35,7 +36,8 @@ export default function PaymentsPage() {
     const [paymentMethods, setPaymentMethodsList] = useState<PaymentMethod[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<LedgerTransactionType | 'all'>('all');
-    const [isFreelancer] = useState(true);
+    const { data: session } = useSession();
+    const userRole = session?.user?.role ? session.user.role.toLowerCase() as 'freelancer' | 'client' | 'admin' : 'freelancer';
 
     useEffect(() => {
         async function loadData() {
@@ -59,7 +61,7 @@ export default function PaymentsPage() {
 
     if (loading || !wallet) {
         return (
-            <DashboardShell role={isFreelancer ? 'freelancer' : 'client'}>
+            <DashboardShell role={userRole}>
                 <div className="flex items-center justify-center min-h-[60vh]">
                     <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
                 </div>
@@ -68,7 +70,7 @@ export default function PaymentsPage() {
     }
 
     return (
-        <DashboardShell role={isFreelancer ? 'freelancer' : 'client'}>
+        <DashboardShell role={userRole}>
             <div className="max-w-6xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">

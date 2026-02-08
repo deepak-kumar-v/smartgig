@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassInput } from '@/components/ui/glass-input';
@@ -17,6 +18,8 @@ export default function SecuritySettingsPage() {
     const [otp, setOtp] = useState('');
     const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
     const [loginHistory, setLoginHistory] = useState<any[]>([]);
+    const { data: session } = useSession();
+    const userRole = session?.user?.role ? session.user.role.toLowerCase() as 'freelancer' | 'client' | 'admin' : 'freelancer';
 
     React.useEffect(() => {
         getLoginHistory().then(setLoginHistory);
@@ -57,7 +60,7 @@ export default function SecuritySettingsPage() {
     };
 
     return (
-        <DashboardShell role="freelancer"> {/* Role is dynamic ideally, but shell fits all */}
+        <DashboardShell role={userRole}> {/* Role is dynamic ideally, but shell fits all */}
             <div className="mb-8">
                 <h1 className="text-2xl font-bold text-white mb-2">Security Settings</h1>
                 <p className="text-zinc-400">Manage your password, 2FA, and active sessions.</p>

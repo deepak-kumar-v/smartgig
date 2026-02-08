@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
@@ -34,6 +35,8 @@ export default function WithdrawPage() {
     const [selectedMethod, setSelectedMethod] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const { data: session } = useSession();
+    const userRole = session?.user?.role ? session.user.role.toLowerCase() as 'freelancer' | 'client' | 'admin' : 'freelancer';
 
     const minWithdrawal = 50;
     const withdrawalFee = 2.50;
@@ -70,7 +73,7 @@ export default function WithdrawPage() {
             amount: parsedAmount,
             paymentMethodId: selectedMethod,
             userId: 'user-1',
-            userRole: 'FREELANCER',
+            userRole: userRole.toUpperCase() as any,
         });
 
         if (result.success) {
@@ -92,7 +95,7 @@ export default function WithdrawPage() {
 
     if (loading || !wallet) {
         return (
-            <DashboardShell role="freelancer">
+            <DashboardShell role={userRole}>
                 <div className="flex items-center justify-center min-h-[60vh]">
                     <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
                 </div>
@@ -101,7 +104,7 @@ export default function WithdrawPage() {
     }
 
     return (
-        <DashboardShell role="freelancer">
+        <DashboardShell role={userRole}>
             <div className="max-w-2xl mx-auto space-y-6">
                 {/* Header */}
                 <div>

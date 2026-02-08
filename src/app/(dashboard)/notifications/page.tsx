@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
@@ -91,6 +92,8 @@ const typeConfig: Record<string, { icon: React.ElementType; color: string; bg: s
 type FilterType = 'all' | 'unread' | 'contract' | 'payment' | 'job' | 'message';
 
 export default function NotificationsPage() {
+    const { data: session } = useSession();
+    const userRole = session?.user?.role ? session.user.role.toLowerCase() as 'freelancer' | 'client' | 'admin' : 'freelancer';
     const [filter, setFilter] = useState<FilterType>('all');
     const [notificationList, setNotificationList] = useState(notifications);
 
@@ -124,7 +127,7 @@ export default function NotificationsPage() {
     ];
 
     return (
-        <DashboardShell role="freelancer">
+        <DashboardShell role={userRole}>
             <div className="max-w-4xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -160,8 +163,8 @@ export default function NotificationsPage() {
                             key={f.value}
                             onClick={() => setFilter(f.value)}
                             className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-all ${filter === f.value
-                                    ? 'bg-indigo-500 text-white'
-                                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                                ? 'bg-indigo-500 text-white'
+                                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                                 }`}
                         >
                             {f.label}

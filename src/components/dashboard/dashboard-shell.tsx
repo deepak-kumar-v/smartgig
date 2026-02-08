@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { signOut } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Logo } from '@/components/ui/logo';
 import { LayoutDashboard, Briefcase, FileText, MessageSquare, Settings, LogOut, Bell, Search, Menu, User, Image, Shield, Users, AlertTriangle, Wallet, Receipt, ArrowDownToLine, Star, Video } from 'lucide-react';
@@ -60,10 +60,50 @@ interface DashboardShellProps {
     role?: 'freelancer' | 'client' | 'admin';
 }
 
-export function DashboardShell({ children, role = 'freelancer' }: DashboardShellProps) {
+function getRoleFromPath(pathname: string): 'freelancer' | 'client' | 'admin' | null {
+    if (pathname.startsWith('/client')) return 'client';
+    if (pathname.startsWith('/freelancer')) return 'freelancer';
+    if (pathname.startsWith('/admin')) return 'admin';
+    return null;
+}
+
+function getInitials(name: string) {
+    return name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
+}
+
+export function DashboardShell({ children, role: initialRole = 'freelancer' }: DashboardShellProps) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const pathname = usePathname();
-    const menu = navItems[role as keyof typeof navItems] || navItems.freelancer;
+    const router = useRouter();
+    const { data: session, status } = useSession();
+
+    // STRICT: Derive role from URL first to prevent flicker
+    const pathRole = getRoleFromPath(pathname);
+    const effectiveRole = pathRole || initialRole;
+
+    // Debug log
+    console.log(`[SIDEBAR] pathname=${pathname}`);
+    console.log(`[SIDEBAR] resolvedRole=${effectiveRole}`);
+
+    const menu = navItems[effectiveRole as keyof typeof navItems] || navItems.freelancer;
+
+    // Handle user card click
+    const handleUserClick = () => {
+        if (effectiveRole === 'freelancer') router.push('/freelancer/settings');
+        else if (effectiveRole === 'client') router.push('/settings/security'); // Client has /settings/security
+        else if (effectiveRole === 'admin') router.push('/admin/dashboard'); // Admin fallback
+    };
+
+    const userInitials = session?.user?.name ? getInitials(session.user.name) : '??';
+    const userName = session?.user?.name || 'User';
+    const userRoleLabel = session?.user?.role
+        ? session.user.role.charAt(0).toUpperCase() + session.user.role.slice(1).toLowerCase()
+        : effectiveRole.charAt(0).toUpperCase() + effectiveRole.slice(1).toLowerCase();
 
     return (
         <div className="min-h-screen bg-background flex">
@@ -73,10 +113,10 @@ export function DashboardShell({ children, role = 'freelancer' }: DashboardShell
                     <Logo />
                 </div>
 
-                <div className="flex-1 px-4 space-y-2 mt-4">
+                <div className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                     <div className="text-xs font-medium text-white/30 px-3 uppercase tracking-wider mb-2">Menu</div>
                     {menu.map((item) => {
-                        const isActive = pathname === item.href;
+                        const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                         return (
                             <Link key={item.href} href={item.href}>
                                 <div className={cn(
@@ -94,21 +134,52 @@ export function DashboardShell({ children, role = 'freelancer' }: DashboardShell
                 </div>
 
                 <div className="p-4 mt-auto border-t border-white/5">
-                    <div className="flex items-center gap-3 p-2 rounded-xl bg-white/5 border border-white/5">
-                        <div className="w-8 h-8 rounded-full bg-indigo-500 gradient-avatar flex items-center justify-center text-xs font-bold">AK</div>
-                        <div className="overflow-hidden">
-                            <div className="text-sm text-white font-medium truncate">Alex Knight</div>
-                            <div className="text-xs text-white/40 truncate">Freelancer</div>
+                    {status === 'loading' ? (
+                        // Skeleton Loader
+                        <div className="flex items-center gap-3 p-2 rounded-xl bg-white/5 border border-white/5 animate-pulse">
+                            <div className="w-8 h-8 rounded-full bg-white/10" />
+                            <div className="flex-1 space-y-2">
+                                <div className="h-3 w-20 bg-white/10 rounded" />
+                                <div className="h-2 w-12 bg-white/10 rounded" />
+                            </div>
                         </div>
-                        <Settings className="w-4 h-4 ml-auto text-white/30 cursor-pointer hover:text-white" />
-                        <button
-                            onClick={() => signOut({ callbackUrl: '/login' })}
-                            className="p-1.5 text-white/30 hover:text-rose-400 transition-colors"
-                            title="Sign Out"
+                    ) : session ? (
+                        // Real User Card
+                        <div
+                            className="flex items-center gap-3 p-2 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors group"
+                            onClick={handleUserClick}
                         >
-                            <LogOut className="w-4 h-4" />
-                        </button>
-                    </div>
+                            <div className="w-8 h-8 rounded-full bg-indigo-500 gradient-avatar flex items-center justify-center text-xs font-bold text-white shrink-0">
+                                {userInitials}
+                            </div>
+                            <div className="overflow-hidden flex-1 min-w-0">
+                                <div className="text-sm text-white font-medium truncate group-hover:text-indigo-300 transition-colors">
+                                    {userName}
+                                </div>
+                                <div className="text-xs text-white/40 truncate capitalize">
+                                    {userRoleLabel}
+                                </div>
+                            </div>
+                            <Settings className="w-4 h-4 ml-auto text-white/30 group-hover:text-indigo-400 transition-colors shrink-0" />
+                            <div className="mx-1 w-px h-4 bg-white/10 shrink-0" />
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    signOut({ callbackUrl: '/login' });
+                                }}
+                                className="p-1.5 text-white/30 hover:text-rose-400 transition-colors rounded-lg hover:bg-white/5 shrink-0"
+                                title="Sign Out"
+                            >
+                                <LogOut className="w-4 h-4" />
+                            </button>
+                        </div>
+                    ) : (
+                        // Fallback (Should happen only briefly during redirect)
+                        <div className="flex items-center gap-3 p-2 rounded-xl bg-white/5 border border-white/5 opacity-50">
+                            <div className="w-8 h-8 rounded-full bg-white/10" />
+                            <div className="text-xs text-white/40">Not signed in</div>
+                        </div>
+                    )}
                 </div>
             </aside>
 
@@ -124,12 +195,12 @@ export function DashboardShell({ children, role = 'freelancer' }: DashboardShell
                         />
                         <motion.div
                             initial={{ x: -300 }} animate={{ x: 0 }} exit={{ x: -300 }}
-                            className="fixed inset-y-0 left-0 z-50 w-64 bg-[#0a0a0a] border-r border-white/10 lg:hidden p-4"
+                            className="fixed inset-y-0 left-0 z-50 w-64 bg-[#0a0a0a] border-r border-white/10 lg:hidden p-4 flex flex-col items-stretch"
                             role="dialog"
                             aria-modal="true"
                             aria-label="Mobile Navigation"
                         >
-                            <div className="flex justify-between items-center mb-8">
+                            <div className="flex justify-between items-center mb-8 shrink-0">
                                 <Logo />
                                 <button
                                     onClick={() => setSidebarOpen(false)}
@@ -139,8 +210,9 @@ export function DashboardShell({ children, role = 'freelancer' }: DashboardShell
                                     <LogOut className="w-5 h-5 text-white/50" />
                                 </button>
                             </div>
-                            {/* Mobile Menu Items Repeated */}
-                            <nav className="space-y-2">
+
+                            {/* Mobile Menu Items - Scrollable area */}
+                            <nav className="space-y-2 flex-1 overflow-y-auto mb-4">
                                 {menu.map((item) => (
                                     <Link key={item.href} href={item.href} onClick={() => setSidebarOpen(false)}>
                                         <div className="flex items-center gap-3 px-3 py-3 rounded-lg text-white/70 hover:bg-white/10">
@@ -149,16 +221,35 @@ export function DashboardShell({ children, role = 'freelancer' }: DashboardShell
                                         </div>
                                     </Link>
                                 ))}
-                                <div className="pt-4 mt-4 border-t border-white/10">
-                                    <button
-                                        onClick={() => signOut({ callbackUrl: '/login' })}
-                                        className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-rose-400 hover:bg-white/10 transition-colors"
-                                    >
-                                        <LogOut className="w-5 h-5" />
-                                        Log Out
-                                    </button>
-                                </div>
                             </nav>
+
+                            {/* Mobile Footer Area - Pinned to bottom */}
+                            <div className="pt-4 mt-auto border-t border-white/10 shrink-0">
+                                {session && (
+                                    <div
+                                        className="flex items-center gap-3 p-3 rounded-lg bg-white/5 mb-3 cursor-pointer"
+                                        onClick={() => {
+                                            setSidebarOpen(false);
+                                            handleUserClick();
+                                        }}
+                                    >
+                                        <div className="w-8 h-8 rounded-full bg-indigo-500 gradient-avatar flex items-center justify-center text-xs font-bold text-white">
+                                            {userInitials}
+                                        </div>
+                                        <div>
+                                            <div className="text-sm text-white font-medium">{userName}</div>
+                                            <div className="text-xs text-white/40 capitalize">{userRoleLabel}</div>
+                                        </div>
+                                    </div>
+                                )}
+                                <button
+                                    onClick={() => signOut({ callbackUrl: '/login' })}
+                                    className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-rose-400 hover:bg-white/10 transition-colors"
+                                >
+                                    <LogOut className="w-5 h-5" />
+                                    Log Out
+                                </button>
+                            </div>
                         </motion.div>
                     </>
                 )}
