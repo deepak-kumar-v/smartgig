@@ -1,10 +1,13 @@
 import NextAuth from "next-auth"
 import authConfig from "./auth.config"
 import { PrismaAdapter } from "@auth/prisma-adapter"
+
 import { db } from "@/lib/db"
 import Credentials from "next-auth/providers/credentials"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
+import { cookies } from "next/headers"
+
 
 export const {
     handlers: { GET, POST },
@@ -72,12 +75,67 @@ export const {
                 return null;
             }
         })
+
     ],
     callbacks: {
-        async session({ session, token }) {
+        async signIn({ user, account }: any) {
+            // Skip for Credentials provider
+            if (account && account.provider === 'credentials') return true;
+
+            // Demo User Loophole - allow always
+            if (user.email === "demo@smartgig.com" || user.email === "client@smartgig.com" || user.email === "admin@smartgig.com") {
+                return true;
+            }
+
+            try {
+                // Determine Entry Context (Login vs Signup)
+                const cookieStore = await cookies(); // Next.js 15
+                const context = cookieStore.get('auth_context')?.value || 'login';
+
+                // Check Pre-Existing User Status (Before Adapter creates)
+                const existingUser = await db.user.findUnique({
+                    where: { email: user.email! },
+                    select: { id: true, role: true }
+                });
+
+                const userExists = !!existingUser;
+                const hasRole = !!existingUser?.role; // Should always be true if user exists (default: FREELANCER)
+
+                console.log(`[AUTH FLOW] provider=${account?.provider} entry=${context} userExists=${userExists} role=${existingUser?.role} email=${user.email}`);
+
+
+                if (context === 'signup') {
+                    if (userExists) {
+                        // User exists, but clicked Signup.
+                        // We allow login, but notify them.
+                        cookieStore.set('oauth_flash', 'account_exists_login', { path: '/', maxAge: 10, httpOnly: false });
+                    } else {
+                        // New User Signing Up.
+                        // Allow creation.
+                        // No flash needed, normal onboarding flow takes over.
+                    }
+                } else if (context === 'login') {
+                    if (!userExists) {
+                        // User does not exist, but clicked Login.
+                        // We allow creation (standard OAuth behavior).
+                        // Notify them we created an account.
+                        cookieStore.set('oauth_flash', 'new_account_created', { path: '/', maxAge: 10, httpOnly: false });
+                    }
+                }
+
+
+                return true;
+            } catch (error) {
+                console.error("SignIn Callback Error:", error);
+                return true; // Fail safe to allow login? Or false to block?
+                // Returning true allows NextAuth to handle error or continue.
+            }
+        },
+        async session({ session, token }: any) {
             if (token.sub && session.user) {
                 session.user.id = token.sub;
             }
+
             if (token.role && session.user) {
                 session.user.role = token.role as "FREELANCER" | "CLIENT" | "ADMIN";
             }

@@ -66,7 +66,7 @@ export default function LoginPage() {
                     <p className="text-white/50 text-sm">Enter your credentials to access your workspace.</p>
                 </div>
 
-                <SocialLogin />
+                <SocialLogin context="login" />
                 <SocialLoginDivider />
 
                 <form action={handleSubmit} className="space-y-6">

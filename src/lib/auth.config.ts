@@ -2,11 +2,25 @@ import type { NextAuthConfig } from "next-auth"
 import Google from "next-auth/providers/google"
 import GitHub from "next-auth/providers/github"
 
+
+const googleClientId = process.env.GOOGLE_CLIENT_ID;
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+if (!googleClientId) throw new Error("Missing GOOGLE_CLIENT_ID");
+if (!googleClientSecret) throw new Error("Missing GOOGLE_CLIENT_SECRET");
+
 export default {
     providers: [
         Google({
-            clientId: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            clientId: googleClientId,
+            clientSecret: googleClientSecret,
+            authorization: {
+                params: {
+                    prompt: "consent",
+                    access_type: "offline",
+                    response_type: "code"
+                }
+            }
         }),
         GitHub({
             clientId: process.env.GITHUB_CLIENT_ID,

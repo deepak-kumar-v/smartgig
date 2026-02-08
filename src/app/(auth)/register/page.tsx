@@ -78,7 +78,7 @@ export default function RegisterPage() {
                     <p className="text-white/50 text-sm">Create your account to start building.</p>
                 </div>
 
-                <SocialLogin />
+                <SocialLogin context="signup" />
                 <SocialLoginDivider />
 
                 {/* Role Toggle */}

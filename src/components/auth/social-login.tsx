@@ -5,7 +5,13 @@ import { GlassButton } from '@/components/ui/glass-button';
 import { Github, Mail } from 'lucide-react';
 import { loginWithGoogle, loginWithGithub } from '@/actions/auth-actions';
 
-export function SocialLogin() {
+
+export function SocialLogin({ context = 'login' }: { context?: 'login' | 'signup' }) {
+    // Determine the Google login action with bound context
+    // Since server actions can be passed directly to form `action`, 
+    // we need to wrap it to pass arguments if we want to bind it.
+    // Ideally use bind(), but simple wrapper works.
+
     return (
         <div className="flex gap-4">
             <form action={loginWithGithub} className="w-full">
@@ -13,7 +19,12 @@ export function SocialLogin() {
                     <Github className="w-4 h-4 mr-2" /> GitHub
                 </GlassButton>
             </form>
-            <form action={loginWithGoogle} className="w-full">
+            <form
+                action={async () => {
+                    await loginWithGoogle(context);
+                }}
+                className="w-full"
+            >
                 <GlassButton variant="secondary" className="w-full text-xs h-10 border-white/10 hover:bg-white/5" data-testid="login-google-btn">
                     <Mail className="w-4 h-4 mr-2" /> Google
                 </GlassButton>
@@ -21,6 +32,7 @@ export function SocialLogin() {
         </div>
     );
 }
+
 
 export function SocialLoginDivider() {
     return (

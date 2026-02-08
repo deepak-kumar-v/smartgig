@@ -1,10 +1,13 @@
 'use server';
 
+
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 import { signIn } from '@/lib/auth';
 import { AuthError } from 'next-auth';
+import { cookies } from 'next/headers';
+
 
 const RegisterSchema = z.object({
     email: z.string().email({ message: "Invalid email address" }),
@@ -124,7 +127,8 @@ export async function loginUser(prevState: string | undefined, formData: FormDat
     }
 }
 
-export async function loginWithGoogle() {
+export async function loginWithGoogle(context: 'login' | 'signup' = 'login') {
+    (await cookies()).set('auth_context', context, { path: '/', maxAge: 300 }); // 5 min expiry
     await signIn('google', { redirectTo: '/dashboard' });
 }
 
