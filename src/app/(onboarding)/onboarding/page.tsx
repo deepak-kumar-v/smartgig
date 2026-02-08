@@ -8,11 +8,13 @@ import { User, Briefcase, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { completeOnboarding } from '@/actions/onboarding-actions';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 
 export default function OnboardingPage() {
     const [role, setRole] = useState<'FREELANCER' | 'CLIENT' | null>(null);
     const [isPending, startTransition] = useTransition();
     const router = useRouter();
+    const { update } = useSession();
 
     const handleContinue = () => {
         if (!role) return;
@@ -20,6 +22,9 @@ export default function OnboardingPage() {
         startTransition(async () => {
             const res = await completeOnboarding(role);
             if (res.success) {
+                // FORCE SESSION REFRESH: Ensure the browser cookie receives the new role
+                // This prevents Middleware from seeing the old "FREELANCER" default role
+                await update();
                 router.push('/dashboard');
             }
         });

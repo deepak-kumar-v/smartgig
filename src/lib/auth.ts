@@ -82,9 +82,13 @@ export const {
             // Skip for Credentials provider
             if (account && account.provider === 'credentials') return true;
 
-            // Demo User Loophole - allow always
-            if (user.email === "demo@smartgig.com" || user.email === "client@smartgig.com" || user.email === "admin@smartgig.com") {
-                return true;
+            // Strict Demo Check - Prevent Google OAuth from accessing demo accounts
+            if (['demo@smartgig.com', 'client@smartgig.com', 'admin@smartgig.com'].includes(user.email)) {
+                if (account?.provider === 'google') {
+                    console.error('[AUTH ERROR] Attempted Google login with Demo email:', user.email);
+                    return false; // Blocking
+                }
+                return true; // Allow for Credentials
             }
 
             try {
@@ -101,8 +105,14 @@ export const {
                 const userExists = !!existingUser;
                 const hasRole = !!existingUser?.role; // Should always be true if user exists (default: FREELANCER)
 
-                console.log(`[AUTH FLOW] provider=${account?.provider} entry=${context} userExists=${userExists} role=${existingUser?.role} email=${user.email}`);
-
+                console.log('[OAUTH DEBUG]', {
+                    provider: account?.provider,
+                    email: user.email,
+                    userCreated: userExists, // User exists BEFORE this sign in?
+                    accountCreated: false, // Can't know yet
+                    resolvedUserId: existingUser?.id || 'new-user',
+                    isDemo: false
+                });
 
                 if (context === 'signup') {
                     if (userExists) {
@@ -122,12 +132,10 @@ export const {
                     }
                 }
 
-
                 return true;
             } catch (error) {
-                console.error("SignIn Callback Error:", error);
-                return true; // Fail safe to allow login? Or false to block?
-                // Returning true allows NextAuth to handle error or continue.
+                console.error("SignIn Callback Error - Blocking Login:", error);
+                return false; // Blocking on DB error to prevent ghost sessions
             }
         },
         async session({ session, token }: any) {
@@ -173,21 +181,19 @@ export const {
                 return token;
             }
 
-            // Only fetch from DB if role not already set
-            if (!token.role) {
-                try {
-                    const existingUser = await db.user.findUnique({
-                        where: { id: token.sub }
-                    });
+            // Always fetch up-to-date role from DB (Fixes Onboarding Stale Session)
+            try {
+                const existingUser = await db.user.findUnique({
+                    where: { id: token.sub },
+                    select: { role: true }
+                });
 
-                    if (existingUser) {
-                        token.role = existingUser.role as "FREELANCER" | "CLIENT" | "ADMIN";
-                        console.log('[Auth JWT] Fetched role from DB:', token.role);
-                    }
-                } catch (error) {
-                    // DB Offline - Retain existing token data
-                    console.error("[Auth JWT] DB Error - using cached token data");
+                if (existingUser) {
+                    token.role = existingUser.role as "FREELANCER" | "CLIENT" | "ADMIN";
                 }
+            } catch (error) {
+                // DB Offline - Retain existing token data from initial sign in
+                console.error("[Auth JWT] DB Error - using cached token data");
             }
 
             return token;
