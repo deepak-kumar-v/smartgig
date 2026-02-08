@@ -4,7 +4,7 @@ import './globals.css'
 import { SecurityProvider } from '@/components/providers/security-provider';
 import { Providers } from '@/providers/providers';
 import { Toaster } from 'sonner';
-import { OAuthFlashListener } from '@/components/auth/oauth-flash-listener';
+import { OAuthBanner } from '@/components/auth/oauth-banner';
 
 const manrope = Manrope({ subsets: ['latin'], variable: '--font-manrope' })
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
@@ -24,7 +24,7 @@ export default function RootLayout({
             <body className={`${manrope.variable} ${inter.variable} font-sans bg-background text-foreground overflow-x-hidden selection:bg-indigo-500/30`}>
                 <Providers>
                     <SecurityProvider>
-                        <OAuthFlashListener />
+                        <OAuthBanner />
                         {children}
                         <Toaster position="top-center" richColors theme="dark" />
                     </SecurityProvider>

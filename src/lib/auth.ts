@@ -107,19 +107,18 @@ export const {
                 if (context === 'signup') {
                     if (userExists) {
                         // User exists, but clicked Signup.
-                        // We allow login, but notify them.
                         cookieStore.set('oauth_flash', 'account_exists_login', { path: '/', maxAge: 10, httpOnly: false });
                     } else {
                         // New User Signing Up.
-                        // Allow creation.
-                        // No flash needed, normal onboarding flow takes over.
+                        cookieStore.set('oauth_flash', 'signup_new', { path: '/', maxAge: 10, httpOnly: false });
                     }
                 } else if (context === 'login') {
                     if (!userExists) {
                         // User does not exist, but clicked Login.
-                        // We allow creation (standard OAuth behavior).
-                        // Notify them we created an account.
                         cookieStore.set('oauth_flash', 'new_account_created', { path: '/', maxAge: 10, httpOnly: false });
+                    } else {
+                        // User exists and clicked Login.
+                        cookieStore.set('oauth_flash', 'login_existing', { path: '/', maxAge: 10, httpOnly: false });
                     }
                 }
 
