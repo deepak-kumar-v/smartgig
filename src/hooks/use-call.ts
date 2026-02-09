@@ -183,10 +183,32 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
                 channelCount: 1,  // Mono is sufficient for voice
             };
 
+            // Video constraints for quality (only when video call)
+            const videoConstraints: MediaTrackConstraints | boolean = type === 'video' ? {
+                width: { ideal: 1280, max: 1920 },   // 720p ideal, up to 1080p
+                height: { ideal: 720, max: 1080 },
+                frameRate: { ideal: 30, max: 30 },   // Stable 30fps
+                facingMode: 'user',                   // Front camera
+            } : false;
+
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: type === 'video',
+                video: videoConstraints,
                 audio: audioConstraints
             });
+
+            // Debug: Log video track settings
+            if (type === 'video') {
+                const videoTrack = stream.getVideoTracks()[0];
+                if (videoTrack) {
+                    const settings = videoTrack.getSettings();
+                    console.log('[useCall] Video track settings:', {
+                        width: settings.width,
+                        height: settings.height,
+                        frameRate: settings.frameRate,
+                        facingMode: settings.facingMode,
+                    });
+                }
+            }
 
             // Debug: Log audio track settings
             const audioTrack = stream.getAudioTracks()[0];

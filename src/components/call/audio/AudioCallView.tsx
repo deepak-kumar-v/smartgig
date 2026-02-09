@@ -112,7 +112,7 @@ export function AudioCallView({
     if (!isOpen) return null;
 
     const isConnected = callState === 'connected';
-    const isConnecting = callState === 'calling' || callState === 'connecting';
+    const isConnecting = callState === 'connecting';
     const isRinging = callState === 'ringing';
     const hasError = callState === 'error';
 

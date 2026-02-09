@@ -77,7 +77,7 @@ export function VideoCallView({
     if (!isOpen) return null;
 
     const isConnected = callState === 'connected';
-    const isConnecting = callState === 'calling' || callState === 'connecting';
+    const isConnecting = callState === 'connecting';
     const isRinging = callState === 'ringing';
     const hasError = callState === 'error';
 
@@ -139,7 +139,7 @@ export function VideoCallView({
                             ref={remoteVideoRef}
                             autoPlay
                             playsInline
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-contain bg-black"
                         />
                     ) : (
                         <div className="w-full h-full flex items-center justify-center bg-zinc-900">
@@ -190,7 +190,7 @@ export function VideoCallView({
                                 autoPlay
                                 playsInline
                                 muted
-                                className="w-full h-full object-cover mirror"
+                                className="w-full h-full object-contain bg-zinc-900"
                                 style={{ transform: 'scaleX(-1)' }}
                             />
                             {isCameraOff && (
