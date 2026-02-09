@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Phone, PhoneOff, Mic, MicOff,
@@ -11,6 +11,7 @@ import { CallState, ConnectionMode } from '@/hooks/use-call';
 interface AudioCallViewProps {
     isOpen: boolean;
     callState: CallState;
+    remoteStream: MediaStream | null;  // ADDED: Required to play remote audio
     isMuted: boolean;
     error: string | null;
     incomingCallFrom: string | null;
@@ -26,6 +27,7 @@ interface AudioCallViewProps {
 export function AudioCallView({
     isOpen,
     callState,
+    remoteStream,  // ADDED
     isMuted,
     error,
     incomingCallFrom,
@@ -37,6 +39,37 @@ export function AudioCallView({
     connectionMode,
     callDuration
 }: AudioCallViewProps) {
+    // Remote audio playback
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Attach remote stream to audio element and play
+    useEffect(() => {
+        if (remoteStream && remoteStream.getAudioTracks().length > 0) {
+            // Create audio element if it doesn't exist
+            if (!audioRef.current) {
+                audioRef.current = new Audio();
+                audioRef.current.autoplay = true;
+            }
+
+            audioRef.current.srcObject = remoteStream;
+
+            // Play with user gesture (Accept Call was already clicked)
+            audioRef.current.play().catch(err => {
+                console.error('[AudioCallView] Failed to play remote audio:', err);
+            });
+
+            console.log('[AudioCallView] Remote audio stream attached and playing');
+        }
+
+        // Cleanup on unmount or stream change
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.srcObject = null;
+            }
+        };
+    }, [remoteStream]);
+
     if (!isOpen) return null;
 
     const isConnected = callState === 'connected';
@@ -55,6 +88,7 @@ export function AudioCallView({
         }
         return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
+
 
     return (
         <AnimatePresence>

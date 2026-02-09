@@ -210,6 +210,10 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
     const createPeerConnection = useCallback((conversationId: string) => {
         const pc = new RTCPeerConnection({ iceServers });
 
+        // Create a MediaStream to collect remote tracks
+        // This is more reliable than relying on event.streams[0]
+        const remoteMediaStream = new MediaStream();
+
         // Handle ICE candidates
         pc.onicecandidate = (event) => {
             if (event.candidate) {
@@ -222,10 +226,21 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
             }
         };
 
-        // Handle remote stream
+        // Handle remote stream - FIX: Use event.track directly
         pc.ontrack = (event) => {
-            console.log('[useCall] Received remote track:', event.track.kind);
-            setRemoteStream(event.streams[0]);
+            console.log('[useCall] Received remote track:', event.track.kind, 'readyState:', event.track.readyState);
+
+            // Add the track to our MediaStream
+            remoteMediaStream.addTrack(event.track);
+
+            // Update the remote stream state
+            // We create a new reference to trigger React state update
+            setRemoteStream(new MediaStream(remoteMediaStream.getTracks()));
+
+            console.log('[useCall] Remote stream now has tracks:',
+                'audio:', remoteMediaStream.getAudioTracks().length,
+                'video:', remoteMediaStream.getVideoTracks().length
+            );
         };
 
         // Handle connection state changes
