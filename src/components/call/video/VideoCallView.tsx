@@ -4,11 +4,11 @@ import React, { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Phone, PhoneOff, Mic, MicOff, Video, VideoOff,
-    X, User, Loader2, AlertCircle
+    X, Loader2, AlertCircle
 } from 'lucide-react';
 import { CallState, ConnectionMode } from '@/hooks/use-call';
 
-interface VideoCallModalProps {
+interface VideoCallViewProps {
     isOpen: boolean;
     callState: CallState;
     localStream: MediaStream | null;
@@ -24,9 +24,10 @@ interface VideoCallModalProps {
     onToggleMute: () => void;
     onToggleCamera: () => void;
     connectionMode: ConnectionMode;
+    callDuration: number;
 }
 
-export function VideoCallModal({
+export function VideoCallView({
     isOpen,
     callState,
     localStream,
@@ -41,19 +42,32 @@ export function VideoCallModal({
     onEnd,
     onToggleMute,
     onToggleCamera,
-    connectionMode
-}: VideoCallModalProps) {
+    connectionMode,
+    callDuration
+}: VideoCallViewProps) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
-    // Attach local stream to video element
+    // Format duration helper
+    const formatDuration = (seconds: number) => {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+
+        if (h > 0) {
+            return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    };
+
+    // Attach local stream
     useEffect(() => {
         if (localVideoRef.current && localStream) {
             localVideoRef.current.srcObject = localStream;
         }
     }, [localStream]);
 
-    // Attach remote stream to video element
+    // Attach remote stream
     useEffect(() => {
         if (remoteVideoRef.current && remoteStream) {
             remoteVideoRef.current.srcObject = remoteStream;
@@ -84,9 +98,15 @@ export function VideoCallModal({
                         <div>
                             <p className="text-white font-medium">{otherParticipantName}</p>
                             <p className="text-zinc-400 text-sm">
-                                {isRinging && 'Incoming call...'}
+                                {isRinging && 'Incoming Video Call'}
                                 {isConnecting && 'Connecting...'}
-                                {isConnected && 'Connected'}
+                                {isConnected && (
+                                    <span className="flex items-center gap-2">
+                                        <span className="text-emerald-400">Video Call</span>
+                                        <span className="w-1 h-1 rounded-full bg-zinc-600" />
+                                        <span className="text-zinc-300 font-mono">{formatDuration(callDuration)}</span>
+                                    </span>
+                                )}
                                 {hasError && 'Call failed'}
                             </p>
                         </div>
@@ -96,10 +116,10 @@ export function VideoCallModal({
                         {/* Connection Mode Badge */}
                         {isConnected && connectionMode !== 'UNKNOWN' && (
                             <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${connectionMode === 'TURN'
-                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                    : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                 }`}>
-                                {connectionMode === 'TURN' ? 'Relayed (TURN)' : 'Direct (STUN)'}
+                                {connectionMode === 'TURN' ? 'Relayed' : 'Direct'}
                             </div>
                         )}
                         <button
@@ -114,7 +134,7 @@ export function VideoCallModal({
                 {/* Main Video Area */}
                 <div className="flex-1 relative overflow-hidden">
                     {/* Remote Video (Full Screen) */}
-                    {remoteStream ? (
+                    {remoteStream && remoteStream.getVideoTracks().length > 0 ? (
                         <video
                             ref={remoteVideoRef}
                             autoPlay
@@ -133,7 +153,7 @@ export function VideoCallModal({
                                         {otherParticipantName.split(' ').map(n => n[0]).join('').slice(0, 2) || '?'}
                                     </motion.div>
                                     <p className="text-white text-xl mb-2">{otherParticipantName}</p>
-                                    <p className="text-zinc-400">wants to video call</p>
+                                    <p className="text-zinc-400">Incoming Video Call</p>
                                 </div>
                             ) : isConnecting ? (
                                 <div className="text-center">
@@ -147,15 +167,19 @@ export function VideoCallModal({
                                 </div>
                             ) : (
                                 <div className="text-center">
-                                    <User className="w-24 h-24 text-zinc-700 mx-auto mb-4" />
-                                    <p className="text-zinc-500">Waiting for video...</p>
+                                    <div className="w-32 h-32 rounded-full bg-gradient-to-br from-zinc-700 to-zinc-600 flex items-center justify-center text-5xl font-bold text-white mx-auto mb-6 shadow-2xl">
+                                        {otherParticipantName.split(' ').map(n => n[0]).join('').slice(0, 2) || '?'}
+                                    </div>
+                                    <p className="text-zinc-400 text-lg animate-pulse">
+                                        Waiting for video...
+                                    </p>
                                 </div>
                             )}
                         </div>
                     )}
 
                     {/* Local Video (Picture-in-Picture) */}
-                    {localStream && (
+                    {localStream && localStream.getVideoTracks().length > 0 && (
                         <motion.div
                             initial={{ opacity: 0, scale: 0.8 }}
                             animate={{ opacity: 1, scale: 1 }}
@@ -188,7 +212,6 @@ export function VideoCallModal({
                     <div className="flex items-center justify-center gap-4">
                         {isRinging ? (
                             <>
-                                {/* Incoming Call Controls */}
                                 <button
                                     onClick={onReject}
                                     className="p-4 bg-red-500 hover:bg-red-600 rounded-full transition-colors"
@@ -204,7 +227,6 @@ export function VideoCallModal({
                             </>
                         ) : (
                             <>
-                                {/* Active Call Controls */}
                                 <button
                                     onClick={onToggleMute}
                                     className={`p-4 rounded-full transition-colors ${isMuted

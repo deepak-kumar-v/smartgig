@@ -29,8 +29,8 @@ const AUDIO_PROVIDERS: CallProviderOption[] = [
     {
         provider: 'smartgig_custom',
         label: 'SmartGig Audio',
-        description: 'Coming soon',
-        enabled: false,
+        description: 'In-app audio call',
+        enabled: true,
         beta: true
     }
 ];

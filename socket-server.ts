@@ -282,8 +282,9 @@ io.on('connection', (socket) => {
     // ==================== VIDEO CALL SIGNALING ====================
 
     // Start a call
-    socket.on('call:start', async (data: { conversationId: string }) => {
-        const { conversationId } = data;
+    // FIXED: Accept callType and callMeta from client and forward to callee
+    socket.on('call:start', async (data: { conversationId: string; type?: string; callMeta?: any }) => {
+        const { conversationId, type, callMeta } = data;
 
         const hasAccess = await canAccessConversation(userId, conversationId);
         if (!hasAccess) return; // Silent reject for non-participants
@@ -295,12 +296,14 @@ io.on('connection', (socket) => {
         }
 
         activeCalls.set(conversationId, userId);
-        console.log(`[Call] User ${userId} started call in conversation:${conversationId}`);
+        console.log(`[Call] User ${userId} started ${type || 'video'} call in conversation:${conversationId}`);
 
-        // Notify other participants
+        // Notify other participants - CRITICAL: forward type and callMeta
         socket.to(`conversation:${conversationId}`).emit('call:incoming', {
             conversationId,
-            callerId: userId
+            callerId: userId,
+            type: type,         // Forward call type (audio/video)
+            callMeta: callMeta  // Forward call metadata
         });
 
         // Confirm to caller

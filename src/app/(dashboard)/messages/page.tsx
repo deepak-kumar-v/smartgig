@@ -8,8 +8,8 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { useChat, ChatMessage, Conversation, getConversationLabel, getConversationTooltip } from '@/hooks/use-chat';
 import { useSocket } from '@/providers/socket-provider';
-import { useCall } from '@/hooks/use-call';
-import { VideoCallModal } from '@/components/video/VideoCallModal';
+import { useCall, CallType, CallState, ConnectionMode } from '@/hooks/use-call';
+import { CallModal } from '@/components/call/CallModal';
 import {
     Send, Paperclip, Search, MoreVertical, Phone, Video,
     CheckCheck, Clock, FileText, Image as ImageIcon, Download,
@@ -191,7 +191,8 @@ export default function MessagesPage() {
         callState,
         localStream,
         remoteStream,
-        startCall,
+        startAudioCall,
+        startVideoCall,
         acceptCall,
         rejectCall,
         endCall,
@@ -202,7 +203,9 @@ export default function MessagesPage() {
         error: callError,
         incomingCallFrom,
         activeConversationId: callConversationId,
-        connectionMode
+        connectionMode,
+        callType,
+        callDuration
     } = useCall();
 
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -230,15 +233,26 @@ export default function MessagesPage() {
         : activeConversation?.otherParticipant?.name || 'Unknown';
 
     // Handle starting a video call
-    const handleStartCall = () => {
+    // Video Call
+    const handleStartVideoCall = async () => {
         if (activeConversationId && isConnected) {
-            startCall(activeConversationId);
-
-            // Send background history message for SmartGig Video
+            await startVideoCall(activeConversationId);
             sendMessage('Video call — SmartGig Video', [], 'CALL_EVENT', {
                 mode: 'video',
                 provider: 'smartgig_custom',
-                meetingUrl: '#' // No-op URL for history card
+                meetingUrl: '#'
+            });
+        }
+    };
+
+    // Audio Call
+    const handleStartAudioCall = async () => {
+        if (activeConversationId && isConnected) {
+            await startAudioCall(activeConversationId);
+            sendMessage('Audio call — SmartGIG', [], 'CALL_EVENT', {
+                mode: 'audio',
+                provider: 'smartgig_custom',
+                meetingUrl: '#'
             });
         }
     };
@@ -461,7 +475,7 @@ export default function MessagesPage() {
                                 </button>
                                 <button
                                     className="p-2 hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                    onClick={handleStartCall}
+                                    onClick={handleStartVideoCall}
                                     disabled={!isConnected || callState !== 'idle'}
                                     title={isConnected ? 'Start Video Call' : 'Connect to start calls'}
                                 >
@@ -550,6 +564,10 @@ export default function MessagesPage() {
                                 <CallProviderMenu
                                     intent="audio"
                                     onSelectProvider={(intent, provider, meetingUrl) => {
+                                        if (provider === 'smartgig_custom') {
+                                            handleStartAudioCall();
+                                            return;
+                                        }
                                         if (provider === 'google_meet') {
                                             // Open new tab for creation, but show inline draft
                                             window.open('https://meet.google.com/new', '_blank');
@@ -580,7 +598,7 @@ export default function MessagesPage() {
                                     intent="video"
                                     onSelectProvider={(intent, provider, meetingUrl) => {
                                         if (provider === 'smartgig_custom') {
-                                            handleStartCall();
+                                            handleStartVideoCall();
                                         } else if (provider === 'google_meet') {
                                             window.open('https://meet.google.com/new', '_blank');
                                             setShowMeetDraft(true);
@@ -623,8 +641,8 @@ export default function MessagesPage() {
                 )}
             </div>
 
-            {/* Video Call Modal */}
-            <VideoCallModal
+            {/* Unified Call Modal */}
+            <CallModal
                 isOpen={showCallModal}
                 callState={callState}
                 localStream={localStream}
@@ -640,6 +658,8 @@ export default function MessagesPage() {
                 onToggleMute={toggleMute}
                 onToggleCamera={toggleCamera}
                 connectionMode={connectionMode}
+                callType={callType}
+                callDuration={callDuration}
             />
         </DashboardShell>
     );

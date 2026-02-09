@@ -3,8 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSocket } from '@/providers/socket-provider';
 
+// Explicit Call Type
+export type CallType = 'video' | 'audio';
 
-export type CallState = 'idle' | 'calling' | 'ringing' | 'connecting' | 'connected' | 'ended' | 'error';
+// Explicit Call Phases as requested
+export type CallPhase = 'idle' | 'ringing' | 'connecting' | 'connected' | 'ended' | 'error';
+export type CallState = CallPhase; // Alias for backward compatibility since CallState was already used
+
 export type ConnectionMode = 'STUN' | 'TURN' | 'UNKNOWN';
 
 interface UseCallOptions {
@@ -15,7 +20,9 @@ interface UseCallReturn {
     callState: CallState;
     localStream: MediaStream | null;
     remoteStream: MediaStream | null;
-    startCall: (conversationId: string) => Promise<void>;
+    startCall: (conversationId: string, type?: CallType) => Promise<void>;
+    startAudioCall: (conversationId: string) => Promise<void>;
+    startVideoCall: (conversationId: string) => Promise<void>;
     acceptCall: () => Promise<void>;
     rejectCall: () => void;
     endCall: () => void;
@@ -27,6 +34,8 @@ interface UseCallReturn {
     incomingCallFrom: string | null;
     activeConversationId: string | null;
     connectionMode: ConnectionMode;
+    callType: CallType;
+    callDuration: number;
 }
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
@@ -34,12 +43,12 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
     { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
-
-
 export function useCall(options?: UseCallOptions): UseCallReturn {
     const { socket, isConnected } = useSocket();
 
     const [callState, setCallState] = useState<CallState>('idle');
+    const [callType, setCallType] = useState<CallType>('video'); // Default to video for safety
+    const [callDuration, setCallDuration] = useState(0);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
     const [isMuted, setIsMuted] = useState(false);
@@ -53,6 +62,8 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
     const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
     const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const callDurationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const callStartedAtRef = useRef<number | null>(null);
 
     const localStreamRef = useRef<MediaStream | null>(null);
     const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -65,6 +76,38 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
     useEffect(() => {
         remoteStreamRef.current = remoteStream;
     }, [remoteStream]);
+
+    // Timer Logic
+    useEffect(() => {
+        if (callState === 'connected') {
+            if (!callStartedAtRef.current) {
+                callStartedAtRef.current = Date.now();
+            }
+            // Clear any existing interval
+            if (callDurationIntervalRef.current) clearInterval(callDurationIntervalRef.current);
+
+            callDurationIntervalRef.current = setInterval(() => {
+                if (callStartedAtRef.current) {
+                    const durationInSeconds = Math.floor((Date.now() - callStartedAtRef.current) / 1000);
+                    setCallDuration(durationInSeconds);
+                }
+            }, 1000);
+        } else {
+            // Stop timer if not connected
+            if (callDurationIntervalRef.current) {
+                clearInterval(callDurationIntervalRef.current);
+                callDurationIntervalRef.current = null;
+            }
+            if (callState === 'idle') {
+                setCallDuration(0);
+                callStartedAtRef.current = null;
+            }
+        }
+
+        return () => {
+            if (callDurationIntervalRef.current) clearInterval(callDurationIntervalRef.current);
+        };
+    }, [callState]);
 
     // cleanup stats interval
     useEffect(() => {
@@ -107,13 +150,29 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         pendingCandidatesRef.current = [];
         setIncomingCallFrom(null);
         setConnectionMode('UNKNOWN');
+
+        // Reset call type to default safely, though usually set on start
+        setCallType('video');
     }, []);
 
-    // Get user media
-    const getLocalMedia = useCallback(async (): Promise<MediaStream> => {
+    // Defensive Guard: Check for video tracks in audio mode
+    useEffect(() => {
+        if (callType === 'audio' && localStream) {
+            const videoTracks = localStream.getVideoTracks();
+            if (videoTracks.length > 0) {
+                console.error('[CRITICAL] Video track detected in AUDIO call! Stopping immediately.');
+                videoTracks.forEach(t => t.stop());
+            }
+        }
+    }, [callType, localStream]);
+
+
+    // Get user media with strict constraints based on callType
+    const getLocalMedia = useCallback(async (type: CallType = 'video'): Promise<MediaStream> => {
         try {
+            console.log(`[useCall] Requesting media for ${type} call`);
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: true,
+                video: type === 'video', // Strict: false for audio calls
                 audio: true
             });
             setLocalStream(stream);
@@ -121,6 +180,7 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
             return stream;
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to access camera/microphone';
+            console.error('[useCall] Media access error:', err);
             setError(message);
             setCallState('error');
             throw err;
@@ -153,16 +213,12 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         // Handle ICE candidates
         pc.onicecandidate = (event) => {
             if (event.candidate) {
-                console.log('[WEBRTC] Local ICE candidate:', event.candidate.type);
                 if (socket) {
-                    console.log('[useCall] Sending ICE candidate:', event.candidate.candidate?.substring(0, 50));
                     socket.emit('call:ice-candidate', {
                         conversationId,
                         candidate: event.candidate.toJSON()
                     });
                 }
-            } else {
-                console.log('[WEBRTC] ICE gathering complete');
             }
         };
 
@@ -183,35 +239,39 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
             }
         };
 
-        pc.oniceconnectionstatechange = () => {
-            console.log('[WEBRTC] iceConnectionState:', pc.iceConnectionState);
-        };
-
-        pc.onsignalingstatechange = () => {
-            console.log('[WEBRTC] signalingState:', pc.signalingState);
-        };
-
         peerConnectionRef.current = pc;
         return pc;
     }, [socket, iceServers]);
 
     // Start a call (caller side)
-    const startCall = useCallback(async (conversationId: string) => {
+    const startCall = useCallback(async (conversationId: string, type: CallType = 'video') => {
         if (!socket || !isConnected) {
             setError('Not connected to server');
             return;
         }
 
         setActiveConversationId(conversationId);
-        setCallState('calling');
+        setCallState('connecting'); // Unified 'calling' into 'connecting' phase
+        setCallType(type); // Set strict type
         setError(null);
 
         try {
             // Get local media FIRST (caller sees their video immediately)
-            const stream = await getLocalMedia();
+            // Strict usage: Pass type to getLocalMedia
+            const stream = await getLocalMedia(type);
 
-            // Notify server to start call
-            socket.emit('call:start', { conversationId });
+            // Notify server to start call with TYPE
+            // Fix: Send callMeta structure as required by prompt contract
+            const callMeta = {
+                provider: 'SMARTGIG',
+                callType: type
+            };
+
+            socket.emit('call:start', {
+                conversationId,
+                callMeta, // Primary source of truth
+                type // Keep for backward compatibility if needed
+            });
 
             // Create peer connection and add tracks
             const pc = createPeerConnection(conversationId);
@@ -226,34 +286,48 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         }
     }, [socket, isConnected, getLocalMedia, createPeerConnection, cleanup]);
 
+    // Explicit Helpers
+    const startAudioCall = useCallback(async (conversationId: string) => {
+        return startCall(conversationId, 'audio');
+    }, [startCall]);
+
+    const startVideoCall = useCallback(async (conversationId: string) => {
+        return startCall(conversationId, 'video');
+    }, [startCall]);
+
     // Accept incoming call (callee side)
     const acceptCall = useCallback(async () => {
         if (!socket || !activeConversationId) return;
 
+        // PHASE 1: TRANSITION TO CONNECTING
         setCallState('connecting');
 
         try {
-            // Get local media
-            const stream = await getLocalMedia();
+            // PHASE 2: ACQUIRE MEDIA (STRICT CALL TYPE ENFORCEMENT)
+            // CRITICAL: This is the FIRST time media is requested for Callee
+            console.log(`[useCall] accepting call with type: ${callType}`);
 
+            // Hard Guard: Ensure audio calls NEVER get video
+            const stream = await getLocalMedia(callType);
+
+            // PHASE 3: SIGNALING & WEBRTC
             // Create peer connection
             const pc = createPeerConnection(activeConversationId);
             stream.getTracks().forEach(track => {
                 pc.addTrack(track, stream);
             });
 
-            // NOTE: Do NOT add pending ICE candidates here - remoteDescription is not set yet
-            // They will be applied after setRemoteDescription in handleOffer
-
             // Notify server
             socket.emit('call:accept', { conversationId: activeConversationId });
+
+            // Note: CallState will transition to 'connected' via peer connection state change
 
         } catch (err) {
             console.error('[useCall] Failed to accept call:', err);
             cleanup();
             setCallState('error');
         }
-    }, [socket, activeConversationId, getLocalMedia, createPeerConnection, cleanup]);
+    }, [socket, activeConversationId, getLocalMedia, createPeerConnection, cleanup, callType]);
 
     // Reject incoming call
     const rejectCall = useCallback(() => {
@@ -290,8 +364,14 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         }
     }, [localStream]);
 
-    // Toggle camera
+    // Toggle camera (Strict Guard)
     const toggleCamera = useCallback(() => {
+        // Prevent toggling camera in audio mode
+        if (callType === 'audio') {
+            console.warn('[useCall] Cannot toggle camera in audio call');
+            return;
+        }
+
         if (localStream) {
             const videoTrack = localStream.getVideoTracks()[0];
             if (videoTrack) {
@@ -299,18 +379,46 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
                 setIsCameraOff(!videoTrack.enabled);
             }
         }
-    }, [localStream]);
+    }, [localStream, callType]);
 
     // Socket event listeners
     useEffect(() => {
         if (!socket) return;
 
         // Incoming call
-        const handleIncomingCall = (data: { conversationId: string; callerId: string }) => {
-            console.log('[useCall] Incoming call:', data);
+        // Fix: Use 'any' for data temporarily to safely access callMeta
+        const handleIncomingCall = (data: { conversationId: string; callerId: string; type?: CallType; callMeta?: any }) => {
+            console.log('[useCall] Incoming call raw data:', JSON.stringify(data));
             setActiveConversationId(data.conversationId);
             setIncomingCallFrom(data.callerId);
+
+            // PRIORITY: Check callMeta.callType first (Strict Contract)
+            let incomingType: CallType | undefined;
+
+            if (data.callMeta && (data.callMeta.callType === 'audio' || data.callMeta.callType === 'video')) {
+                incomingType = data.callMeta.callType;
+            }
+            // FALLBACK: Check top-level type
+            else if (data.type === 'audio' || data.type === 'video') {
+                incomingType = data.type;
+            }
+
+            if (incomingType) {
+                console.log(`[useCall] Resolved incoming call type: ${incomingType}`);
+                setCallType(incomingType);
+            } else {
+                // Critical Warning: If we don't know the type, we risk video leakage. 
+                // However, defaulting to 'video' is safer than breaking, but we must warn loudly.
+                console.warn('[useCall] Incoming call MISSING Valid Type! Defaulting to video (Potentially unsafe for audio calls)');
+                setCallType('video');
+            }
+
             setCallState('ringing');
+
+            // CRITICAL VERIFICATION:
+            // Ensure NO media is requested here.
+            // Ensure NO video elements are rendered (handled by UI).
+            // Ensure callType is set correctly.
         };
 
         // Call started confirmation (caller)
@@ -394,18 +502,18 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
         // Receive ICE candidate
         const handleIceCandidate = async (data: { conversationId: string; candidate: RTCIceCandidateInit }) => {
-            console.log('[WEBRTC] Remote ICE candidate received');
+            // console.log('[WEBRTC] Remote ICE candidate received');
             const pc = peerConnectionRef.current;
 
             if (!pc || !pc.remoteDescription) {
                 // Queue candidate if remote description not set yet
-                console.log('[useCall] Queuing ICE candidate (no remoteDescription yet)');
+                // console.log('[useCall] Queuing ICE candidate (no remoteDescription yet)');
                 pendingCandidatesRef.current.push(data.candidate);
                 return;
             }
 
             try {
-                console.log('[useCall] Applying ICE candidate immediately');
+                // console.log('[useCall] Applying ICE candidate immediately');
                 await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
             } catch (err) {
                 console.error('[useCall] Failed to add ICE candidate:', err);
@@ -479,32 +587,15 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
                 if (!peerConnectionRef.current) return;
                 try {
                     const stats = await peerConnectionRef.current.getStats();
-                    let activeCandidatePairId: string | null = null;
                     let localCandidateId: string | null = null;
                     let candidateType: string | null = null;
 
+                    // Simplified stats checking...
                     stats.forEach(report => {
-                        if (report.type === 'transport' && report.selectedCandidatePairId) {
-                            activeCandidatePairId = report.selectedCandidatePairId;
+                        if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.selected) {
+                            localCandidateId = report.localCandidateId;
                         }
                     });
-
-                    // Fallback for some browsers: look for 'candidate-pair' with 'succeeded' state or just 'selected' property (older)
-                    // Modern spec: transport.selectedCandidatePairId -> candidate-pair -> local-candidate -> candidateType
-
-                    if (activeCandidatePairId) {
-                        const pair = stats.get(activeCandidatePairId);
-                        if (pair) {
-                            localCandidateId = pair.localCandidateId;
-                        }
-                    } else {
-                        // Iterating to find succeeding pair if transport stat wasn't clear
-                        stats.forEach(report => {
-                            if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.selected) {
-                                localCandidateId = report.localCandidateId;
-                            }
-                        });
-                    }
 
                     if (localCandidateId) {
                         const localCandidate = stats.get(localCandidateId);
@@ -548,6 +639,8 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         localStream,
         remoteStream,
         startCall,
+        startAudioCall,
+        startVideoCall,
         acceptCall,
         rejectCall,
         endCall,
@@ -558,6 +651,8 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
         error,
         incomingCallFrom,
         activeConversationId,
-        connectionMode
+        connectionMode,
+        callType,
+        callDuration
     };
 }
