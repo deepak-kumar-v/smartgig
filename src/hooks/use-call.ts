@@ -168,13 +168,43 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
 
     // Get user media with strict constraints based on callType
+    // AUDIO QUALITY FIX: Enable browser-level DSP for clear audio
     const getLocalMedia = useCallback(async (type: CallType = 'video'): Promise<MediaStream> => {
         try {
             console.log(`[useCall] Requesting media for ${type} call`);
+
+            // Audio constraints with DSP for noise reduction and clarity
+            const audioConstraints: MediaTrackConstraints = {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                // Optional: prefer high quality audio
+                sampleRate: 48000,
+                channelCount: 1,  // Mono is sufficient for voice
+            };
+
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: type === 'video', // Strict: false for audio calls
-                audio: true
+                video: type === 'video',
+                audio: audioConstraints
             });
+
+            // Debug: Log audio track settings
+            const audioTrack = stream.getAudioTracks()[0];
+            if (audioTrack) {
+                const settings = audioTrack.getSettings();
+                console.log('[useCall] Audio track settings:', {
+                    echoCancellation: settings.echoCancellation,
+                    noiseSuppression: settings.noiseSuppression,
+                    autoGainControl: settings.autoGainControl,
+                    sampleRate: settings.sampleRate,
+                });
+
+                // Monitor track state changes
+                audioTrack.onended = () => console.warn('[useCall] Local audio track ENDED');
+                audioTrack.onmute = () => console.warn('[useCall] Local audio track MUTED');
+                audioTrack.onunmute = () => console.log('[useCall] Local audio track UNMUTED');
+            }
+
             setLocalStream(stream);
             setError(null);
             return stream;
@@ -228,10 +258,22 @@ export function useCall(options?: UseCallOptions): UseCallReturn {
 
         // Handle remote stream - FIX: Use event.track directly
         pc.ontrack = (event) => {
-            console.log('[useCall] Received remote track:', event.track.kind, 'readyState:', event.track.readyState);
+            const track = event.track;
+            console.log('[useCall] Received remote track:', track.kind, 'readyState:', track.readyState, 'enabled:', track.enabled);
+
+            // Monitor track state for debugging audio drops
+            track.onended = () => {
+                console.error(`[useCall] Remote ${track.kind} track ENDED unexpectedly!`);
+            };
+            track.onmute = () => {
+                console.warn(`[useCall] Remote ${track.kind} track muted`);
+            };
+            track.onunmute = () => {
+                console.log(`[useCall] Remote ${track.kind} track unmuted`);
+            };
 
             // Add the track to our MediaStream
-            remoteMediaStream.addTrack(event.track);
+            remoteMediaStream.addTrack(track);
 
             // Update the remote stream state
             // We create a new reference to trigger React state update

@@ -39,35 +39,74 @@ export function AudioCallView({
     connectionMode,
     callDuration
 }: AudioCallViewProps) {
-    // Remote audio playback
+    // Remote audio playback - FIXED: Persistent audio element to prevent drops
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const currentStreamIdRef = useRef<string | null>(null);
 
-    // Attach remote stream to audio element and play
+    // Create audio element once on mount
     useEffect(() => {
-        if (remoteStream && remoteStream.getAudioTracks().length > 0) {
-            // Create audio element if it doesn't exist
-            if (!audioRef.current) {
-                audioRef.current = new Audio();
-                audioRef.current.autoplay = true;
-            }
-
-            audioRef.current.srcObject = remoteStream;
-
-            // Play with user gesture (Accept Call was already clicked)
-            audioRef.current.play().catch(err => {
-                console.error('[AudioCallView] Failed to play remote audio:', err);
-            });
-
-            console.log('[AudioCallView] Remote audio stream attached and playing');
+        if (!audioRef.current) {
+            const audio = new Audio();
+            audio.autoplay = true;
+            audioRef.current = audio;
+            console.log('[AudioCallView] Audio element created');
         }
 
-        // Cleanup on unmount or stream change
+        // Cleanup only on unmount
         return () => {
+            console.log('[AudioCallView] Component unmounting, cleaning up audio');
             if (audioRef.current) {
                 audioRef.current.pause();
                 audioRef.current.srcObject = null;
+                audioRef.current = null;
             }
         };
+    }, []);
+
+    // Attach remote stream to audio element
+    useEffect(() => {
+        if (!audioRef.current) return;
+
+        if (remoteStream && remoteStream.getAudioTracks().length > 0) {
+            const streamId = remoteStream.id;
+
+            // Only reattach if it's a different stream
+            if (currentStreamIdRef.current !== streamId) {
+                console.log('[AudioCallView] Attaching new remote stream:', streamId);
+                currentStreamIdRef.current = streamId;
+
+                audioRef.current.srcObject = remoteStream;
+
+                // Monitor remote audio track state
+                const audioTrack = remoteStream.getAudioTracks()[0];
+                console.log('[AudioCallView] Remote audio track:', {
+                    id: audioTrack.id,
+                    enabled: audioTrack.enabled,
+                    muted: audioTrack.muted,
+                    readyState: audioTrack.readyState
+                });
+
+                // Add event listeners to detect issues
+                audioTrack.onended = () => {
+                    console.error('[AudioCallView] Remote audio track ENDED unexpectedly!');
+                };
+                audioTrack.onmute = () => {
+                    console.warn('[AudioCallView] Remote audio track muted');
+                };
+                audioTrack.onunmute = () => {
+                    console.log('[AudioCallView] Remote audio track unmuted');
+                };
+
+                // Play audio
+                audioRef.current.play()
+                    .then(() => {
+                        console.log('[AudioCallView] Audio playback started successfully');
+                    })
+                    .catch(err => {
+                        console.error('[AudioCallView] Failed to play remote audio:', err);
+                    });
+            }
+        }
     }, [remoteStream]);
 
     if (!isOpen) return null;
