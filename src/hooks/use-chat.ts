@@ -28,6 +28,11 @@ export interface ChatMessage {
         fileType: string;
         size: number;
     }[];
+    reactions?: {
+        id: string;
+        userId: string;
+        emoji: string;
+    }[];
 }
 
 export interface Conversation {
@@ -279,9 +284,19 @@ export function useChat(options?: UseChatOptions) {
         socket.on('new-message', handleNewMessage);
         socket.on('joined-conversation', handleJoinedConversation);
 
+        // Reaction updates (full-replace from server)
+        const handleReactionUpdate = (data: { messageId: string; reactions: { id: string; userId: string; emoji: string }[] }) => {
+            setMessages(prev => prev.map(msg => {
+                if (msg.id !== data.messageId) return msg;
+                return { ...msg, reactions: data.reactions };
+            }));
+        };
+        socket.on('reaction:update', handleReactionUpdate);
+
         return () => {
             socket.off('new-message', handleNewMessage);
             socket.off('joined-conversation', handleJoinedConversation);
+            socket.off('reaction:update', handleReactionUpdate);
         };
     }, [socket]);
 

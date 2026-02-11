@@ -54,6 +54,13 @@ export async function GET(request: NextRequest) {
                         fileType: true,
                         size: true
                     }
+                },
+                reactions: {
+                    select: {
+                        id: true,
+                        userId: true,
+                        emoji: true
+                    }
                 }
             },
             orderBy: { createdAt: 'desc' },

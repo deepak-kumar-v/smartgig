@@ -422,6 +422,65 @@ io.on('connection', (socket) => {
 
     // ==================== END TYPING INDICATORS ====================
 
+    // ==================== MESSAGE REACTIONS ====================
+
+    socket.on('message:react', async (data: { messageId: string; conversationId: string; emoji: string }) => {
+        const { messageId, conversationId, emoji } = data;
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) {
+            socket.emit('error', { message: 'Access denied' });
+            return;
+        }
+
+        try {
+            // Check if user already has a reaction on this message
+            const existing = await prisma.messageReaction.findUnique({
+                where: { messageId_userId: { messageId, userId } }
+            });
+
+            if (existing) {
+                if (existing.emoji === emoji) {
+                    // Same emoji → toggle off (remove)
+                    await prisma.messageReaction.delete({
+                        where: { id: existing.id }
+                    });
+                    console.log(`[Reaction] ${userId} removed ${emoji} from ${messageId}`);
+                } else {
+                    // Different emoji → replace
+                    await prisma.messageReaction.update({
+                        where: { id: existing.id },
+                        data: { emoji }
+                    });
+                    console.log(`[Reaction] ${userId} changed to ${emoji} on ${messageId}`);
+                }
+            } else {
+                // No reaction → create
+                await prisma.messageReaction.create({
+                    data: { messageId, userId, emoji }
+                });
+                console.log(`[Reaction] ${userId} reacted ${emoji} on ${messageId}`);
+            }
+
+            // Fetch fresh reaction list for this message and broadcast
+            const reactions = await prisma.messageReaction.findMany({
+                where: { messageId },
+                select: { id: true, userId: true, emoji: true }
+            });
+
+            io.to(`conversation:${conversationId}`).emit('reaction:update', {
+                messageId,
+                conversationId,
+                reactions
+            });
+        } catch (error) {
+            console.error('[Reaction] Error:', error);
+            socket.emit('error', { message: 'Failed to process reaction' });
+        }
+    });
+
+    // ==================== END MESSAGE REACTIONS ====================
+
     // Handle disconnect
     socket.on('disconnect', () => {
         // Clean up any active calls this user was in
