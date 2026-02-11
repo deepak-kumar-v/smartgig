@@ -175,7 +175,7 @@ function MessageBubble({
 
 export default function MessagesPage() {
     const { data: session } = useSession();
-    const { isConnected } = useSocket();
+    const { socket, isConnected } = useSocket();
     const {
         messages,
         conversations,
@@ -218,6 +218,11 @@ export default function MessagesPage() {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [showMobileList, setShowMobileList] = useState(true);
+
+    // Typing indicator state
+    const [isRemoteTyping, setIsRemoteTyping] = useState(false);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const emitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const currentUserId = session?.user?.id || '';
     // Use raw role for helper functions (expects uppercase CLIENT/FREELANCER)
@@ -275,14 +280,53 @@ export default function MessagesPage() {
         }
     }, [searchParams, conversations, activeConversationId]);
 
+    // Typing indicator socket listeners
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleTypingStart = (data: { conversationId: string; userId: string }) => {
+            if (data.conversationId === activeConversationId && data.userId !== currentUserId) {
+                setIsRemoteTyping(true);
+                // Auto-hide after 4s (safety net)
+                if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                typingTimeoutRef.current = setTimeout(() => setIsRemoteTyping(false), 4000);
+            }
+        };
+
+        const handleTypingStop = (data: { conversationId: string; userId: string }) => {
+            if (data.conversationId === activeConversationId) {
+                setIsRemoteTyping(false);
+                if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+            }
+        };
+
+        socket.on('typing:start', handleTypingStart);
+        socket.on('typing:stop', handleTypingStop);
+
+        return () => {
+            socket.off('typing:start', handleTypingStart);
+            socket.off('typing:stop', handleTypingStop);
+        };
+    }, [socket, activeConversationId, currentUserId]);
+
     const handleSelectConversation = (conversationId: string) => {
         setActiveConversationId(conversationId);
         joinConversation(conversationId);
         setShowMobileList(false);
+        setIsRemoteTyping(false); // Reset typing indicator
     };
 
     const handleSend = () => {
         if (!newMessage.trim() && draftAttachments.length === 0) return;
+
+        // Stop typing indicator
+        if (socket && activeConversationId) {
+            socket.emit('typing:stop', { conversationId: activeConversationId });
+            if (emitTimeoutRef.current) {
+                clearTimeout(emitTimeoutRef.current);
+                emitTimeoutRef.current = null;
+            }
+        }
 
         // BLOCK UNSAFE MEET LINKS
         if (newMessage.includes('meet.google.com/new') || newMessage.includes('meet.google.com/')) {
@@ -313,6 +357,22 @@ export default function MessagesPage() {
         sendMessage(newMessage, draftAttachments);
         setNewMessage('');
         setDraftAttachments([]);
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setNewMessage(e.target.value);
+
+        // Debounced typing emit (max once per 2s)
+        if (socket && isConnected && activeConversationId) {
+            if (!emitTimeoutRef.current) {
+                socket.emit('typing:start', { conversationId: activeConversationId });
+            }
+            if (emitTimeoutRef.current) clearTimeout(emitTimeoutRef.current);
+            emitTimeoutRef.current = setTimeout(() => {
+                socket.emit('typing:stop', { conversationId: activeConversationId });
+                emitTimeoutRef.current = null;
+            }, 3000);
+        }
     };
 
     const handleMeetInvite = (url: string) => {
@@ -515,6 +575,15 @@ export default function MessagesPage() {
                             )}
                         </div>
 
+                        {/* Typing Indicator */}
+                        {isRemoteTyping && (
+                            <div className="px-4 py-1.5">
+                                <span className="text-xs text-zinc-500 italic">
+                                    {activeConversation?.otherParticipant?.name || 'Someone'} is typing…
+                                </span>
+                            </div>
+                        )}
+
                         {/* Input Area */}
                         <div className="p-4 border-t border-zinc-800 relative">
                             {/* Inline Google Meet Draft Card */}
@@ -610,7 +679,7 @@ export default function MessagesPage() {
                                 <input
                                     type="text"
                                     value={newMessage}
-                                    onChange={(e) => setNewMessage(e.target.value)}
+                                    onChange={handleInputChange}
                                     onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                                     placeholder="Type a message..."
                                     className="flex-1 bg-zinc-800/50 border border-zinc-700 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
