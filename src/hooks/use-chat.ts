@@ -5,6 +5,7 @@ import { useSocket } from '@/providers/socket-provider';
 
 export interface ChatMessage {
     id: string;
+    clientTempId?: string;
     conversationId: string;
     senderId: string;
     sender: {
@@ -21,6 +22,7 @@ export interface ChatMessage {
     };
     createdAt: string;
     readAt: string | null;
+    deliveryStatus?: 'sent' | 'delivered';
     attachments?: {
         id: string;
         url: string;
@@ -60,6 +62,9 @@ export interface Conversation {
 
 interface UseChatOptions {
     conversationId?: string;
+    currentUserId?: string;
+    currentUserName?: string | null;
+    currentUserImage?: string | null;
 }
 
 export function useChat(options?: UseChatOptions) {
@@ -171,6 +176,37 @@ export function useChat(options?: UseChatOptions) {
 
         // Try socket first
         if (socket && isConnected) {
+            const clientTempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const normalizedAttachments = attachments.map(att => ({
+                ...att,
+                fileType: att.fileType || att.type || ''
+            }));
+            const optimisticContent = type === 'CALL'
+                ? `Started a ${callMeta?.mode || 'video'} call`
+                : (content?.trim() || 'Sent an attachment');
+
+            const optimisticMessage: ChatMessage = {
+                id: clientTempId,
+                clientTempId,
+                conversationId,
+                senderId: options?.currentUserId || 'current-user',
+                sender: {
+                    id: options?.currentUserId || 'current-user',
+                    name: options?.currentUserName ?? null,
+                    image: options?.currentUserImage ?? null
+                },
+                content: optimisticContent,
+                type,
+                callMeta,
+                createdAt: new Date().toISOString(),
+                readAt: null,
+                attachments: normalizedAttachments,
+                reactions: [],
+                deliveryStatus: 'sent'
+            };
+
+            setMessages(prev => [...prev, optimisticMessage]);
+
             console.log('[CHAT SEND PAYLOAD]', {
                 conversationId,
                 content,
@@ -186,7 +222,7 @@ export function useChat(options?: UseChatOptions) {
                 return;
             }
 
-            socket.emit('send-message', { conversationId, content, attachments, type, callMeta });
+            socket.emit('send-message', { conversationId, content, attachments, type, callMeta, clientTempId });
             return;
         }
 
@@ -204,7 +240,7 @@ export function useChat(options?: UseChatOptions) {
 
             // Add message locally (since socket didn't broadcast)
             if (data.message) {
-                setMessages(prev => [...prev, data.message]);
+                setMessages(prev => [...prev, { ...data.message, deliveryStatus: 'delivered' }]);
 
                 // Reorder conversation to top
                 setConversations(prev => updateConversationList(
@@ -215,7 +251,7 @@ export function useChat(options?: UseChatOptions) {
                             ? `Started a ${callMeta?.mode || 'video'} call`
                             : (content || 'Sent an attachment'),
                         createdAt: new Date().toISOString(),
-                        senderId: 'current-user', // specific ID updated by server later
+                        senderId: options?.currentUserId || 'current-user',
                         senderName: null
                     },
                     true // isActive is true for sender
@@ -224,7 +260,7 @@ export function useChat(options?: UseChatOptions) {
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to send message');
         }
-    }, [socket, isConnected]);
+    }, [socket, isConnected, options?.currentUserId, options?.currentUserName, options?.currentUserImage]);
 
     // Create conversation for a contract
     const createConversation = useCallback(async (contractId: string): Promise<string | null> => {
@@ -257,9 +293,28 @@ export function useChat(options?: UseChatOptions) {
             // Only add if it's for the current conversation
             if (message.conversationId === currentConversationRef.current) {
                 setMessages(prev => {
+                    if (message.clientTempId) {
+                        const tempIndex = prev.findIndex(m => m.clientTempId === message.clientTempId);
+                        if (tempIndex !== -1) {
+                            const next = [...prev];
+                            next[tempIndex] = {
+                                ...message,
+                                deliveryStatus: message.senderId === (options?.currentUserId || 'current-user')
+                                    ? 'delivered'
+                                    : undefined
+                            };
+                            return next;
+                        }
+                    }
+
                     // Prevent duplicates
                     if (prev.some(m => m.id === message.id)) return prev;
-                    return [...prev, message];
+                    return [...prev, {
+                        ...message,
+                        deliveryStatus: message.senderId === (options?.currentUserId || 'current-user')
+                            ? 'delivered'
+                            : undefined
+                    }];
                 });
             }
 
@@ -293,12 +348,23 @@ export function useChat(options?: UseChatOptions) {
         };
         socket.on('reaction:update', handleReactionUpdate);
 
+        const handleReadUpdate = (data: { conversationId: string; messageIds: string[]; readAt: string }) => {
+            const messageIds = new Set(data.messageIds);
+            setMessages(prev => prev.map(msg => {
+                if (msg.conversationId !== data.conversationId) return msg;
+                if (!messageIds.has(msg.id)) return msg;
+                return { ...msg, readAt: data.readAt };
+            }));
+        };
+        socket.on('message:read:update', handleReadUpdate);
+
         return () => {
             socket.off('new-message', handleNewMessage);
             socket.off('joined-conversation', handleJoinedConversation);
             socket.off('reaction:update', handleReactionUpdate);
+            socket.off('message:read:update', handleReadUpdate);
         };
-    }, [socket]);
+    }, [socket, options?.currentUserId]);
 
     // Re-join conversation when socket connects/reconnects (Fixes race condition)
     useEffect(() => {

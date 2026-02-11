@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
@@ -12,7 +12,7 @@ import { useCall, CallType, CallState, ConnectionMode } from '@/hooks/use-call';
 import { CallModal } from '@/components/call/CallModal';
 import {
     Send, Paperclip, Search, MoreVertical, Phone, Video,
-    CheckCheck, Clock, FileText, Image as ImageIcon, Download,
+    Check, CheckCheck, FileText, Image as ImageIcon, Download,
     ChevronLeft, Wifi, WifiOff, MessageSquare, Info, X, Plus, Smile
 } from 'lucide-react';
 import { uploadChatAttachment } from '@/actions/chat-upload-actions';
@@ -134,11 +134,13 @@ function MessageBubble({
     message,
     isOwn,
     currentUserId,
+    messageElementId,
     onReact
 }: {
     message: ChatMessage;
     isOwn: boolean;
     currentUserId: string;
+    messageElementId: string;
     onReact: (messageId: string, emoji: string) => void;
 }) {
     const [showReactionPopover, setShowReactionPopover] = useState(false);
@@ -186,7 +188,7 @@ function MessageBubble({
     }, [showReactionPopover, showEmojiMart]);
 
     return (
-        <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4 group`}>
+        <div id={messageElementId} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4 group`}>
             <div className={`max-w-[70%] ${isOwn ? 'order-2' : ''}`}>
                 {/* Call Message Card */}
                 {isCall ? (
@@ -236,7 +238,9 @@ function MessageBubble({
                     {isOwn && (
                         message.readAt
                             ? <CheckCheck className="w-3 h-3 text-indigo-400" />
-                            : <Clock className="w-3 h-3 text-zinc-500" />
+                            : message.deliveryStatus === 'sent'
+                                ? <Check className="w-3 h-3 text-zinc-500" />
+                                : <CheckCheck className="w-3 h-3 text-zinc-500" />
                     )}
                     {/* React button — hover-visible */}
                     <div className="relative" ref={popoverRef}>
@@ -309,6 +313,10 @@ function MessageBubble({
 export default function MessagesPage() {
     const { data: session } = useSession();
     const { socket, isConnected } = useSocket();
+    const currentUserId = session?.user?.id || '';
+    // Use raw role for helper functions (expects uppercase CLIENT/FREELANCER)
+    const currentUserRole = session?.user?.role || null;
+
     const {
         messages,
         conversations,
@@ -317,7 +325,11 @@ export default function MessagesPage() {
         fetchConversations,
         joinConversation,
         sendMessage
-    } = useChat();
+    } = useChat({
+        currentUserId,
+        currentUserName: session?.user?.name ?? null,
+        currentUserImage: session?.user?.image ?? null
+    });
 
     // Video call hook
     const {
@@ -356,10 +368,6 @@ export default function MessagesPage() {
     const [isRemoteTyping, setIsRemoteTyping] = useState(false);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const emitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-    const currentUserId = session?.user?.id || '';
-    // Use raw role for helper functions (expects uppercase CLIENT/FREELANCER)
-    const currentUserRole = session?.user?.role || null;
     const activeConversation = conversations.find(c => c.id === activeConversationId);
 
     // Determine if video call modal should show
@@ -369,6 +377,60 @@ export default function MessagesPage() {
     const callParticipantName = callConversationId
         ? conversations.find(c => c.id === callConversationId)?.otherParticipant?.name || 'Unknown'
         : activeConversation?.otherParticipant?.name || 'Unknown';
+    const messagesViewportRef = useRef<HTMLDivElement>(null);
+    const lastReadEmitRef = useRef<string>('');
+    const isOneToOneActiveConversation = Boolean(activeConversationId && activeConversation?.otherParticipant?.id);
+
+    const getLatestUnreadIncomingMessage = useCallback(() => {
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const message = messages[i];
+            if (message.senderId !== currentUserId && !message.readAt) {
+                return message;
+            }
+        }
+        return null;
+    }, [messages, currentUserId]);
+
+    const isMessageElementVisible = useCallback((element: HTMLElement, container: HTMLElement) => {
+        const elementRect = element.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        return elementRect.bottom >= containerRect.top && elementRect.top <= containerRect.bottom;
+    }, []);
+
+    const maybeEmitRead = useCallback(() => {
+        if (!socket || !isConnected || !activeConversationId || !isOneToOneActiveConversation) return;
+        if (document.visibilityState !== 'visible') return;
+
+        const latestUnreadIncoming = getLatestUnreadIncomingMessage();
+        if (!latestUnreadIncoming || latestUnreadIncoming.conversationId !== activeConversationId) return;
+
+        const container = messagesViewportRef.current;
+        if (!container) return;
+
+        const messageElement = document.getElementById(`chat-message-${latestUnreadIncoming.id}`);
+        const isVisible = messageElement ? isMessageElementVisible(messageElement, container) : false;
+        const isAtBottomNormal = Math.abs(container.scrollHeight - container.clientHeight - container.scrollTop) <= 24;
+        const isAtBottomReversed = container.scrollTop <= 24;
+
+        if (!isVisible && !isAtBottomNormal && !isAtBottomReversed) return;
+
+        const emitKey = `${activeConversationId}:${latestUnreadIncoming.id}`;
+        if (lastReadEmitRef.current === emitKey) return;
+
+        socket.emit('message:read', { conversationId: activeConversationId });
+        lastReadEmitRef.current = emitKey;
+    }, [
+        socket,
+        isConnected,
+        activeConversationId,
+        isOneToOneActiveConversation,
+        getLatestUnreadIncomingMessage,
+        isMessageElementVisible
+    ]);
+
+    const handleMessagesScroll = useCallback(() => {
+        maybeEmitRead();
+    }, [maybeEmitRead]);
 
     // Handle starting a video call
     // Video Call
@@ -441,6 +503,31 @@ export default function MessagesPage() {
             socket.off('typing:stop', handleTypingStop);
         };
     }, [socket, activeConversationId, currentUserId]);
+
+    useEffect(() => {
+        lastReadEmitRef.current = '';
+    }, [activeConversationId]);
+
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                maybeEmitRead();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [maybeEmitRead]);
+
+    useLayoutEffect(() => {
+        if (!activeConversationId) return;
+        const frame = window.requestAnimationFrame(() => {
+            maybeEmitRead();
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [messages, activeConversationId, maybeEmitRead]);
 
     const handleSelectConversation = (conversationId: string) => {
         setActiveConversationId(conversationId);
@@ -713,7 +800,11 @@ export default function MessagesPage() {
 
 
                         {/* Messages */}
-                        <div className="flex-1 overflow-y-auto p-4 flex flex-col-reverse gap-4">
+                        <div
+                            ref={messagesViewportRef}
+                            onScroll={handleMessagesScroll}
+                            className="flex-1 overflow-y-auto p-4 flex flex-col-reverse gap-4"
+                        >
                             {messages.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center">
                                     <MessageSquare className="w-12 h-12 text-zinc-700 mb-4" />
@@ -728,6 +819,7 @@ export default function MessagesPage() {
                                             message={message}
                                             isOwn={message.senderId === currentUserId}
                                             currentUserId={currentUserId}
+                                            messageElementId={`chat-message-${message.id}`}
                                             onReact={handleReact}
                                         />
                                     ))}

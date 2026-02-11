@@ -91,8 +91,9 @@ io.on('connection', (socket) => {
         attachments?: any[];
         type?: string;
         callMeta?: { mode: string; provider: string; meetingUrl: string };
+        clientTempId?: string;
     }) => {
-        const { conversationId, content, attachments = [], type = 'TEXT', callMeta } = data;
+        const { conversationId, content, attachments = [], type = 'TEXT', callMeta, clientTempId } = data;
 
         // --- EXPLICIT LOGGING (DEBUG) ---
         console.log('[SOCKET RECEIVE] send-message payload:', {
@@ -257,6 +258,7 @@ io.on('connection', (socket) => {
             // Broadcast to all participants in the room
             io.to(`conversation:${conversationId}`).emit('new-message', {
                 id: fullMessage.id,
+                clientTempId,
                 conversationId: fullMessage.conversationId,
                 senderId: fullMessage.senderId,
                 sender: fullMessage.sender,
@@ -403,6 +405,67 @@ io.on('connection', (socket) => {
     });
 
     // ==================== END VIDEO CALL SIGNALING ====================
+
+    // ==================== READ RECEIPTS ====================
+
+    socket.on('message:read', async (data: { conversationId: string }) => {
+        const { conversationId } = data;
+        if (!conversationId) return;
+
+        const conversation = await prisma.conversation.findUnique({
+            where: { id: conversationId },
+            include: {
+                participants: {
+                    select: { userId: true }
+                }
+            }
+        });
+
+        if (!conversation) return;
+
+        const hasAccess = conversation.participants.some(p => p.userId === userId);
+        if (!hasAccess) {
+            socket.emit('error', { message: 'Access denied' });
+            return;
+        }
+
+        // v1 scope: read receipts are only for 1-to-1 conversations
+        if (conversation.participants.length !== 2) {
+            return;
+        }
+
+        const unreadIncoming = await prisma.message.findMany({
+            where: {
+                conversationId,
+                senderId: { not: userId },
+                readAt: null
+            },
+            select: { id: true }
+        });
+
+        if (unreadIncoming.length === 0) return;
+
+        const messageIds = unreadIncoming.map(message => message.id);
+        const readAt = new Date();
+
+        await prisma.message.updateMany({
+            where: {
+                id: { in: messageIds }
+            },
+            data: {
+                readAt
+            }
+        });
+
+        io.to(`conversation:${conversationId}`).emit('message:read:update', {
+            conversationId,
+            messageIds,
+            readAt: readAt.toISOString(),
+            readerId: userId
+        });
+    });
+
+    // ==================== END READ RECEIPTS ====================
 
     // ==================== TYPING INDICATORS ====================
 
