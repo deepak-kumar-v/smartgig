@@ -238,7 +238,7 @@ function MessageBubble({
                     {isOwn && (
                         message.readAt
                             ? <CheckCheck className="w-3 h-3 text-indigo-400" />
-                            : message.deliveryStatus === 'sent'
+                            : message.deliveredAt == null
                                 ? <Check className="w-3 h-3 text-zinc-500" />
                                 : <CheckCheck className="w-3 h-3 text-zinc-500" />
                     )}

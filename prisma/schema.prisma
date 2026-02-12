@@ -387,6 +387,7 @@ model Message {
   type           String       @default("TEXT") // TEXT, CALL
   callMeta       String?      // JSON: { mode: "audio"|"video", provider: string, meetingUrl: string }
   createdAt      DateTime     @default(now())
+  deliveredAt    DateTime?
   readAt         DateTime?
   
   attachments    Attachment[]

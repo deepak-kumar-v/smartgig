@@ -44,6 +44,7 @@ const io = new SocketIOServer(httpServer, {
 
 // Store user-to-socket mapping
 const userSockets = new Map<string, string>();
+const socketUsers = new Map<string, string>();
 
 // Track active calls per conversation (conversationId -> callerId)
 const activeCalls = new Map<string, string>();
@@ -61,7 +62,65 @@ io.on('connection', (socket) => {
     }
 
     userSockets.set(userId, socket.id);
+    socketUsers.set(socket.id, userId);
     console.log(`[Socket] User ${userId} (${userRole}) mapped to socket ${socket.id}`);
+
+    const isUserPresentInConversationRoom = (conversationId: string, targetUserId: string): boolean => {
+        const roomSockets = io.sockets.adapter.rooms.get(`conversation:${conversationId}`);
+        if (!roomSockets) return false;
+
+        for (const roomSocketId of roomSockets.values()) {
+            const roomUserId = socketUsers.get(roomSocketId);
+            if (roomUserId === targetUserId) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    const markConversationDeliveredForUser = async (conversationId: string, recipientId: string) => {
+        const undelivered = await prisma.message.findMany({
+            where: {
+                conversationId,
+                senderId: { not: recipientId },
+                deliveredAt: null
+            },
+            select: { id: true }
+        });
+
+        if (undelivered.length === 0) return;
+
+        const messageIds = undelivered.map(message => message.id);
+        const deliveredAt = new Date();
+
+        const updated = await prisma.message.updateMany({
+            where: {
+                id: { in: messageIds },
+                deliveredAt: null
+            },
+            data: {
+                deliveredAt
+            }
+        });
+
+        if (updated.count === 0) {
+            return;
+        }
+
+        console.log('[Socket][emit] message:delivered:update', {
+            conversationId,
+            recipientId,
+            messageIds,
+            deliveredAt: deliveredAt.toISOString(),
+            count: updated.count
+        });
+        io.to(`conversation:${conversationId}`).emit('message:delivered:update', {
+            conversationId,
+            messageIds,
+            deliveredAt: deliveredAt.toISOString()
+        });
+    };
 
     // Join conversation room
     socket.on('join-conversation', async (data: { conversationId: string }) => {
@@ -76,6 +135,9 @@ io.on('connection', (socket) => {
         socket.join(`conversation:${conversationId}`);
         console.log(`[Socket] User ${userId} joined conversation:${conversationId}`);
         socket.emit('joined-conversation', { conversationId });
+
+        // Mark previously undelivered incoming messages as delivered for this user.
+        await markConversationDeliveredForUser(conversationId, userId);
     });
 
     // Leave conversation room
@@ -255,7 +317,45 @@ io.on('connection', (socket) => {
                 throw new Error('Message created but not found on refetch');
             }
 
+            const conversation = await prisma.conversation.findUnique({
+                where: { id: conversationId },
+                include: {
+                    participants: {
+                        select: { userId: true }
+                    }
+                }
+            });
+
+            if (!conversation) {
+                throw new Error('Conversation not found while sending message');
+            }
+
+            const recipientIds = conversation.participants
+                .map(p => p.userId)
+                .filter(participantId => participantId !== userId)
+                .filter(recipientId => isUserPresentInConversationRoom(conversationId, recipientId));
+
+            // If recipient is currently connected in-room, persist delivery before new-message emit.
+            for (const recipientId of recipientIds) {
+                await markConversationDeliveredForUser(conversationId, recipientId);
+            }
+
+            // Refresh status fields after potential delivery updates.
+            const statusSnapshot = await prisma.message.findUnique({
+                where: { id: fullMessage.id },
+                select: {
+                    deliveredAt: true,
+                    readAt: true
+                }
+            });
+
             // Broadcast to all participants in the room
+            console.log('[Socket][emit] new-message', {
+                conversationId,
+                messageId: fullMessage.id,
+                deliveredAt: statusSnapshot?.deliveredAt?.toISOString() || null,
+                readAt: statusSnapshot?.readAt?.toISOString() || null
+            });
             io.to(`conversation:${conversationId}`).emit('new-message', {
                 id: fullMessage.id,
                 clientTempId,
@@ -268,7 +368,8 @@ io.on('connection', (socket) => {
                     ? JSON.parse((fullMessage as any).callMeta)
                     : null,
                 createdAt: fullMessage.createdAt.toISOString(),
-                readAt: null,
+                deliveredAt: statusSnapshot?.deliveredAt ? statusSnapshot.deliveredAt.toISOString() : null,
+                readAt: statusSnapshot?.readAt ? statusSnapshot.readAt.toISOString() : null,
                 attachments: fullMessage.attachments
             });
 
@@ -411,6 +512,7 @@ io.on('connection', (socket) => {
     socket.on('message:read', async (data: { conversationId: string }) => {
         const { conversationId } = data;
         if (!conversationId) return;
+        console.log('[Socket][event] message:read', { conversationId, readerId: userId });
 
         const conversation = await prisma.conversation.findUnique({
             where: { id: conversationId },
@@ -448,15 +550,25 @@ io.on('connection', (socket) => {
         const messageIds = unreadIncoming.map(message => message.id);
         const readAt = new Date();
 
-        await prisma.message.updateMany({
+        const updated = await prisma.message.updateMany({
             where: {
-                id: { in: messageIds }
+                id: { in: messageIds },
+                readAt: null
             },
             data: {
                 readAt
             }
         });
 
+        if (updated.count === 0) return;
+
+        console.log('[Socket][emit] message:read:update', {
+            conversationId,
+            readerId: userId,
+            messageIds,
+            readAt: readAt.toISOString(),
+            count: updated.count
+        });
         io.to(`conversation:${conversationId}`).emit('message:read:update', {
             conversationId,
             messageIds,
@@ -560,6 +672,7 @@ io.on('connection', (socket) => {
         }
 
         userSockets.delete(userId);
+        socketUsers.delete(socket.id);
         console.log(`[Socket] Client disconnected: ${socket.id} (user: ${userId})`);
     });
 });

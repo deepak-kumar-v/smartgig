@@ -21,8 +21,8 @@ export interface ChatMessage {
         meetingUrl: string;
     };
     createdAt: string;
+    deliveredAt: string | null;
     readAt: string | null;
-    deliveryStatus?: 'sent' | 'delivered';
     attachments?: {
         id: string;
         url: string;
@@ -67,6 +67,11 @@ interface UseChatOptions {
     currentUserImage?: string | null;
 }
 
+interface MessageStatusPatch {
+    deliveredAt?: string | null;
+    readAt?: string | null;
+}
+
 export function useChat(options?: UseChatOptions) {
     const { socket, isConnected } = useSocket();
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -74,6 +79,39 @@ export function useChat(options?: UseChatOptions) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const currentConversationRef = useRef<string | null>(null);
+    const pendingDeliveredRef = useRef<Map<string, string>>(new Map());
+    const pendingReadRef = useRef<Map<string, string>>(new Map());
+
+    const mergeMessageStatus = useCallback((msg: ChatMessage, patch: MessageStatusPatch): ChatMessage => {
+        return {
+            ...msg,
+            deliveredAt: patch.deliveredAt ?? msg.deliveredAt,
+            readAt: patch.readAt ?? msg.readAt
+        };
+    }, []);
+
+    const applyPendingStatus = useCallback((msg: ChatMessage): ChatMessage => {
+        const pendingDeliveredAt = pendingDeliveredRef.current.get(msg.id);
+        const pendingReadAt = pendingReadRef.current.get(msg.id);
+
+        if (!pendingDeliveredAt && !pendingReadAt) return msg;
+
+        if (pendingDeliveredAt) pendingDeliveredRef.current.delete(msg.id);
+        if (pendingReadAt) pendingReadRef.current.delete(msg.id);
+
+        const merged = mergeMessageStatus(msg, {
+            deliveredAt: pendingDeliveredAt ?? undefined,
+            readAt: pendingReadAt ?? undefined
+        });
+
+        console.log('[useChat][pending:apply]', {
+            messageId: merged.id,
+            deliveredAt: merged.deliveredAt,
+            readAt: merged.readAt
+        });
+
+        return merged;
+    }, [mergeMessageStatus]);
 
     // Fetch conversations from API
     const fetchConversations = useCallback(async () => {
@@ -108,13 +146,15 @@ export function useChat(options?: UseChatOptions) {
             const res = await fetch(`/api/messages?conversationId=${conversationId}`);
             if (!res.ok) throw new Error('Failed to fetch messages');
             const data = await res.json();
-            setMessages(data.messages || []);
+            const incomingMessages: ChatMessage[] = data.messages || [];
+            const mergedMessages = incomingMessages.map(applyPendingStatus);
+            setMessages(mergedMessages);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load messages');
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [applyPendingStatus]);
 
     // Memoize stable list of conversation IDs to prevent unnecessary re-joins on reorder
     const conversationIds = conversations.map(c => c.id).sort().join(',');
@@ -199,10 +239,10 @@ export function useChat(options?: UseChatOptions) {
                 type,
                 callMeta,
                 createdAt: new Date().toISOString(),
+                deliveredAt: null,
                 readAt: null,
                 attachments: normalizedAttachments,
-                reactions: [],
-                deliveryStatus: 'sent'
+                reactions: []
             };
 
             setMessages(prev => [...prev, optimisticMessage]);
@@ -240,7 +280,8 @@ export function useChat(options?: UseChatOptions) {
 
             // Add message locally (since socket didn't broadcast)
             if (data.message) {
-                setMessages(prev => [...prev, { ...data.message, deliveryStatus: 'delivered' }]);
+                const mergedMessage = applyPendingStatus(data.message as ChatMessage);
+                setMessages(prev => [...prev, mergedMessage]);
 
                 // Reorder conversation to top
                 setConversations(prev => updateConversationList(
@@ -260,7 +301,7 @@ export function useChat(options?: UseChatOptions) {
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to send message');
         }
-    }, [socket, isConnected, options?.currentUserId, options?.currentUserName, options?.currentUserImage]);
+    }, [socket, isConnected, options?.currentUserId, options?.currentUserName, options?.currentUserImage, applyPendingStatus]);
 
     // Create conversation for a contract
     const createConversation = useCallback(async (contractId: string): Promise<string | null> => {
@@ -290,31 +331,68 @@ export function useChat(options?: UseChatOptions) {
         if (!socket) return;
 
         const handleNewMessage = (message: ChatMessage) => {
+            console.log('[useChat][event:new-message]', {
+                messageId: message.id,
+                clientTempId: message.clientTempId,
+                conversationId: message.conversationId,
+                deliveredAt: message.deliveredAt,
+                readAt: message.readAt
+            });
+
+            const incomingMessage = applyPendingStatus(message);
+
             // Only add if it's for the current conversation
             if (message.conversationId === currentConversationRef.current) {
                 setMessages(prev => {
-                    if (message.clientTempId) {
-                        const tempIndex = prev.findIndex(m => m.clientTempId === message.clientTempId);
+                    if (incomingMessage.clientTempId) {
+                        const tempIndex = prev.findIndex(m => m.clientTempId === incomingMessage.clientTempId);
                         if (tempIndex !== -1) {
                             const next = [...prev];
-                            next[tempIndex] = {
-                                ...message,
-                                deliveryStatus: message.senderId === (options?.currentUserId || 'current-user')
-                                    ? 'delivered'
-                                    : undefined
-                            };
+                            const existing = next[tempIndex];
+                            const merged = mergeMessageStatus(
+                                { ...existing, ...incomingMessage },
+                                {
+                                    deliveredAt: incomingMessage.deliveredAt ?? existing.deliveredAt,
+                                    readAt: incomingMessage.readAt ?? existing.readAt
+                                }
+                            );
+                            console.log('[useChat][state:patch:new-message-temp]', {
+                                messageId: merged.id,
+                                deliveredAt: merged.deliveredAt,
+                                readAt: merged.readAt
+                            });
+                            next[tempIndex] = merged;
                             return next;
                         }
                     }
 
                     // Prevent duplicates
-                    if (prev.some(m => m.id === message.id)) return prev;
-                    return [...prev, {
-                        ...message,
-                        deliveryStatus: message.senderId === (options?.currentUserId || 'current-user')
-                            ? 'delivered'
-                            : undefined
-                    }];
+                    const existingIndex = prev.findIndex(m => m.id === incomingMessage.id);
+                    if (existingIndex !== -1) {
+                        const next = [...prev];
+                        const existing = next[existingIndex];
+                        const merged = mergeMessageStatus(
+                            { ...existing, ...incomingMessage },
+                            {
+                                deliveredAt: incomingMessage.deliveredAt ?? existing.deliveredAt,
+                                readAt: incomingMessage.readAt ?? existing.readAt
+                            }
+                        );
+                        console.log('[useChat][state:patch:new-message-existing]', {
+                            messageId: merged.id,
+                            deliveredAt: merged.deliveredAt,
+                            readAt: merged.readAt
+                        });
+                        next[existingIndex] = merged;
+                        return next;
+                    }
+
+                    console.log('[useChat][state:patch:new-message-add]', {
+                        messageId: incomingMessage.id,
+                        deliveredAt: incomingMessage.deliveredAt,
+                        readAt: incomingMessage.readAt
+                    });
+                    return [...prev, incomingMessage];
                 });
             }
 
@@ -349,22 +427,84 @@ export function useChat(options?: UseChatOptions) {
         socket.on('reaction:update', handleReactionUpdate);
 
         const handleReadUpdate = (data: { conversationId: string; messageIds: string[]; readAt: string }) => {
+            console.log('[useChat][event:message:read:update]', data);
             const messageIds = new Set(data.messageIds);
-            setMessages(prev => prev.map(msg => {
-                if (msg.conversationId !== data.conversationId) return msg;
-                if (!messageIds.has(msg.id)) return msg;
-                return { ...msg, readAt: data.readAt };
-            }));
+            setMessages(prev => {
+                let patchedCount = 0;
+                const next = prev.map(msg => {
+                    if (msg.conversationId !== data.conversationId) return msg;
+                    if (!messageIds.has(msg.id)) return msg;
+                    patchedCount += 1;
+                    const merged = mergeMessageStatus(msg, {
+                        deliveredAt: msg.deliveredAt ?? data.readAt,
+                        readAt: data.readAt
+                    });
+                    console.log('[useChat][state:patch:read]', {
+                        messageId: merged.id,
+                        deliveredAt: merged.deliveredAt,
+                        readAt: merged.readAt
+                    });
+                    return merged;
+                });
+
+                if (patchedCount === 0) {
+                    for (const messageId of data.messageIds) {
+                        pendingReadRef.current.set(messageId, data.readAt);
+                    }
+                    console.log('[useChat][pending:queue:read]', {
+                        messageIds: data.messageIds,
+                        readAt: data.readAt
+                    });
+                }
+
+                return next;
+            });
         };
         socket.on('message:read:update', handleReadUpdate);
+
+        const handleDeliveredUpdate = (data: { conversationId: string; messageIds: string[]; deliveredAt: string }) => {
+            console.log('[useChat][event:message:delivered:update]', data);
+            const messageIds = new Set(data.messageIds);
+            setMessages(prev => {
+                let patchedCount = 0;
+                const next = prev.map(msg => {
+                    if (msg.conversationId !== data.conversationId) return msg;
+                    if (!messageIds.has(msg.id)) return msg;
+                    patchedCount += 1;
+                    const merged = mergeMessageStatus(msg, {
+                        deliveredAt: data.deliveredAt
+                    });
+                    console.log('[useChat][state:patch:delivered]', {
+                        messageId: merged.id,
+                        deliveredAt: merged.deliveredAt,
+                        readAt: merged.readAt
+                    });
+                    return merged;
+                });
+
+                if (patchedCount === 0) {
+                    for (const messageId of data.messageIds) {
+                        pendingDeliveredRef.current.set(messageId, data.deliveredAt);
+                    }
+                    console.log('[useChat][pending:queue:delivered]', {
+                        messageIds: data.messageIds,
+                        deliveredAt: data.deliveredAt
+                    });
+                }
+
+                return next;
+            });
+        };
+        socket.on('message:delivered:update', handleDeliveredUpdate);
 
         return () => {
             socket.off('new-message', handleNewMessage);
             socket.off('joined-conversation', handleJoinedConversation);
             socket.off('reaction:update', handleReactionUpdate);
             socket.off('message:read:update', handleReadUpdate);
+            socket.off('message:delivered:update', handleDeliveredUpdate);
         };
-    }, [socket, options?.currentUserId]);
+    }, [socket, options?.currentUserId, applyPendingStatus, mergeMessageStatus]);
 
     // Re-join conversation when socket connects/reconnects (Fixes race condition)
     useEffect(() => {
