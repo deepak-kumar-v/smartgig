@@ -121,11 +121,7 @@ export function useChat(options?: UseChatOptions) {
             const res = await fetch('/api/conversations');
             if (!res.ok) throw new Error('Failed to fetch conversations');
             const data = await res.json();
-            // Initialize unreadCount to 0 and sort by lastMessage date (desc)
-            const sortedConversations = (data.conversations || []).map((c: Conversation) => ({
-                ...c,
-                unreadCount: 0
-            })).sort((a: Conversation, b: Conversation) => {
+            const sortedConversations = (data.conversations || []).sort((a: Conversation, b: Conversation) => {
                 const dateA = new Date(a.lastMessage?.createdAt || a.createdAt).getTime();
                 const dateB = new Date(b.lastMessage?.createdAt || b.createdAt).getTime();
                 return dateB - dateA;
@@ -175,11 +171,6 @@ export function useChat(options?: UseChatOptions) {
         // for sidebar updates (unread counts, reordering) from all conversations.
 
         currentConversationRef.current = conversationId;
-
-        // Reset unread count for this conversation
-        setConversations(prev => prev.map(c =>
-            c.id === conversationId ? { ...c, unreadCount: 0 } : c
-        ));
 
         // Fetch messages via HTTP (works even if socket is down)
         fetchMessages(conversationId);
@@ -294,8 +285,7 @@ export function useChat(options?: UseChatOptions) {
                         createdAt: new Date().toISOString(),
                         senderId: options?.currentUserId || 'current-user',
                         senderName: null
-                    },
-                    true // isActive is true for sender
+                    }
                 ));
             }
         } catch (err) {
@@ -396,18 +386,28 @@ export function useChat(options?: UseChatOptions) {
                 });
             }
 
-            // Update conversation list: Reorder + Increment Unread + Update Last Message
-            setConversations(prev => updateConversationList(
-                prev,
-                message.conversationId,
-                {
-                    content: message.content,
-                    createdAt: message.createdAt,
-                    senderId: message.senderId,
-                    senderName: message.sender.name
-                },
-                message.conversationId === currentConversationRef.current
-            ));
+            // Update conversation list: Reorder + Update Last Message
+            setConversations(prev => {
+                const convIndex = prev.findIndex(c => c.id === message.conversationId);
+                if (convIndex === -1) return prev;
+
+                const existingConv = prev[convIndex];
+
+                const updatedConv = {
+                    ...existingConv,
+                    lastMessage: {
+                        content: message.content,
+                        createdAt: message.createdAt,
+                        senderId: message.senderId,
+                        senderName: message.sender.name
+                    }
+                };
+
+                const next = [...prev];
+                next.splice(convIndex, 1);
+                next.unshift(updatedConv);
+                return next;
+            });
         };
 
         const handleJoinedConversation = (data: { conversationId: string }) => {
@@ -497,14 +497,37 @@ export function useChat(options?: UseChatOptions) {
         };
         socket.on('message:delivered:update', handleDeliveredUpdate);
 
+        const handleUnreadUpdate = (data: { conversationId: string; unreadCount: number }) => {
+            console.log('[useChat][event:conversation:unread:update]', data);
+
+            setConversations(prev => {
+                const convIndex = prev.findIndex(c => c.id === data.conversationId);
+                if (convIndex === -1) return prev;
+
+                const nextUnreadCount = Math.max(0, Math.floor(Number(data.unreadCount) || 0));
+                if ((prev[convIndex].unreadCount || 0) === nextUnreadCount) {
+                    return prev;
+                }
+
+                const next = [...prev];
+                next[convIndex] = {
+                    ...next[convIndex],
+                    unreadCount: nextUnreadCount
+                };
+                return next;
+            });
+        };
+        socket.on('conversation:unread:update', handleUnreadUpdate);
+
         return () => {
             socket.off('new-message', handleNewMessage);
             socket.off('joined-conversation', handleJoinedConversation);
             socket.off('reaction:update', handleReactionUpdate);
             socket.off('message:read:update', handleReadUpdate);
             socket.off('message:delivered:update', handleDeliveredUpdate);
+            socket.off('conversation:unread:update', handleUnreadUpdate);
         };
-    }, [socket, options?.currentUserId, applyPendingStatus, mergeMessageStatus]);
+    }, [socket, applyPendingStatus, mergeMessageStatus]);
 
     // Re-join conversation when socket connects/reconnects (Fixes race condition)
     useEffect(() => {
@@ -536,7 +559,7 @@ export function useChat(options?: UseChatOptions) {
     };
 }
 
-// Helper: Immutable update of conversation list (Reorder + Unread + LastMessage)
+// Helper: Immutable update of conversation list (Reorder + LastMessage)
 function updateConversationList(
     conversations: Conversation[],
     conversationId: string,
@@ -545,23 +568,15 @@ function updateConversationList(
         createdAt: string;
         senderId: string;
         senderName: string | null;
-    },
-    isActive: boolean
+    }
 ): Conversation[] {
     const convIndex = conversations.findIndex(c => c.id === conversationId);
     if (convIndex === -1) return conversations;
 
     const existingConv = conversations[convIndex];
 
-    // Calculate new unread count
-    // Reset to 0 if active, otherwise increment
-    const newUnreadCount = isActive
-        ? 0
-        : (existingConv.unreadCount || 0) + 1;
-
     const updatedConv = {
         ...existingConv,
-        unreadCount: newUnreadCount,
         lastMessage: {
             content: newMessage.content,
             createdAt: newMessage.createdAt,

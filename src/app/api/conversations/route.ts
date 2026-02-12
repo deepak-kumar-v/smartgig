@@ -61,6 +61,27 @@ export async function GET(request: NextRequest) {
             orderBy: { createdAt: 'desc' }
         });
 
+        const conversationIds = conversations.map(conversation => conversation.id);
+        const unreadCountsByConversation = new Map<string, number>();
+
+        if (conversationIds.length > 0) {
+            const unreadCounts = await db.message.groupBy({
+                by: ['conversationId'],
+                where: {
+                    conversationId: { in: conversationIds },
+                    senderId: { not: userId },
+                    readAt: null
+                },
+                _count: {
+                    _all: true
+                }
+            });
+
+            for (const row of unreadCounts) {
+                unreadCountsByConversation.set(row.conversationId, row._count._all);
+            }
+        }
+
         // Transform data for frontend
         const formattedConversations = conversations.map(conv => {
             const otherParticipant = conv.participants.find(p => p.userId !== userId)?.user;
@@ -88,7 +109,8 @@ export async function GET(request: NextRequest) {
                     senderId: lastMessage.senderId,
                     senderName: lastMessage.sender.name
                 } : null,
-                createdAt: conv.createdAt.toISOString()
+                createdAt: conv.createdAt.toISOString(),
+                unreadCount: unreadCountsByConversation.get(conv.id) || 0
             };
         });
 

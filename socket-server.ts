@@ -122,6 +122,29 @@ io.on('connection', (socket) => {
         });
     };
 
+    const emitUnreadCountForConversation = async (conversationId: string, targetUserId: string) => {
+        const targetSocketId = userSockets.get(targetUserId);
+        if (!targetSocketId) return;
+
+        const unreadCount = await prisma.message.count({
+            where: {
+                conversationId,
+                senderId: { not: targetUserId },
+                readAt: null
+            }
+        });
+
+        console.log('[Socket][emit] conversation:unread:update', {
+            conversationId,
+            targetUserId,
+            unreadCount
+        });
+        io.to(targetSocketId).emit('conversation:unread:update', {
+            conversationId,
+            unreadCount
+        });
+    };
+
     // Join conversation room
     socket.on('join-conversation', async (data: { conversationId: string }) => {
         const { conversationId } = data;
@@ -330,13 +353,15 @@ io.on('connection', (socket) => {
                 throw new Error('Conversation not found while sending message');
             }
 
-            const recipientIds = conversation.participants
+            const allRecipientIds = conversation.participants
                 .map(p => p.userId)
-                .filter(participantId => participantId !== userId)
+                .filter(participantId => participantId !== userId);
+
+            const inRoomRecipientIds = allRecipientIds
                 .filter(recipientId => isUserPresentInConversationRoom(conversationId, recipientId));
 
             // If recipient is currently connected in-room, persist delivery before new-message emit.
-            for (const recipientId of recipientIds) {
+            for (const recipientId of inRoomRecipientIds) {
                 await markConversationDeliveredForUser(conversationId, recipientId);
             }
 
@@ -372,6 +397,11 @@ io.on('connection', (socket) => {
                 readAt: statusSnapshot?.readAt ? statusSnapshot.readAt.toISOString() : null,
                 attachments: fullMessage.attachments
             });
+
+            // Unread badge is server-authoritative: push fresh unread count to recipients.
+            for (const recipientId of allRecipientIds) {
+                await emitUnreadCountForConversation(conversationId, recipientId);
+            }
 
             console.log(`[Socket] Message sent in conversation:${conversationId} by ${userId} (type: ${type}) with ${fullMessage.attachments.length} attachments`);
 
@@ -575,6 +605,9 @@ io.on('connection', (socket) => {
             readAt: readAt.toISOString(),
             readerId: userId
         });
+
+        // Reader's unread badge should update from DB state after successful mark-as-read.
+        await emitUnreadCountForConversation(conversationId, userId);
     });
 
     // ==================== END READ RECEIPTS ====================
