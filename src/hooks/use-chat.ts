@@ -35,6 +35,20 @@ export interface ChatMessage {
         userId: string;
         emoji: string;
     }[];
+    // Reply support
+    replyToId?: string | null;
+    replyTo?: {
+        id: string;
+        content: string;
+        senderId: string;
+        sender: { id: string; name: string | null };
+        isDeleted: boolean;
+        isEdited: boolean;
+    } | null;
+    // Edit & soft-delete support
+    isDeleted?: boolean;
+    isEdited?: boolean;
+    editedAt?: string | null;
 }
 
 export interface Conversation {
@@ -193,7 +207,8 @@ export function useChat(options?: UseChatOptions) {
         content: string,
         attachments: any[] = [],
         type: string = 'TEXT',
-        callMeta?: { mode: 'audio' | 'video'; provider: string; meetingUrl: string }
+        callMeta?: { mode: 'audio' | 'video'; provider: string; meetingUrl: string },
+        replyToId?: string
     ) => {
         const conversationId = currentConversationRef.current;
 
@@ -233,7 +248,8 @@ export function useChat(options?: UseChatOptions) {
                 deliveredAt: null,
                 readAt: null,
                 attachments: normalizedAttachments,
-                reactions: []
+                reactions: [],
+                replyToId
             };
 
             setMessages(prev => [...prev, optimisticMessage]);
@@ -253,7 +269,7 @@ export function useChat(options?: UseChatOptions) {
                 return;
             }
 
-            socket.emit('send-message', { conversationId, content, attachments, type, callMeta, clientTempId });
+            socket.emit('send-message', { conversationId, content, attachments, type, callMeta, clientTempId, replyToId });
             return;
         }
 
@@ -262,7 +278,7 @@ export function useChat(options?: UseChatOptions) {
             const res = await fetch('/api/messages', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId, content, attachments, type, callMeta })
+                body: JSON.stringify({ conversationId, content, attachments, type, callMeta, replyToId })
             });
 
             if (!res.ok) throw new Error('Failed to send message');
@@ -292,6 +308,22 @@ export function useChat(options?: UseChatOptions) {
             setError(err instanceof Error ? err.message : 'Failed to send message');
         }
     }, [socket, isConnected, options?.currentUserId, options?.currentUserName, options?.currentUserImage, applyPendingStatus]);
+
+    // Edit a message (sender-only, transactional on server)
+    const editMessage = useCallback((messageId: string, newContent: string) => {
+        const conversationId = currentConversationRef.current;
+        if (!socket || !isConnected || !conversationId || !newContent.trim()) return;
+
+        socket.emit('message:edit', { messageId, conversationId, content: newContent });
+    }, [socket, isConnected]);
+
+    // Delete a message (sender-only, soft-delete, transactional on server)
+    const deleteMessage = useCallback((messageId: string) => {
+        const conversationId = currentConversationRef.current;
+        if (!socket || !isConnected || !conversationId) return;
+
+        socket.emit('message:delete', { messageId, conversationId });
+    }, [socket, isConnected]);
 
     // Create conversation for a contract
     const createConversation = useCallback(async (contractId: string): Promise<string | null> => {
@@ -519,6 +551,38 @@ export function useChat(options?: UseChatOptions) {
         };
         socket.on('conversation:unread:update', handleUnreadUpdate);
 
+        // === Message Edited listener ===
+        const handleMessageEdited = (data: ChatMessage) => {
+            console.log('[useChat][event:message:edited]', data.id);
+            setMessages(prev => prev.map(msg => {
+                if (msg.id !== data.id) return msg;
+                return {
+                    ...msg,
+                    content: data.content,
+                    isEdited: data.isEdited,
+                    editedAt: data.editedAt,
+                    reactions: data.reactions ?? msg.reactions,
+                    replyTo: data.replyTo ?? msg.replyTo,
+                    attachments: data.attachments ?? msg.attachments
+                };
+            }));
+        };
+        socket.on('message:edited', handleMessageEdited);
+
+        // === Message Deleted listener ===
+        const handleMessageDeleted = (data: { id: string; conversationId: string; content: string; isDeleted: boolean }) => {
+            console.log('[useChat][event:message:deleted]', data.id);
+            setMessages(prev => prev.map(msg => {
+                if (msg.id !== data.id) return msg;
+                return {
+                    ...msg,
+                    content: data.content,
+                    isDeleted: data.isDeleted
+                };
+            }));
+        };
+        socket.on('message:deleted', handleMessageDeleted);
+
         return () => {
             socket.off('new-message', handleNewMessage);
             socket.off('joined-conversation', handleJoinedConversation);
@@ -526,6 +590,8 @@ export function useChat(options?: UseChatOptions) {
             socket.off('message:read:update', handleReadUpdate);
             socket.off('message:delivered:update', handleDeliveredUpdate);
             socket.off('conversation:unread:update', handleUnreadUpdate);
+            socket.off('message:edited', handleMessageEdited);
+            socket.off('message:deleted', handleMessageDeleted);
         };
     }, [socket, applyPendingStatus, mergeMessageStatus]);
 
@@ -555,7 +621,9 @@ export function useChat(options?: UseChatOptions) {
         joinConversation,
         leaveConversation,
         sendMessage,
-        createConversation
+        createConversation,
+        editMessage,
+        deleteMessage
     };
 }
 

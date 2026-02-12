@@ -1,6 +1,7 @@
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { PrismaClient } from '@prisma/client';
+import { createHash } from 'crypto';
 
 const hostname = 'localhost';
 const port = 3001;
@@ -177,8 +178,9 @@ io.on('connection', (socket) => {
         type?: string;
         callMeta?: { mode: string; provider: string; meetingUrl: string };
         clientTempId?: string;
+        replyToId?: string;
     }) => {
-        const { conversationId, content, attachments = [], type = 'TEXT', callMeta, clientTempId } = data;
+        const { conversationId, content, attachments = [], type = 'TEXT', callMeta, clientTempId, replyToId } = data;
 
         // --- EXPLICIT LOGGING (DEBUG) ---
         console.log('[SOCKET RECEIVE] send-message payload:', {
@@ -264,6 +266,7 @@ io.on('connection', (socket) => {
                     content: messageContent,
                     type,
                     callMeta: callMeta ? JSON.stringify(callMeta) : null,
+                    ...(replyToId ? { replyToId } : {}),
                 },
                 include: {
                     sender: {
@@ -332,6 +335,16 @@ io.on('connection', (socket) => {
                             fileType: true,
                             size: true
                         }
+                    },
+                    replyTo: {
+                        select: {
+                            id: true,
+                            content: true,
+                            senderId: true,
+                            sender: { select: { id: true, name: true } },
+                            isDeleted: true,
+                            isEdited: true
+                        }
                     }
                 }
             });
@@ -395,7 +408,11 @@ io.on('connection', (socket) => {
                 createdAt: fullMessage.createdAt.toISOString(),
                 deliveredAt: statusSnapshot?.deliveredAt ? statusSnapshot.deliveredAt.toISOString() : null,
                 readAt: statusSnapshot?.readAt ? statusSnapshot.readAt.toISOString() : null,
-                attachments: fullMessage.attachments
+                attachments: fullMessage.attachments,
+                replyTo: fullMessage.replyTo || null,
+                isDeleted: (fullMessage as any).isDeleted || false,
+                isEdited: (fullMessage as any).isEdited || false,
+                editedAt: (fullMessage as any).editedAt?.toISOString() || null
             });
 
             // Unread badge is server-authoritative: push fresh unread count to recipients.
@@ -688,6 +705,234 @@ io.on('connection', (socket) => {
     });
 
     // ==================== END MESSAGE REACTIONS ====================
+
+    // ==================== MESSAGE EDIT & DELETE (ENTERPRISE) ====================
+
+    // Transactional message edit with immutable version history
+    socket.on('message:edit', async (data: { messageId: string; conversationId: string; content: string }) => {
+        const { messageId, conversationId, content } = data;
+
+        if (!messageId || !conversationId || !content?.trim()) {
+            socket.emit('error', { message: 'messageId, conversationId, and content are required' });
+            return;
+        }
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) {
+            socket.emit('error', { message: 'Access denied' });
+            return;
+        }
+
+        try {
+            // Transactional: version snapshot + message update (atomic)
+            const result = await prisma.$transaction(async (tx) => {
+                // Step 1: Fetch current message (verify ownership + not deleted)
+                const currentMessage = await tx.message.findUnique({
+                    where: { id: messageId },
+                    select: { id: true, senderId: true, content: true, isDeleted: true, conversationId: true }
+                });
+
+                if (!currentMessage) throw new Error('Message not found');
+                if (currentMessage.senderId !== userId) throw new Error('Only the sender can edit');
+                if (currentMessage.isDeleted) throw new Error('Cannot edit a deleted message');
+                if (currentMessage.conversationId !== conversationId) throw new Error('Message does not belong to this conversation');
+
+                // Step 2: Get MAX versionNumber for concurrency-safe increment
+                const maxVersion = await tx.messageVersion.aggregate({
+                    where: { messageId },
+                    _max: { versionNumber: true }
+                });
+
+                const nextVersion = (maxVersion._max.versionNumber ?? 0) + 1;
+
+                // If this is the first edit, also snapshot the ORIGINAL content (version 1)
+                if (nextVersion === 1) {
+                    const originalHash = createHash('sha256').update(currentMessage.content).digest('hex');
+                    await tx.messageVersion.create({
+                        data: {
+                            messageId,
+                            versionNumber: 1,
+                            content: currentMessage.content,
+                            editedAt: new Date(),
+                            editedBy: userId,
+                            changeType: 'ORIGINAL',
+                            contentHash: originalHash
+                        }
+                    });
+                }
+
+                // Step 3: Create version snapshot of new content
+                const editVersionNumber = nextVersion === 1 ? 2 : nextVersion;
+                const contentHash = createHash('sha256').update(content.trim()).digest('hex');
+
+                await tx.messageVersion.create({
+                    data: {
+                        messageId,
+                        versionNumber: editVersionNumber,
+                        content: content.trim(),
+                        editedAt: new Date(),
+                        editedBy: userId,
+                        changeType: 'EDIT',
+                        contentHash
+                    }
+                });
+
+                // Step 4: Update message to latest content
+                const updatedMessage = await tx.message.update({
+                    where: { id: messageId },
+                    data: {
+                        content: content.trim(),
+                        isEdited: true,
+                        editedAt: new Date()
+                    },
+                    include: {
+                        sender: { select: { id: true, name: true, image: true } },
+                        attachments: { select: { id: true, name: true, url: true, fileType: true, size: true } },
+                        reactions: { select: { id: true, userId: true, emoji: true } },
+                        replyTo: {
+                            select: {
+                                id: true, content: true, senderId: true,
+                                sender: { select: { id: true, name: true } },
+                                isDeleted: true, isEdited: true
+                            }
+                        }
+                    }
+                });
+
+                return updatedMessage;
+            });
+
+            // Broadcast edited message to all participants
+            console.log('[Socket][emit] message:edited', { messageId, conversationId });
+            io.to(`conversation:${conversationId}`).emit('message:edited', {
+                id: result.id,
+                conversationId: result.conversationId,
+                senderId: result.senderId,
+                sender: result.sender,
+                content: result.content,
+                type: (result as any).type || 'TEXT',
+                callMeta: (result as any).callMeta ? JSON.parse((result as any).callMeta) : null,
+                createdAt: result.createdAt.toISOString(),
+                deliveredAt: (result as any).deliveredAt?.toISOString() || null,
+                readAt: (result as any).readAt?.toISOString() || null,
+                attachments: result.attachments,
+                reactions: result.reactions,
+                replyTo: result.replyTo || null,
+                isDeleted: result.isDeleted,
+                isEdited: result.isEdited,
+                editedAt: result.editedAt?.toISOString() || null
+            });
+
+        } catch (error) {
+            console.error('[Socket] message:edit error:', error);
+            socket.emit('error', { message: `Edit failed: ${(error as Error).message}` });
+        }
+    });
+
+    // Transactional message soft-delete with audit trail
+    socket.on('message:delete', async (data: { messageId: string; conversationId: string }) => {
+        const { messageId, conversationId } = data;
+
+        if (!messageId || !conversationId) {
+            socket.emit('error', { message: 'messageId and conversationId are required' });
+            return;
+        }
+
+        const hasAccess = await canAccessConversation(userId, conversationId);
+        if (!hasAccess) {
+            socket.emit('error', { message: 'Access denied' });
+            return;
+        }
+
+        try {
+            // Transactional: version snapshot + soft-delete (atomic)
+            const result = await prisma.$transaction(async (tx) => {
+                // Step 1: Fetch current message (verify ownership)
+                const currentMessage = await tx.message.findUnique({
+                    where: { id: messageId },
+                    select: { id: true, senderId: true, content: true, isDeleted: true, conversationId: true }
+                });
+
+                if (!currentMessage) throw new Error('Message not found');
+                if (currentMessage.senderId !== userId) throw new Error('Only the sender can delete');
+                if (currentMessage.isDeleted) throw new Error('Message is already deleted');
+                if (currentMessage.conversationId !== conversationId) throw new Error('Message does not belong to this conversation');
+
+                // Step 2: Get MAX versionNumber
+                const maxVersion = await tx.messageVersion.aggregate({
+                    where: { messageId },
+                    _max: { versionNumber: true }
+                });
+
+                const nextVersion = (maxVersion._max.versionNumber ?? 0) + 1;
+
+                // If no versions exist yet, snapshot original first
+                if (nextVersion === 1) {
+                    const originalHash = createHash('sha256').update(currentMessage.content).digest('hex');
+                    await tx.messageVersion.create({
+                        data: {
+                            messageId,
+                            versionNumber: 1,
+                            content: currentMessage.content,
+                            editedAt: new Date(),
+                            editedBy: userId,
+                            changeType: 'ORIGINAL',
+                            contentHash: originalHash
+                        }
+                    });
+                }
+
+                // Step 3: Create DELETE version snapshot
+                const deleteVersionNumber = nextVersion === 1 ? 2 : nextVersion;
+                const contentHash = createHash('sha256').update(currentMessage.content).digest('hex');
+
+                await tx.messageVersion.create({
+                    data: {
+                        messageId,
+                        versionNumber: deleteVersionNumber,
+                        content: currentMessage.content,
+                        editedAt: new Date(),
+                        editedBy: userId,
+                        changeType: 'DELETE',
+                        contentHash
+                    }
+                });
+
+                // Step 4: Soft-delete — DO NOT touch deliveredAt or readAt
+                const updatedMessage = await tx.message.update({
+                    where: { id: messageId },
+                    data: {
+                        isDeleted: true,
+                        content: 'This message was deleted'
+                    },
+                    include: {
+                        sender: { select: { id: true, name: true, image: true } },
+                        reactions: { select: { id: true, userId: true, emoji: true } }
+                    }
+                });
+
+                return updatedMessage;
+            });
+
+            // Broadcast deleted message to all participants
+            console.log('[Socket][emit] message:deleted', { messageId, conversationId });
+            io.to(`conversation:${conversationId}`).emit('message:deleted', {
+                id: result.id,
+                conversationId: result.conversationId,
+                senderId: result.senderId,
+                sender: result.sender,
+                content: result.content,
+                isDeleted: result.isDeleted,
+                reactions: result.reactions
+            });
+
+        } catch (error) {
+            console.error('[Socket] message:delete error:', error);
+            socket.emit('error', { message: `Delete failed: ${(error as Error).message}` });
+        }
+    });
+
+    // ==================== END MESSAGE EDIT & DELETE ====================
 
     // Handle disconnect
     socket.on('disconnect', () => {

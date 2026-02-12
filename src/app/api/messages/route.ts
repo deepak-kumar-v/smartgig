@@ -61,6 +61,16 @@ export async function GET(request: NextRequest) {
                         userId: true,
                         emoji: true
                     }
+                },
+                replyTo: {
+                    select: {
+                        id: true,
+                        content: true,
+                        senderId: true,
+                        sender: { select: { id: true, name: true } },
+                        isDeleted: true,
+                        isEdited: true
+                    }
                 }
             },
             orderBy: { createdAt: 'desc' },
@@ -93,7 +103,7 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { conversationId, content, attachments = [], type = 'TEXT', callMeta } = body;
+        const { conversationId, content, attachments = [], type = 'TEXT', callMeta, replyToId } = body;
 
         // Validation: For TEXT messages, need content or attachments. For CALL messages, need callMeta.
         if (type === 'CALL') {
@@ -132,6 +142,7 @@ export async function POST(request: NextRequest) {
                 content: content?.trim() || (type === 'CALL' ? `Started a ${callMeta?.mode || 'video'} call` : 'Sent an attachment'),
                 type,
                 callMeta: callMeta ? JSON.stringify(callMeta) : null,
+                ...(replyToId ? { replyToId } : {}),
                 attachments: {
                     create: attachments.map((att: any) => ({
                         name: att.name,
@@ -145,7 +156,17 @@ export async function POST(request: NextRequest) {
                 sender: {
                     select: { id: true, name: true, image: true }
                 },
-                attachments: true
+                attachments: true,
+                replyTo: {
+                    select: {
+                        id: true,
+                        content: true,
+                        senderId: true,
+                        sender: { select: { id: true, name: true } },
+                        isDeleted: true,
+                        isEdited: true
+                    }
+                }
             }
         });
 

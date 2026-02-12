@@ -392,6 +392,19 @@ model Message {
   
   attachments    Attachment[]
   reactions      MessageReaction[]
+
+  // Reply support (self-relation)
+  replyToId   String?
+  replyTo     Message?  @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     Message[] @relation("MessageReply")
+
+  // Edit & soft-delete support
+  isDeleted   Boolean   @default(false)
+  isEdited    Boolean   @default(false)
+  editedAt    DateTime?
+
+  // Version history
+  versions    MessageVersion[]
 }
 
 model MessageReaction {
@@ -403,6 +416,22 @@ model MessageReaction {
   createdAt DateTime @default(now())
 
   @@unique([messageId, userId])
+}
+
+model MessageVersion {
+  id                String   @id @default(cuid())
+  messageId         String
+  message           Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  versionNumber     Int
+  content           String
+  editedAt          DateTime @default(now())
+  editedBy          String
+  changeType        String   // ORIGINAL, EDIT, DELETE, RESTORE
+  previousVersionId String?
+  contentHash       String?  // SHA-256 hash of content for audit integrity
+
+  @@unique([messageId, versionNumber])
+  @@index([messageId])
 }
 
 model Attachment {

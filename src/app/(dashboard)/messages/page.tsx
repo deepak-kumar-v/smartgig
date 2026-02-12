@@ -13,7 +13,8 @@ import { CallModal } from '@/components/call/CallModal';
 import {
     Send, Paperclip, Search, MoreVertical, Phone, Video,
     Check, CheckCheck, FileText, Image as ImageIcon, Download,
-    ChevronLeft, Wifi, WifiOff, MessageSquare, Info, X, Plus, Smile
+    ChevronLeft, Wifi, WifiOff, MessageSquare, Info, X, Plus, Smile,
+    Reply, Edit2, Trash2, CornerUpRight
 } from 'lucide-react';
 import { uploadChatAttachment } from '@/actions/chat-upload-actions';
 import { ChatAttachmentCard } from '@/components/chat/chat-attachment-card';
@@ -135,13 +136,19 @@ function MessageBubble({
     isOwn,
     currentUserId,
     messageElementId,
-    onReact
+    onReact,
+    onReply,
+    onEdit,
+    onDelete
 }: {
     message: ChatMessage;
     isOwn: boolean;
     currentUserId: string;
     messageElementId: string;
     onReact: (messageId: string, emoji: string) => void;
+    onReply: (message: ChatMessage) => void;
+    onEdit: (message: ChatMessage) => void;
+    onDelete: (messageId: string) => void;
 }) {
     const [showReactionPopover, setShowReactionPopover] = useState(false);
     const [showEmojiMart, setShowEmojiMart] = useState(false);
@@ -187,29 +194,82 @@ function MessageBubble({
         };
     }, [showReactionPopover, showEmojiMart]);
 
+    const isDeleted = message.isDeleted;
+    const isEdited = message.isEdited;
+
     return (
         <div id={messageElementId} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4 group`}>
             <div className={`max-w-[70%] ${isOwn ? 'order-2' : ''}`}>
                 {/* Call Message Card */}
                 {isCall ? (
                     <ChatCallCard callMeta={message.callMeta!} isOwn={isOwn} />
-                ) : (
-                    <div className={`p-4 rounded-2xl ${isOwn
-                        ? 'bg-indigo-500 text-white rounded-br-md'
-                        : 'bg-zinc-800 text-white rounded-bl-md'
+                ) : isDeleted ? (
+                    /* Soft-deleted message placeholder */
+                    <div className={`p-4 rounded-2xl border border-dashed ${isOwn ? 'border-zinc-600 bg-zinc-900/50 rounded-br-md' : 'border-zinc-700 bg-zinc-900/30 rounded-bl-md'
                         }`}>
-                        {/* Only show content if it's real text, not placeholder when attachments exist */}
-                        {(message.content && message.content !== 'Sent an attachment') ||
-                            !(message.attachments && message.attachments.length > 0) ? (
-                            <p className="text-sm border-0 focus:ring-0">{message.content}</p>
-                        ) : null}
-                        {message.attachments && message.attachments.length > 0 && (
-                            <div className={`flex flex-col gap-2 ${message.content && message.content !== 'Sent an attachment' ? 'mt-2' : ''}`}>
-                                {message.attachments.map((att: any) => (
-                                    <ChatAttachmentCard key={att.id || att.url} attachment={att} />
-                                ))}
-                            </div>
-                        )}
+                        <p className="text-sm text-zinc-500 italic">🗑️ This message was deleted</p>
+                    </div>
+                ) : (
+                    <div className="relative">
+                        {/* Hover action icons */}
+                        <div className={`absolute -top-3 ${isOwn ? 'right-2' : 'left-2'} flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10`}>
+                            <button
+                                onClick={() => onReply(message)}
+                                className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
+                                title="Reply"
+                            >
+                                <Reply className="w-3 h-3" />
+                            </button>
+                            {isOwn && (
+                                <>
+                                    <button
+                                        onClick={() => onEdit(message)}
+                                        className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
+                                        title="Edit"
+                                    >
+                                        <Edit2 className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                        onClick={() => onDelete(message.id)}
+                                        className="p-1 bg-zinc-800 hover:bg-red-600 rounded text-zinc-400 hover:text-white transition-colors"
+                                        title="Delete"
+                                    >
+                                        <Trash2 className="w-3 h-3" />
+                                    </button>
+                                </>
+                            )}
+                        </div>
+
+                        <div className={`p-4 rounded-2xl ${isOwn
+                            ? 'bg-indigo-500 text-white rounded-br-md'
+                            : 'bg-zinc-800 text-white rounded-bl-md'
+                            }`}>
+                            {/* Reply quote block */}
+                            {message.replyTo && (
+                                <div className={`mb-2 px-3 py-2 rounded-lg border-l-2 ${isOwn ? 'bg-indigo-600/50 border-white/40' : 'bg-zinc-700/60 border-indigo-400'
+                                    }`}>
+                                    <p className="text-[10px] font-semibold opacity-70 mb-0.5">
+                                        {message.replyTo.sender?.name || 'Unknown'}
+                                    </p>
+                                    <p className="text-xs opacity-80 line-clamp-2">
+                                        {message.replyTo.isDeleted ? '🗑️ Deleted message' : message.replyTo.content}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Only show content if it's real text, not placeholder when attachments exist */}
+                            {(message.content && message.content !== 'Sent an attachment') ||
+                                !(message.attachments && message.attachments.length > 0) ? (
+                                <p className="text-sm border-0 focus:ring-0">{message.content}</p>
+                            ) : null}
+                            {message.attachments && message.attachments.length > 0 && (
+                                <div className={`flex flex-col gap-2 ${message.content && message.content !== 'Sent an attachment' ? 'mt-2' : ''}`}>
+                                    {message.attachments.map((att: any) => (
+                                        <ChatAttachmentCard key={att.id || att.url} attachment={att} />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
 
@@ -221,8 +281,8 @@ function MessageBubble({
                                 key={emoji}
                                 onClick={() => onReact(message.id, emoji)}
                                 className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs transition-colors ${hasOwn
-                                        ? 'bg-indigo-500/30 border border-indigo-500/50 text-indigo-300'
-                                        : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:bg-zinc-700'
+                                    ? 'bg-indigo-500/30 border border-indigo-500/50 text-indigo-300'
+                                    : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:bg-zinc-700'
                                     }`}
                             >
                                 <span>{emoji}</span>
@@ -235,6 +295,11 @@ function MessageBubble({
                 {/* Timestamp + Status + React Button */}
                 <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'justify-end' : ''}`}>
                     <span className="text-zinc-500 text-xs">{formatTime(message.createdAt)}</span>
+                    {isEdited && (
+                        <span className="text-zinc-500 text-[10px] italic" title={message.editedAt ? `Edited ${new Date(message.editedAt).toLocaleString()}` : 'Edited'}>
+                            (edited)
+                        </span>
+                    )}
                     {isOwn && (
                         message.readAt
                             ? <CheckCheck className="w-3 h-3 text-indigo-400" />
@@ -265,8 +330,8 @@ function MessageBubble({
                                                 setShowReactionPopover(false);
                                             }}
                                             className={`w-7 h-7 flex items-center justify-center rounded transition-colors text-base hover:scale-110 ${ownReactionEmoji === emoji
-                                                    ? 'bg-indigo-500/30 ring-1 ring-indigo-500/60'
-                                                    : 'hover:bg-zinc-700'
+                                                ? 'bg-indigo-500/30 ring-1 ring-indigo-500/60'
+                                                : 'hover:bg-zinc-700'
                                                 }`}
                                         >
                                             {emoji}
@@ -324,7 +389,9 @@ export default function MessagesPage() {
         error,
         fetchConversations,
         joinConversation,
-        sendMessage
+        sendMessage,
+        editMessage,
+        deleteMessage
     } = useChat({
         currentUserId,
         currentUserName: session?.user?.name ?? null,
@@ -369,6 +436,11 @@ export default function MessagesPage() {
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const emitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const activeConversation = conversations.find(c => c.id === activeConversationId);
+
+    // Reply/Edit/Delete state
+    const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+    const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+    const [editContent, setEditContent] = useState('');
 
     // Determine if video call modal should show
     const showCallModal = callState !== 'idle' && callState !== 'ended';
@@ -537,6 +609,15 @@ export default function MessagesPage() {
     };
 
     const handleSend = () => {
+        // Handle edit mode
+        if (editingMessage) {
+            if (!editContent.trim()) return;
+            editMessage(editingMessage.id, editContent);
+            setEditingMessage(null);
+            setEditContent('');
+            return;
+        }
+
         if (!newMessage.trim() && draftAttachments.length === 0) return;
 
         // Stop typing indicator
@@ -574,9 +655,36 @@ export default function MessagesPage() {
             }
         }
 
-        sendMessage(newMessage, draftAttachments);
+        // Send message with optional replyToId
+        sendMessage(newMessage, draftAttachments, 'TEXT', undefined, replyingTo?.id);
         setNewMessage('');
         setDraftAttachments([]);
+        setReplyingTo(null);
+    };
+
+    // Reply/Edit/Delete handlers
+    const handleReply = (message: ChatMessage) => {
+        setReplyingTo(message);
+        setEditingMessage(null);
+        setEditContent('');
+    };
+
+    const handleEditStart = (message: ChatMessage) => {
+        setEditingMessage(message);
+        setEditContent(message.content);
+        setReplyingTo(null);
+    };
+
+    const handleDelete = (messageId: string) => {
+        if (confirm('Delete this message? This action is auditable.')) {
+            deleteMessage(messageId);
+        }
+    };
+
+    const cancelReply = () => setReplyingTo(null);
+    const cancelEdit = () => {
+        setEditingMessage(null);
+        setEditContent('');
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -821,6 +929,9 @@ export default function MessagesPage() {
                                             currentUserId={currentUserId}
                                             messageElementId={`chat-message-${message.id}`}
                                             onReact={handleReact}
+                                            onReply={handleReply}
+                                            onEdit={handleEditStart}
+                                            onDelete={handleDelete}
                                         />
                                     ))}
 
@@ -843,6 +954,37 @@ export default function MessagesPage() {
 
                         {/* Input Area */}
                         <div className="p-4 border-t border-zinc-800 relative">
+                            {/* Reply Preview Bar */}
+                            {replyingTo && (
+                                <div className="mb-2 flex items-center gap-2 bg-zinc-800/60 border-l-2 border-indigo-500 rounded-r-lg px-3 py-2">
+                                    <CornerUpRight className="w-4 h-4 text-indigo-400 shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-[10px] text-indigo-400 font-semibold">
+                                            Replying to {replyingTo.sender?.name || 'Unknown'}
+                                        </p>
+                                        <p className="text-xs text-zinc-400 truncate">
+                                            {replyingTo.isDeleted ? '🗑️ Deleted message' : replyingTo.content}
+                                        </p>
+                                    </div>
+                                    <button onClick={cancelReply} className="p-1 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white">
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Edit Mode Bar */}
+                            {editingMessage && (
+                                <div className="mb-2 flex items-center gap-2 bg-amber-900/30 border-l-2 border-amber-500 rounded-r-lg px-3 py-2">
+                                    <Edit2 className="w-4 h-4 text-amber-400 shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-[10px] text-amber-400 font-semibold">Editing message</p>
+                                        <p className="text-xs text-zinc-400 truncate">{editingMessage.content}</p>
+                                    </div>
+                                    <button onClick={cancelEdit} className="p-1 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white">
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            )}
                             {/* Inline Google Meet Draft Card */}
                             {showMeetDraft && (
                                 <div className="absolute bottom-full left-0 right-0 px-4 pb-2 z-10 w-full max-w-lg mx-auto">
@@ -961,19 +1103,20 @@ export default function MessagesPage() {
                                 </div>
                                 <input
                                     type="text"
-                                    value={newMessage}
-                                    onChange={handleInputChange}
+                                    value={editingMessage ? editContent : newMessage}
+                                    onChange={editingMessage ? (e) => setEditContent(e.target.value) : handleInputChange}
                                     onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                                    placeholder="Type a message..."
-                                    className="flex-1 bg-zinc-800/50 border border-zinc-700 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                                    placeholder={editingMessage ? 'Edit your message...' : 'Type a message...'}
+                                    className={`flex-1 bg-zinc-800/50 border text-white rounded-lg px-4 py-2 text-sm focus:outline-none ${editingMessage ? 'border-amber-500/50 focus:border-amber-500' : 'border-zinc-700 focus:border-indigo-500'
+                                        }`}
                                 />
                                 <GlassButton
-                                    variant="primary"
+                                    variant={editingMessage ? 'default' : 'primary'}
                                     size="sm"
                                     onClick={handleSend}
-                                    disabled={!newMessage.trim() && draftAttachments.length === 0}
+                                    disabled={editingMessage ? !editContent.trim() : (!newMessage.trim() && draftAttachments.length === 0)}
                                 >
-                                    <Send className="w-4 h-4" />
+                                    {editingMessage ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                                 </GlassButton>
                             </div>
                         </div>
