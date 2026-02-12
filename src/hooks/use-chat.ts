@@ -555,16 +555,30 @@ export function useChat(options?: UseChatOptions) {
         const handleMessageEdited = (data: ChatMessage) => {
             console.log('[useChat][event:message:edited]', data.id);
             setMessages(prev => prev.map(msg => {
-                if (msg.id !== data.id) return msg;
-                return {
-                    ...msg,
-                    content: data.content,
-                    isEdited: data.isEdited,
-                    editedAt: data.editedAt,
-                    reactions: data.reactions ?? msg.reactions,
-                    replyTo: data.replyTo ?? msg.replyTo,
-                    attachments: data.attachments ?? msg.attachments
-                };
+                // Patch the edited message itself
+                if (msg.id === data.id) {
+                    return {
+                        ...msg,
+                        content: data.content,
+                        isEdited: data.isEdited,
+                        editedAt: data.editedAt,
+                        reactions: data.reactions ?? msg.reactions,
+                        replyTo: data.replyTo ?? msg.replyTo,
+                        attachments: data.attachments ?? msg.attachments
+                    };
+                }
+                // Cascade: update replyTo references in other messages
+                if (msg.replyTo?.id === data.id) {
+                    return {
+                        ...msg,
+                        replyTo: {
+                            ...msg.replyTo,
+                            content: data.content,
+                            isEdited: data.isEdited ?? true
+                        }
+                    };
+                }
+                return msg;
             }));
         };
         socket.on('message:edited', handleMessageEdited);
@@ -573,12 +587,26 @@ export function useChat(options?: UseChatOptions) {
         const handleMessageDeleted = (data: { id: string; conversationId: string; content: string; isDeleted: boolean }) => {
             console.log('[useChat][event:message:deleted]', data.id);
             setMessages(prev => prev.map(msg => {
-                if (msg.id !== data.id) return msg;
-                return {
-                    ...msg,
-                    content: data.content,
-                    isDeleted: data.isDeleted
-                };
+                // Patch the deleted message itself
+                if (msg.id === data.id) {
+                    return {
+                        ...msg,
+                        content: data.content,
+                        isDeleted: data.isDeleted
+                    };
+                }
+                // Cascade: update replyTo references in other messages
+                if (msg.replyTo?.id === data.id) {
+                    return {
+                        ...msg,
+                        replyTo: {
+                            ...msg.replyTo,
+                            content: data.content,
+                            isDeleted: true
+                        }
+                    };
+                }
+                return msg;
             }));
         };
         socket.on('message:deleted', handleMessageDeleted);
