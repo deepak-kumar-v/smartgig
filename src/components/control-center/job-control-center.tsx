@@ -1,16 +1,19 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Briefcase, Send, FileText, Eye, CheckCircle, Shield, DollarSign,
     Zap, Flag, XCircle, AlertTriangle, ArrowUpCircle, ArrowLeft, Clock,
-    User, Info, ExternalLink, Layers
+    User, Info, ExternalLink, Layers, Activity
 } from 'lucide-react';
 import Link from 'next/link';
 import {
     PhaseInfoPanel, MasterPhase, MASTER_PHASES, PHASE_INDEX,
 } from './phase-info-panel';
+import { evaluateLifecycleHealth, type HealthResult } from './utils/lifecycle-health';
+import { computePhaseDurations, type PhaseDuration } from './utils/phase-duration';
+import { StateMachineGraph } from './state-machine-graph';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -140,10 +143,16 @@ function friendlyStatus(s: string | null, role: 'CLIENT' | 'FREELANCER', cn: str
 // HERO HEADER
 // ═══════════════════════════════════════════════════════════════════════════
 
-function HeroHeader({ jobTitle, contractType, devState, role, statusText }: {
+function HeroHeader({ jobTitle, contractType, devState, role, statusText, health }: {
     jobTitle: string; contractType: string | null; devState: string | null;
-    role: 'CLIENT' | 'FREELANCER'; statusText: string;
+    role: 'CLIENT' | 'FREELANCER'; statusText: string; health: HealthResult;
 }) {
+    const healthCfg = {
+        HEALTHY: { emoji: '🟢', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', glow: '0 0 20px rgba(52,211,153,0.25)' },
+        AT_RISK: { emoji: '🟡', color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', glow: '0 0 20px rgba(251,191,36,0.25)' },
+        BLOCKED: { emoji: '🔴', color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', glow: '0 0 20px rgba(248,113,113,0.25)' },
+    }[health.level];
+
     return (
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }} className="relative overflow-hidden rounded-2xl mb-12">
@@ -166,7 +175,7 @@ function HeroHeader({ jobTitle, contractType, devState, role, statusText }: {
                 <div className="flex items-center gap-3 mb-5 flex-wrap">
                     {contractType && (
                         <span className={`text-xs px-3 py-1 rounded-full border font-semibold tracking-widest uppercase ${contractType === 'TRIAL' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
-                                : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                            : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
                             }`}>{contractType === 'TRIAL' ? 'Paid Trial' : 'Standard'}</span>
                     )}
                     {devState && (
@@ -179,6 +188,28 @@ function HeroHeader({ jobTitle, contractType, devState, role, statusText }: {
                 </div>
                 <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 tracking-tight">{jobTitle}</h1>
                 <p className="text-lg text-zinc-300 mb-6 max-w-3xl leading-relaxed">{statusText}</p>
+
+                {/* Health Badge */}
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.3, duration: 0.4 }}
+                    className={`inline-flex items-center gap-4 px-6 py-3 rounded-xl border ${healthCfg.bg} ${healthCfg.border} mb-6`}
+                    style={{ boxShadow: healthCfg.glow }}
+                >
+                    <div className="flex items-center gap-2.5">
+                        <span className="text-xl">{healthCfg.emoji}</span>
+                        <div>
+                            <span className={`text-sm font-bold uppercase tracking-wider ${healthCfg.color}`}>
+                                {health.level.replace('_', ' ')}
+                            </span>
+                            <p className="text-xs text-zinc-400 mt-0.5 max-w-md">{health.reason}</p>
+                        </div>
+                    </div>
+                    <Activity className={`w-4 h-4 ${healthCfg.color} opacity-60`} />
+                </motion.div>
+
+                <div className="block" />
                 <div className={`inline-flex items-center gap-3 px-5 py-2.5 rounded-xl border ${role === 'CLIENT' ? 'bg-cyan-500/5 border-cyan-500/15' : 'bg-purple-500/5 border-purple-500/15'
                     }`}>
                     <div className={`w-7 h-7 rounded-full flex items-center justify-center ${role === 'CLIENT' ? 'bg-cyan-500/20' : 'bg-purple-500/20'
@@ -253,8 +284,8 @@ function MasterLifecycleBar({ currentPhase, onOpenInfo }: { currentPhase: Master
                                 transition={{ delay: i * 0.06, duration: 0.3 }}
                                 className="flex flex-col items-center min-w-[90px] md:min-w-[110px] relative">
                                 <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all duration-500 relative ${isCurr ? 'bg-indigo-500/25 border-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.5)]'
-                                        : isPast ? 'bg-emerald-500/15 border-emerald-500/40'
-                                            : 'bg-zinc-900/50 border-zinc-800/40'
+                                    : isPast ? 'bg-emerald-500/15 border-emerald-500/40'
+                                        : 'bg-zinc-900/50 border-zinc-800/40'
                                     }`}>
                                     {isCurr && <motion.div className="absolute inset-0 rounded-full border-2 border-indigo-400/40"
                                         animate={{ scale: [1, 1.6, 1], opacity: [0.5, 0, 0.5] }} transition={{ duration: 2.5, repeat: Infinity }} />}
@@ -375,6 +406,35 @@ export function JobControlCenter({ jobId, jobTitle, role }: JobControlCenterProp
     const devState = data?.primaryContract?.status || data?.job?.status || null;
     const statusText = data ? friendlyStatus(data.primaryContract?.status || null, role, data.clientName, data.freelancerName) : 'Initializing...';
 
+    // ── Memoized intelligence computations ──
+    const health = useMemo<HealthResult>(
+        () => data ? evaluateLifecycleHealth(data.primaryContract?.status || null, data.events) : { level: 'HEALTHY' as const, reason: 'Initializing...' },
+        [data],
+    );
+
+    const phaseDurations = useMemo<Record<string, PhaseDuration>>(
+        () => data ? computePhaseDurations(data.events, data.primaryContract?.status || null) : {},
+        [data],
+    );
+
+    const pastStates = useMemo<string[]>(
+        () => {
+            if (!data) return [];
+            const seen = new Set<string>();
+            for (const ev of data.events) {
+                if (ev.devState) seen.add(ev.devState);
+            }
+            return Array.from(seen);
+        },
+        [data],
+    );
+
+    // Map master phase labels to duration keys
+    const PHASE_DURATION_KEYS: Record<MasterPhase, string> = {
+        JOB: 'JOB', PROPOSAL: 'PROPOSAL', TRIAL: 'TRIAL', CONTRACT: 'CONTRACT',
+        FUNDING: 'FUNDING', ACTIVE: 'ACTIVE', COMPLETED: 'COMPLETED', CLOSED: 'CLOSED',
+    };
+
     return (
         <div className="w-full">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-8">
@@ -401,9 +461,58 @@ export function JobControlCenter({ jobId, jobTitle, role }: JobControlCenterProp
                 ) : data ? (
                     <motion.div key="c">
                         <HeroHeader jobTitle={jobTitle} contractType={data.primaryContract?.type || null}
-                            devState={devState} role={role} statusText={statusText} />
+                            devState={devState} role={role} statusText={statusText} health={health} />
 
                         <MasterLifecycleBar currentPhase={currentPhase} onOpenInfo={setInfoPhase} />
+
+                        {/* Phase Duration Display */}
+                        {Object.keys(phaseDurations).length > 0 && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.35, duration: 0.4 }}
+                                className="glass-panel rounded-2xl p-6 md:p-8 mb-12"
+                            >
+                                <div className="flex items-center gap-3 mb-6">
+                                    <Clock className="w-4 h-4 text-zinc-600" />
+                                    <h2 className="text-xs font-medium text-zinc-500 uppercase tracking-[0.25em]">Time Per Phase</h2>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                                    {MASTER_PHASES.map((phase) => {
+                                        const key = PHASE_DURATION_KEYS[phase];
+                                        const dur = phaseDurations[key];
+                                        const Icon = PHASE_ICONS[phase];
+                                        return (
+                                            <div key={phase} className={`relative text-center p-3 rounded-xl border transition-all ${dur?.isCurrent
+                                                    ? 'bg-indigo-500/[0.06] border-indigo-500/20'
+                                                    : dur ? 'bg-white/[0.02] border-white/5' : 'bg-transparent border-white/[0.03]'
+                                                }`}>
+                                                {dur?.isCurrent && (
+                                                    <motion.div
+                                                        className="absolute inset-0 rounded-xl border border-indigo-400/20"
+                                                        animate={{ opacity: [0.3, 0.8, 0.3] }}
+                                                        transition={{ duration: 2, repeat: Infinity }}
+                                                    />
+                                                )}
+                                                <Icon className={`w-4 h-4 mx-auto mb-1.5 ${dur?.isCurrent ? 'text-indigo-400' : dur ? 'text-zinc-500' : 'text-zinc-800'}`} />
+                                                <p className={`text-[10px] uppercase tracking-wider mb-1 ${dur?.isCurrent ? 'text-indigo-400' : dur ? 'text-zinc-500' : 'text-zinc-800'}`}>
+                                                    {phase}
+                                                </p>
+                                                <p className={`text-sm font-mono font-semibold ${dur?.isCurrent ? 'text-indigo-300' : dur ? 'text-zinc-300' : 'text-zinc-800'}`}>
+                                                    {dur ? dur.formatted : '—'}
+                                                </p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {/* State Machine Graph */}
+                        <StateMachineGraph
+                            currentStatus={data.primaryContract?.status || null}
+                            pastStates={pastStates}
+                        />
 
                         {/* Timeline */}
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
