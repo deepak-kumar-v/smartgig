@@ -197,6 +197,18 @@ export async function submitProposalV2(payload: ProposalPayload) {
                 userMessage: `Proposal submitted for job "${job.title}"`,
                 actorId: session.user.id,
                 actorRole: 'FREELANCER',
+                category: 'BUSINESS',
+            });
+
+            // CHAT_CREATED system event
+            recordLifecycleEvent({
+                jobId: payload.jobId,
+                proposalId: proposal.id,
+                eventType: 'CHAT_CREATED',
+                devState: 'SYSTEM',
+                userMessage: 'Conversation channel opened between client and freelancer',
+                actorRole: 'SYSTEM',
+                category: 'SYSTEM',
             });
         }
 

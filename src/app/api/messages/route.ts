@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 
 // GET /api/messages?conversationId=xxx
 export async function GET(request: NextRequest) {
@@ -132,6 +133,22 @@ export async function POST(request: NextRequest) {
         const isParticipant = conversation.participants.some(p => p.userId === session.user.id);
         if (!isParticipant) {
             return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+        }
+
+        // FIRST_MESSAGE_SENT detection — fire once per conversation
+        const existingMessageCount = await db.message.count({ where: { conversationId } });
+        if (existingMessageCount === 0) {
+            const convDetails = conversation as any;
+            recordLifecycleEvent({
+                proposalId: convDetails.proposalId ?? undefined,
+                contractId: convDetails.contractId ?? undefined,
+                eventType: 'FIRST_MESSAGE_SENT',
+                devState: 'ENGAGED',
+                userMessage: 'Conversation initiated',
+                actorId: session.user.id,
+                actorRole: session.user.role === 'CLIENT' ? 'CLIENT' : 'FREELANCER',
+                category: 'SYSTEM',
+            });
         }
 
         // Create message with attachments (and optionally call metadata)

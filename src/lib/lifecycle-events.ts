@@ -24,6 +24,7 @@ interface LifecycleEventInput {
     actorId?: string;
     actorRole: ActorRole;
     metadata?: Record<string, unknown>;
+    category?: 'BUSINESS' | 'SYSTEM';
 }
 
 /**
@@ -45,6 +46,7 @@ export function recordLifecycleEvent(input: LifecycleEventInput): void {
                 actorId: input.actorId,
                 actorRole: input.actorRole,
                 metadata: input.metadata ?? undefined,
+                category: input.category ?? 'BUSINESS',
             },
         })
         .catch((err: unknown) => {

@@ -14,6 +14,18 @@ import {
 import { evaluateLifecycleHealth, type HealthResult } from './utils/lifecycle-health';
 import { computePhaseDurations, type PhaseDuration } from './utils/phase-duration';
 import { StateMachineGraph } from './state-machine-graph';
+import { detectDeadlocks, type DeadlockResult } from './utils/deadlock-detector';
+import { FinancialStrip } from './financial-strip';
+import { InteractionAnalytics } from './interaction-analytics';
+import { TrialUpgradeConnector } from './trial-upgrade-connector';
+import { calculateDisputeRisk, type DisputeRiskResult } from './utils/dispute-risk';
+import { computeResponsiveness, type ResponsivenessResult } from './utils/responsiveness-index';
+import { computeBurnRate, type BurnRateResult } from './utils/burn-rate';
+import { computeReliabilityScore, type ReliabilityResult } from './utils/reliability-score';
+import { DisputeRiskMeter } from './dispute-risk-meter';
+import { ResponsivenessBar } from './responsiveness-bar';
+import { BurnRateCard } from './burn-rate-card';
+import { ReliabilityBadge } from './reliability-badge';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -31,6 +43,7 @@ interface LifecycleEvent {
     actorId?: string | null;
     actorRole: 'CLIENT' | 'FREELANCER' | 'SYSTEM';
     metadata?: Record<string, unknown> | null;
+    category?: string;
     createdAt: string;
 }
 
@@ -42,6 +55,20 @@ interface PrimaryContract {
     id: string; status: string; type: string; title: string;
 }
 
+interface FinancialData {
+    totalBudget: number;
+    totalDeposited: number;
+    totalReleased: number;
+    balance: number;
+}
+
+interface InteractionCounts {
+    messages: number;
+    edits: number;
+    changeRequests: number;
+    disputes: number;
+}
+
 interface APIResponse {
     job: { id: string; title: string; status: string; category: string };
     proposals: { id: string; status: string; freelancerName: string | null }[];
@@ -51,6 +78,8 @@ interface APIResponse {
     role: 'CLIENT' | 'FREELANCER';
     clientName: string;
     freelancerName: string;
+    financialData: FinancialData | null;
+    interactionCounts: InteractionCounts;
 }
 
 interface JobControlCenterProps {
@@ -106,6 +135,16 @@ const EVENT_CONFIG: Record<string, { icon: React.ElementType; color: string; bg:
     TRIAL_REJECTED: { icon: XCircle, color: 'text-red-400', bg: 'bg-red-500/20' },
     DISPUTE_RAISED: { icon: AlertTriangle, color: 'text-orange-400', bg: 'bg-orange-500/20' },
     TRIAL_UPGRADED: { icon: ArrowUpCircle, color: 'text-cyan-400', bg: 'bg-cyan-500/20' },
+    // Phase 1 - Transparency events
+    CHAT_CREATED: { icon: Activity, color: 'text-zinc-400', bg: 'bg-zinc-500/20' },
+    FIRST_MESSAGE_SENT: { icon: Send, color: 'text-zinc-400', bg: 'bg-zinc-500/20' },
+    CONTRACT_EDITED: { icon: FileText, color: 'text-amber-400', bg: 'bg-amber-500/20' },
+    // Future-ready milestone/escrow events
+    MILESTONE_CREATED: { icon: Flag, color: 'text-blue-400', bg: 'bg-blue-500/20' },
+    MILESTONE_FUNDED: { icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
+    MILESTONE_SUBMITTED: { icon: Send, color: 'text-indigo-400', bg: 'bg-indigo-500/20' },
+    MILESTONE_APPROVED: { icon: CheckCircle, color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
+    ESCROW_RELEASED: { icon: DollarSign, color: 'text-green-400', bg: 'bg-green-500/20' },
 };
 
 const EVENT_TITLES: Record<string, string> = {
@@ -115,6 +154,13 @@ const EVENT_TITLES: Record<string, string> = {
     CONTRACT_FINALIZED: 'Contract Finalized', CONTRACT_REJECTED: 'Contract Rejected',
     TRIAL_APPROVED: 'Trial Approved', TRIAL_REJECTED: 'Trial Rejected',
     DISPUTE_RAISED: 'Dispute Raised', TRIAL_UPGRADED: 'Upgraded to Standard',
+    // Phase 1 - Transparency events
+    CHAT_CREATED: 'Chat Channel Opened', FIRST_MESSAGE_SENT: 'First Message Sent',
+    CONTRACT_EDITED: 'Contract Edited',
+    // Future-ready
+    MILESTONE_CREATED: 'Milestone Created', MILESTONE_FUNDED: 'Milestone Funded',
+    MILESTONE_SUBMITTED: 'Milestone Submitted', MILESTONE_APPROVED: 'Milestone Approved',
+    ESCROW_RELEASED: 'Escrow Released',
 };
 
 function getEventCfg(t: string) { return EVENT_CONFIG[t] || { icon: Clock, color: 'text-zinc-400', bg: 'bg-zinc-500/20' }; }
@@ -331,9 +377,11 @@ function TimelineNode({ event, index, isLast, isMostRecent, clientName, freelanc
         : event.proposalId ? `${prefix}/proposals/${event.proposalId}`
             : event.jobId ? `/client/jobs/${event.jobId}` : null;
 
+    const isSystem = event.category === 'SYSTEM';
+
     return (
         <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.08, duration: 0.4 }} className="relative flex gap-6 pb-10 last:pb-0">
+            transition={{ delay: index * 0.08, duration: 0.4 }} className={`relative flex gap-6 pb-10 last:pb-0 ${isSystem ? 'opacity-60' : ''}`}>
             {!isLast && (
                 <div className="absolute left-[25px] top-[56px] bottom-0 w-[2px]">
                     <motion.div initial={{ scaleY: 0 }} animate={{ scaleY: 1 }}
@@ -342,28 +390,31 @@ function TimelineNode({ event, index, isLast, isMostRecent, clientName, freelanc
                 </div>
             )}
             <div className="relative z-10 flex-shrink-0">
-                <div className={`w-[52px] h-[52px] rounded-full flex items-center justify-center border-2 ${isMostRecent ? 'border-indigo-400/70 shadow-[0_0_28px_rgba(99,102,241,0.35)]' : 'border-white/5'
-                    } ${cfg.bg}`}>
-                    {isMostRecent && <motion.div className="absolute inset-0 rounded-full border-2 border-indigo-400/30"
+                <div className={`${isSystem ? 'w-[40px] h-[40px]' : 'w-[52px] h-[52px]'} rounded-full flex items-center justify-center border-2 ${isMostRecent && !isSystem ? 'border-indigo-400/70 shadow-[0_0_28px_rgba(99,102,241,0.35)]' : isSystem ? 'border-zinc-700/30' : 'border-white/5'
+                    } ${isSystem ? 'bg-zinc-800/40' : cfg.bg}`}>
+                    {isMostRecent && !isSystem && <motion.div className="absolute inset-0 rounded-full border-2 border-indigo-400/30"
                         animate={{ scale: [1, 1.6, 1], opacity: [0.5, 0, 0.5] }} transition={{ duration: 3, repeat: Infinity }} />}
-                    <Icon className={`w-5 h-5 ${cfg.color}`} />
+                    <Icon className={`${isSystem ? 'w-4 h-4 text-zinc-500' : `w-5 h-5 ${cfg.color}`}`} />
                 </div>
             </div>
             <div className="flex-1 min-w-0">
-                <div className={`glass-panel rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.06] border border-white/5 ${isMostRecent ? 'bg-indigo-500/[0.03] border-indigo-500/15' : ''
+                <div className={`glass-panel rounded-xl ${isSystem ? 'p-4' : 'p-6'} transition-all duration-300 hover:bg-white/[0.06] border ${isSystem ? 'border-zinc-800/50' : 'border-white/5'} ${isMostRecent && !isSystem ? 'bg-indigo-500/[0.03] border-indigo-500/15' : ''
                     }`}>
                     <div className="flex items-start justify-between gap-3 mb-2">
                         <div className="flex items-center gap-3">
-                            <h4 className="text-base font-semibold text-white">{friendlyTitle(event.eventType)}</h4>
+                            <h4 className={`${isSystem ? 'text-sm font-medium text-zinc-400' : 'text-base font-semibold text-white'}`}>{friendlyTitle(event.eventType)}</h4>
+                            {isSystem && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-600 font-mono uppercase tracking-wider">SYS</span>
+                            )}
                             {link && <Link href={link} className="text-zinc-600 hover:text-indigo-400 transition-colors"><ExternalLink className="w-4 h-4" /></Link>}
                         </div>
-                        {event.devState && (
+                        {event.devState && event.devState !== 'SYSTEM' && (
                             <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-zinc-800/80 text-zinc-500 border border-zinc-700/50 font-mono uppercase tracking-wider">
                                 {event.devState}
                             </span>
                         )}
                     </div>
-                    <p className="text-sm text-zinc-400 mb-3 leading-relaxed">{event.userMessage}</p>
+                    <p className={`${isSystem ? 'text-xs text-zinc-500' : 'text-sm text-zinc-400'} mb-3 leading-relaxed`}>{event.userMessage}</p>
                     <div className="flex items-center justify-between text-xs text-zinc-600">
                         <span className="flex items-center gap-2">
                             <span className={`w-2 h-2 rounded-full ${event.actorRole === 'CLIENT' ? 'bg-cyan-400' : event.actorRole === 'FREELANCER' ? 'bg-purple-400' : 'bg-zinc-500'
@@ -386,6 +437,8 @@ export function JobControlCenter({ jobId, jobTitle, role }: JobControlCenterProp
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [infoPhase, setInfoPhase] = useState<MasterPhase | null>(null);
+    const [alertDismissed, setAlertDismissed] = useState(false);
+    const [timelineFilter, setTimelineFilter] = useState<'ALL' | 'BUSINESS' | 'SYSTEM'>('ALL');
 
     useEffect(() => {
         (async () => {
@@ -412,6 +465,11 @@ export function JobControlCenter({ jobId, jobTitle, role }: JobControlCenterProp
         [data],
     );
 
+    const deadlock = useMemo<DeadlockResult>(
+        () => data ? detectDeadlocks(data.primaryContract?.status || null, data.events) : { type: 'NONE' as const, message: '' },
+        [data],
+    );
+
     const phaseDurations = useMemo<Record<string, PhaseDuration>>(
         () => data ? computePhaseDurations(data.events, data.primaryContract?.status || null) : {},
         [data],
@@ -429,11 +487,76 @@ export function JobControlCenter({ jobId, jobTitle, role }: JobControlCenterProp
         [data],
     );
 
+    const hasTrialUpgrade = useMemo(
+        () => data ? data.events.some(e => e.eventType === 'TRIAL_UPGRADED') : false,
+        [data],
+    );
+
     // Map master phase labels to duration keys
     const PHASE_DURATION_KEYS: Record<MasterPhase, string> = {
         JOB: 'JOB', PROPOSAL: 'PROPOSAL', TRIAL: 'TRIAL', CONTRACT: 'CONTRACT',
         FUNDING: 'FUNDING', ACTIVE: 'ACTIVE', COMPLETED: 'COMPLETED', CLOSED: 'CLOSED',
     };
+
+    // Role-aware deadlock message rewriting
+    const deadlockMessage = useMemo(() => {
+        if (deadlock.type === 'NONE') return '';
+        const msg = deadlock.message;
+        if (role === 'CLIENT') {
+            return msg.replace('freelancer response', `response from your freelancer`);
+        }
+        return msg.replace('client', 'the client');
+    }, [deadlock, role]);
+
+    // Days in current state
+    const daysInCurrentState = useMemo(() => {
+        if (!data || data.events.length === 0) return 0;
+        const last = data.events[data.events.length - 1];
+        return (Date.now() - new Date(last.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+    }, [data]);
+
+    // Dispute risk
+    const disputeRisk = useMemo<DisputeRiskResult>(
+        () => data ? calculateDisputeRisk({
+            contractStatus: data.primaryContract?.status || null,
+            events: data.events,
+            messageCount: data.interactionCounts.messages,
+            editCount: data.interactionCounts.edits,
+            changeRequests: data.interactionCounts.changeRequests,
+            deadlockType: deadlock.type,
+            daysInCurrentState,
+        }) : { score: 0, level: 'LOW' as const, factors: [] },
+        [data, deadlock, daysInCurrentState],
+    );
+
+    // Responsiveness — show counter-party's score
+    const responsivenessTarget = role === 'CLIENT' ? 'FREELANCER' as const : 'CLIENT' as const;
+    const responsiveness = useMemo<ResponsivenessResult>(
+        () => data ? computeResponsiveness(data.events, responsivenessTarget) : { averageResponseHours: 0, rating: 'GOOD' as const, pairCount: 0 },
+        [data, responsivenessTarget],
+    );
+
+    // Burn rate
+    const burnRate = useMemo<BurnRateResult>(
+        () => data && data.financialData ? computeBurnRate({
+            contractStatus: data.primaryContract?.status || null,
+            totalDeposited: data.financialData.totalDeposited,
+            totalReleased: data.financialData.totalReleased,
+            balance: data.financialData.balance,
+            events: data.events,
+        }) : { burnRatePerDay: 0, estimatedDaysRemaining: null, totalFunded: 0, totalReleased: 0, daysActive: 0 },
+        [data],
+    );
+
+    // Reliability
+    const reliability = useMemo<ReliabilityResult>(
+        () => data ? computeReliabilityScore({
+            events: data.events,
+            changeRequests: data.interactionCounts.changeRequests,
+            deadlockCount: deadlock.type !== 'NONE' ? 1 : 0,
+        }) : { score: 100, grade: 'A' as const, deductions: [] },
+        [data, deadlock],
+    );
 
     return (
         <div className="w-full">
@@ -460,9 +583,88 @@ export function JobControlCenter({ jobId, jobTitle, role }: JobControlCenterProp
                     </motion.div>
                 ) : data ? (
                     <motion.div key="c">
+                        {/* 1. Hero Header */}
                         <HeroHeader jobTitle={jobTitle} contractType={data.primaryContract?.type || null}
                             devState={devState} role={role} statusText={statusText} health={health} />
 
+                        {/* 2. Deadlock Alert Panel */}
+                        <AnimatePresence>
+                            {deadlock.type !== 'NONE' && !alertDismissed && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -10, height: 0 }}
+                                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                                    exit={{ opacity: 0, y: -10, height: 0 }}
+                                    transition={{ duration: 0.3 }}
+                                    className={`rounded-2xl p-5 md:p-6 mb-12 border relative overflow-hidden ${deadlock.type === 'CRITICAL'
+                                        ? 'bg-red-500/[0.04] border-red-500/20'
+                                        : 'bg-amber-500/[0.04] border-amber-500/20'
+                                        }`}
+                                    style={{
+                                        boxShadow: deadlock.type === 'CRITICAL'
+                                            ? '0 0 30px rgba(248,113,113,0.1)'
+                                            : '0 0 30px rgba(251,191,36,0.1)',
+                                    }}
+                                >
+                                    {/* Soft glow backdrop */}
+                                    <motion.div
+                                        className={`absolute inset-0 opacity-20 ${deadlock.type === 'CRITICAL' ? 'bg-red-500/5' : 'bg-amber-500/5'
+                                            }`}
+                                        animate={{ opacity: [0.1, 0.25, 0.1] }}
+                                        transition={{ duration: 3, repeat: Infinity }}
+                                    />
+                                    <div className="relative flex items-start gap-4">
+                                        <div className="flex-shrink-0 mt-0.5">
+                                            <span className="text-2xl">
+                                                {deadlock.type === 'CRITICAL' ? '🔴' : '🟡'}
+                                            </span>
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className={`text-xs font-bold uppercase tracking-wider ${deadlock.type === 'CRITICAL' ? 'text-red-400' : 'text-amber-400'
+                                                    }`}>
+                                                    {deadlock.type === 'CRITICAL' ? 'System Alert — Stalled' : 'System Alert — Minor Delay'}
+                                                </span>
+                                            </div>
+                                            <p className="text-sm text-zinc-300 leading-relaxed">
+                                                {deadlockMessage}
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => setAlertDismissed(true)}
+                                            className="flex-shrink-0 w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/15 transition-colors text-zinc-500 hover:text-zinc-300"
+                                            aria-label="Dismiss alert"
+                                        >
+                                            <XCircle className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
+                        {/* 3. Dispute Risk Meter */}
+                        <DisputeRiskMeter risk={disputeRisk} role={role} />
+
+                        {/* 4. Financial Strip */}
+                        <FinancialStrip
+                            financial={data.financialData}
+                            contractStatus={data.primaryContract?.status || null}
+                            role={role}
+                        />
+
+                        {/* 5. Burn Rate Tracker */}
+                        <BurnRateCard burnRate={burnRate} />
+
+                        {/* 6. Responsiveness Index */}
+                        <ResponsivenessBar
+                            result={responsiveness}
+                            targetRole={responsivenessTarget}
+                            viewerRole={role}
+                        />
+
+                        {/* 7. Reliability Score */}
+                        <ReliabilityBadge reliability={reliability} role={role} />
+
+                        {/* 8. Lifecycle Bar */}
                         <MasterLifecycleBar currentPhase={currentPhase} onOpenInfo={setInfoPhase} />
 
                         {/* Phase Duration Display */}
@@ -484,8 +686,8 @@ export function JobControlCenter({ jobId, jobTitle, role }: JobControlCenterProp
                                         const Icon = PHASE_ICONS[phase];
                                         return (
                                             <div key={phase} className={`relative text-center p-3 rounded-xl border transition-all ${dur?.isCurrent
-                                                    ? 'bg-indigo-500/[0.06] border-indigo-500/20'
-                                                    : dur ? 'bg-white/[0.02] border-white/5' : 'bg-transparent border-white/[0.03]'
+                                                ? 'bg-indigo-500/[0.06] border-indigo-500/20'
+                                                : dur ? 'bg-white/[0.02] border-white/5' : 'bg-transparent border-white/[0.03]'
                                                 }`}>
                                                 {dur?.isCurrent && (
                                                     <motion.div
@@ -508,35 +710,61 @@ export function JobControlCenter({ jobId, jobTitle, role }: JobControlCenterProp
                             </motion.div>
                         )}
 
-                        {/* State Machine Graph */}
-                        <StateMachineGraph
-                            currentStatus={data.primaryContract?.status || null}
-                            pastStates={pastStates}
-                        />
+                        {/* 9. Trial Upgrade Connector */}
+                        {hasTrialUpgrade && (
+                            <TrialUpgradeConnector events={data.events} contracts={data.contracts} />
+                        )}
 
-                        {/* Timeline */}
+                        {/* 10. Interaction Analytics */}
+                        <InteractionAnalytics counts={data.interactionCounts} />
+
+                        {/* 11. Timeline */}
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
                             <div className="flex items-center gap-3 mb-8">
                                 <Layers className="w-5 h-5 text-zinc-600" />
                                 <h2 className="text-xs font-medium text-zinc-500 uppercase tracking-[0.25em]">Event Timeline</h2>
-                                <span className="text-xs text-zinc-700 ml-auto">{data.events.length} event{data.events.length !== 1 ? 's' : ''}</span>
-                            </div>
-                            {data.events.length === 0 ? (
-                                <div className="glass-panel rounded-xl p-12 text-center">
-                                    <Clock className="w-10 h-10 text-zinc-700 mx-auto mb-4" />
-                                    <p className="text-zinc-600">No lifecycle events recorded yet.</p>
-                                    <p className="text-zinc-700 text-sm mt-1">Events appear as the job progresses.</p>
-                                </div>
-                            ) : (
-                                <div className="relative max-w-4xl">
-                                    {data.events.map((ev, i) => (
-                                        <TimelineNode key={ev.id} event={ev} index={i} isLast={i === data.events.length - 1}
-                                            isMostRecent={i === data.events.length - 1}
-                                            clientName={data.clientName} freelancerName={data.freelancerName} role={role} />
+                                <span className="text-xs text-zinc-700">{data.events.length} event{data.events.length !== 1 ? 's' : ''}</span>
+                                <div className="ml-auto flex items-center gap-1">
+                                    {(['ALL', 'BUSINESS', 'SYSTEM'] as const).map((f) => (
+                                        <button key={f} onClick={() => setTimelineFilter(f)}
+                                            className={`text-[10px] px-2.5 py-1 rounded-full font-medium uppercase tracking-wider transition-colors ${timelineFilter === f
+                                                ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
+                                                : 'text-zinc-600 hover:text-zinc-400 border border-transparent'
+                                                }`}>
+                                            {f === 'ALL' ? 'All' : f === 'BUSINESS' ? 'Business' : 'System'}
+                                        </button>
                                     ))}
                                 </div>
-                            )}
+                            </div>
+                            {(() => {
+                                const filtered = timelineFilter === 'ALL'
+                                    ? data.events
+                                    : data.events.filter(ev => (ev.category || 'BUSINESS') === timelineFilter);
+                                return filtered.length === 0 ? (
+                                    <div className="glass-panel rounded-xl p-12 text-center">
+                                        <Clock className="w-10 h-10 text-zinc-700 mx-auto mb-4" />
+                                        <p className="text-zinc-600">No {timelineFilter.toLowerCase()} events recorded yet.</p>
+                                        <p className="text-zinc-700 text-sm mt-1">Events appear as the job progresses.</p>
+                                    </div>
+                                ) : (
+                                    <div className="relative max-w-4xl">
+                                        {filtered.map((ev, i) => (
+                                            <TimelineNode key={ev.id} event={ev} index={i} isLast={i === filtered.length - 1}
+                                                isMostRecent={i === filtered.length - 1}
+                                                clientName={data.clientName} freelancerName={data.freelancerName} role={role} />
+                                        ))}
+                                    </div>
+                                );
+                            })()}
                         </motion.div>
+
+                        {/* 12. State Transition Graph (collapsible) */}
+                        <div className="mt-12">
+                            <StateMachineGraph
+                                currentStatus={data.primaryContract?.status || null}
+                                pastStates={pastStates}
+                            />
+                        </div>
                     </motion.div>
                 ) : null}
             </AnimatePresence>

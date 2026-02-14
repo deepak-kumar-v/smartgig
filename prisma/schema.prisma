@@ -621,6 +621,7 @@ model LifecycleEvent {
   actorRole     ActorRole // CLIENT, FREELANCER, SYSTEM
 
   metadata      Json?
+  category      String    @default("BUSINESS") // BUSINESS | SYSTEM
   createdAt     DateTime  @default(now())
 
   @@index([contractId])

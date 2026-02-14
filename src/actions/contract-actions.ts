@@ -285,9 +285,10 @@ export async function updateContract(
             return { success: false, error: "Client profile not found." };
         }
 
-        // 2. Get Contract
+        // 2. Get Contract (include proposal for jobId)
         const contract = await db.contract.findUnique({
-            where: { id: contractId }
+            where: { id: contractId },
+            include: { proposal: { select: { jobId: true } } }
         });
 
         if (!contract) {
@@ -314,6 +315,18 @@ export async function updateContract(
                 ...(patchData.startDate && { startDate: patchData.startDate }),
                 ...(patchData.endDate && { endDate: patchData.endDate })
             }
+        });
+
+        // Lifecycle Event: CONTRACT_EDITED
+        recordLifecycleEvent({
+            jobId: contract.proposal?.jobId,
+            contractId,
+            eventType: 'CONTRACT_EDITED',
+            devState: 'DRAFT',
+            userMessage: 'Contract terms updated',
+            actorId: session.user.id,
+            actorRole: 'CLIENT',
+            category: 'BUSINESS',
         });
 
         revalidatePath(`/client/contracts/${contractId}`);
