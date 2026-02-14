@@ -1233,6 +1233,7 @@ export default function PostJobV32Page() { // Renamed component
 
                             {/* Clickable Review Card (Strict v2 Parity) */}
                             <JobReviewCard
+                                mode="draft"
                                 formData={formData}
                                 defaultExpanded={showFullReview}
                                 onToggleExpand={setShowFullReview}

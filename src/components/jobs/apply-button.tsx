@@ -32,9 +32,7 @@ export const ApplyButton = ({ jobId, jobTitle, budget }: ApplyButtonProps) => {
 
             if (result.error) {
                 // Handle zod array errors or string errors
-                const errorMsg = typeof result.error === 'string'
-                    ? result.error
-                    : Object.values(result.error).flat().join(', ');
+                const errorMsg = result.error;
 
                 setMessage({ type: 'error', text: errorMsg });
             } else {

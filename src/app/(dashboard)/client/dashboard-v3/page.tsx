@@ -86,7 +86,7 @@ export default async function ClientDashboardPageV3() {
                 id: j.id,
                 title: j.title,
                 proposalsCount: j._count.proposals,
-                budget: j.budget,
+                budget: j.budgetMax,
                 status: j.status.toLowerCase()
             }));
 

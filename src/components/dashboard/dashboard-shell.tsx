@@ -82,13 +82,13 @@ export function DashboardShell({ children, role: initialRole = 'freelancer' }: D
     const router = useRouter();
     const { data: session, status } = useSession();
 
-    // STRICT: Derive role from URL first to prevent flicker
+    // STRICT: Derive role from URL first, then session, then prop fallback
     const pathRole = getRoleFromPath(pathname);
-    const effectiveRole = pathRole || initialRole;
-
-    // Debug log
-    console.log(`[SIDEBAR] pathname=${pathname}`);
-    console.log(`[SIDEBAR] resolvedRole=${effectiveRole}`);
+    const sessionRole = session?.user?.role?.toLowerCase() as 'freelancer' | 'client' | 'admin' | undefined;
+    // Priority: URL path > session role > prop fallback
+    const effectiveRole = pathRole || sessionRole || initialRole;
+    // On shared routes, sidebar must wait for session to resolve the role
+    const isRoleResolved = pathRole !== null || status !== 'loading';
 
     const menu = navItems[effectiveRole as keyof typeof navItems] || navItems.freelancer;
 
@@ -115,7 +115,7 @@ export function DashboardShell({ children, role: initialRole = 'freelancer' }: D
 
                 <div className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                     <div className="text-xs font-medium text-white/30 px-3 uppercase tracking-wider mb-2">Menu</div>
-                    {menu.map((item) => {
+                    {isRoleResolved ? menu.map((item) => {
                         const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                         return (
                             <Link key={item.href} href={item.href}>
@@ -130,7 +130,15 @@ export function DashboardShell({ children, role: initialRole = 'freelancer' }: D
                                 </div>
                             </Link>
                         )
-                    })}
+                    }) : (
+                        /* Neutral skeleton while role resolves on shared routes */
+                        Array.from({ length: 6 }).map((_, i) => (
+                            <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl animate-pulse">
+                                <div className="w-4 h-4 rounded bg-white/10" />
+                                <div className="h-3 rounded bg-white/10" style={{ width: `${60 + (i % 3) * 20}%` }} />
+                            </div>
+                        ))
+                    )}
                 </div>
 
                 <div className="p-4 mt-auto border-t border-white/5">
@@ -213,14 +221,21 @@ export function DashboardShell({ children, role: initialRole = 'freelancer' }: D
 
                             {/* Mobile Menu Items - Scrollable area */}
                             <nav className="space-y-2 flex-1 overflow-y-auto mb-4">
-                                {menu.map((item) => (
+                                {isRoleResolved ? menu.map((item) => (
                                     <Link key={item.href} href={item.href} onClick={() => setSidebarOpen(false)}>
                                         <div className="flex items-center gap-3 px-3 py-3 rounded-lg text-white/70 hover:bg-white/10">
                                             <item.icon className="w-5 h-5" />
                                             {item.name}
                                         </div>
                                     </Link>
-                                ))}
+                                )) : (
+                                    Array.from({ length: 6 }).map((_, i) => (
+                                        <div key={i} className="flex items-center gap-3 px-3 py-3 rounded-lg animate-pulse">
+                                            <div className="w-5 h-5 rounded bg-white/10" />
+                                            <div className="h-3 rounded bg-white/10" style={{ width: `${60 + (i % 3) * 20}%` }} />
+                                        </div>
+                                    ))
+                                )}
                             </nav>
 
                             {/* Mobile Footer Area - Pinned to bottom */}

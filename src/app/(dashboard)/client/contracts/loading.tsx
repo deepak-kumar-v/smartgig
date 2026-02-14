@@ -6,8 +6,8 @@ export default function ClientContractsLoading() {
     return (
         <DashboardShell role="client">
             <div className="mb-8">
-                <Skeleton variant="text" width={200} height={32} className="mb-2" />
-                <Skeleton variant="text" width={300} />
+                <Skeleton className="w-[200px] h-8 mb-2" />
+                <Skeleton className="w-[300px] h-4" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

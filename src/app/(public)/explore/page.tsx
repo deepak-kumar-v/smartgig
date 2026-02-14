@@ -93,7 +93,7 @@ export default async function ExplorePage() {
                                                 <h3 className="text-xl font-bold text-white mb-1">{job.title}</h3>
                                                 <div className="flex items-center gap-4 text-sm text-white/50 mb-4">
                                                     <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {job.isRemote ? "Remote" : "On-site"}</span>
-                                                    <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> {formatBudget(job.budget)}</span>
+                                                    <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> {formatBudget(job.budgetMax)}</span>
                                                     <span>Posted {formatDistanceToNow(job.createdAt)} ago</span>
                                                 </div>
                                             </div>
@@ -102,7 +102,7 @@ export default async function ExplorePage() {
                                             </div>
                                         </div>
                                         <p className="text-white/70 text-sm leading-relaxed mb-4 line-clamp-3">
-                                            {job.description}
+                                            {job.overview}
                                         </p>
                                         <div className="flex gap-2 mb-6 flex-wrap">
                                             {job.skills.map(skill => (

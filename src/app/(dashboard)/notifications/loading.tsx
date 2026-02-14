@@ -3,14 +3,14 @@ import { SkeletonList, Skeleton } from '@/components/ui/skeleton';
 
 export default function NotificationsLoading() {
     return (
-        <DashboardShell role="freelancer">
+        <DashboardShell>
             <div className="max-w-3xl mx-auto space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <Skeleton variant="text" width={150} height={32} />
-                        <Skeleton variant="text" width={250} height={20} className="mt-2" />
+                        <Skeleton className="w-[150px] h-[32px]" />
+                        <Skeleton className="w-[250px] h-[20px] mt-2" />
                     </div>
-                    <Skeleton variant="rounded" width={120} height={36} />
+                    <Skeleton className="w-[120px] h-[36px] rounded" />
                 </div>
 
                 <SkeletonList items={8} />

@@ -66,6 +66,13 @@ export default async function FreelancerContractsPage() {
                                 'ACTIVE': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
                                 'COMPLETED': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
                                 'REJECTED': 'text-red-400 bg-red-500/10 border-red-500/20',
+                                'ACCEPTED': 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+                                'CANCELLED': 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20',
+                                'CLOSED': 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20',
+                                'DISPUTED': 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+                                'FINALIZED': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+                                'FUNDED': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+                                'PENDING_REVIEW': 'text-violet-400 bg-violet-500/10 border-violet-500/20',
                             }[contract.status] || 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20';
 
                             return (
@@ -86,7 +93,7 @@ export default async function FreelancerContractsPage() {
                                                 <span className="w-1 h-1 rounded-full bg-zinc-700" />
                                                 <span className="flex items-center gap-1.5">
                                                     <Calendar className="w-3.5 h-3.5" />
-                                                    {new Date(contract.createdAt).toLocaleDateString()}
+                                                    {new Date(contract.startDate || contract.acceptedAt || Date.now()).toLocaleDateString()}
                                                 </span>
                                             </div>
                                         </div>

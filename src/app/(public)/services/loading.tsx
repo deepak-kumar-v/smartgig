@@ -10,8 +10,8 @@ export default function ServicesLoading() {
                 <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))]" />
                 <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6">
                     <div className="space-y-2 flex flex-col items-center">
-                        <Skeleton variant="text" width={300} height={40} />
-                        <Skeleton variant="text" width={500} height={24} />
+                        <Skeleton className="w-[300px] h-[40px]" />
+                        <Skeleton className="w-[500px] h-[24px]" />
                     </div>
 
                     <div className="max-w-2xl mx-auto relative">
@@ -25,7 +25,7 @@ export default function ServicesLoading() {
 
                     <div className="flex flex-wrap justify-center gap-2">
                         {Array.from({ length: 5 }).map((_, i) => (
-                            <Skeleton key={i} variant="rounded" width={100} height={32} />
+                            <Skeleton key={i} className="w-[100px] h-[32px] rounded" />
                         ))}
                     </div>
                 </div>
@@ -33,7 +33,7 @@ export default function ServicesLoading() {
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
                 <div className="mb-8">
-                    <Skeleton variant="text" width={200} height={32} />
+                    <Skeleton className="w-[200px] h-[32px]" />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -46,23 +46,23 @@ export default function ServicesLoading() {
                                 {/* Header */}
                                 <div className="flex justify-between items-start">
                                     <div className="flex items-center gap-3">
-                                        <Skeleton variant="circular" width={32} height={32} />
+                                        <Skeleton className="w-[32px] h-[32px] rounded-full" />
                                         <div className="space-y-1">
-                                            <Skeleton variant="text" width={80} />
-                                            <Skeleton variant="text" width={60} />
+                                            <Skeleton className="w-[80px] h-4" />
+                                            <Skeleton className="w-[60px] h-4" />
                                         </div>
                                     </div>
-                                    <Skeleton variant="rounded" width={50} height={20} />
+                                    <Skeleton className="w-[50px] h-[20px] rounded" />
                                 </div>
 
                                 {/* Title */}
-                                <Skeleton variant="text" width="90%" height={24} />
-                                <Skeleton variant="text" width="60%" height={24} />
+                                <Skeleton className="w-[90%] h-[24px]" />
+                                <Skeleton className="w-[60%] h-[24px]" />
 
                                 {/* Footer */}
                                 <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-                                    <Skeleton variant="text" width={80} />
-                                    <Skeleton variant="text" width={80} />
+                                    <Skeleton className="w-[80px] h-4" />
+                                    <Skeleton className="w-[80px] h-4" />
                                 </div>
                             </div>
                         </GlassCard>

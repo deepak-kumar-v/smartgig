@@ -6,8 +6,8 @@ export default function ClientProposalsLoading() {
     return (
         <DashboardShell role="client">
             <div className="mb-8">
-                <Skeleton variant="text" width={250} height={32} className="mb-2" />
-                <Skeleton variant="text" width={400} />
+                <Skeleton className="w-[250px] h-[32px] mb-2" />
+                <Skeleton className="w-[400px] h-4" />
             </div>
 
             <SkeletonList items={5} />

@@ -482,6 +482,7 @@ export default function MessagesPage() {
     const [isUploading, setIsUploading] = useState(false);
     const [showMeetDraft, setShowMeetDraft] = useState(false);
     const [meetMode, setMeetMode] = useState<'audio' | 'video'>('video');
+    const [showMeetGuidance, setShowMeetGuidance] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [searchQuery, setSearchQuery] = useState('');
@@ -1180,7 +1181,7 @@ export default function MessagesPage() {
                                         }`}
                                 />
                                 <GlassButton
-                                    variant={editingMessage ? 'default' : 'primary'}
+                                    variant={editingMessage ? 'secondary' : 'primary'}
                                     size="sm"
                                     onClick={handleSend}
                                     disabled={editingMessage ? !editContent.trim() : (!newMessage.trim() && draftAttachments.length === 0)}

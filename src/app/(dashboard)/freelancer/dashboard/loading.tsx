@@ -10,12 +10,12 @@ export default function FreelancerDashboardLoading() {
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                     <div className="space-y-2">
-                        <Skeleton variant="text" width={250} height={32} />
-                        <Skeleton variant="text" width={400} />
+                        <Skeleton className="w-[250px] h-[32px]" />
+                        <Skeleton className="w-[400px] h-4" />
                     </div>
                     <div className="flex gap-3">
-                        <Skeleton variant="rounded" width={140} height={40} />
-                        <Skeleton variant="rounded" width={120} height={40} />
+                        <Skeleton className="w-[140px] h-[40px]" />
+                        <Skeleton className="w-[120px] h-[40px]" />
                     </div>
                 </div>
 
@@ -24,11 +24,11 @@ export default function FreelancerDashboardLoading() {
                     {Array.from({ length: 4 }).map((_, i) => (
                         <GlassCard key={i} className="p-5">
                             <div className="flex justify-between mb-3">
-                                <Skeleton variant="rounded" width={40} height={40} />
-                                <Skeleton variant="text" width={40} />
+                                <Skeleton className="w-[40px] h-[40px] rounded" />
+                                <Skeleton className="w-[40px] h-4" />
                             </div>
-                            <Skeleton variant="text" width={100} height={32} className="mb-2" />
-                            <Skeleton variant="text" width={80} />
+                            <Skeleton className="w-[100px] h-[32px] mb-2" />
+                            <Skeleton className="w-[80px] h-4" />
                         </GlassCard>
                     ))}
                 </div>
@@ -40,41 +40,41 @@ export default function FreelancerDashboardLoading() {
                         {/* Reputation Metrics */}
                         <GlassCard className="p-6">
                             <div className="flex justify-between mb-6">
-                                <Skeleton variant="text" width={200} height={24} />
-                                <Skeleton variant="text" width={60} height={24} />
+                                <Skeleton className="w-[200px] h-[24px]" />
+                                <Skeleton className="w-[60px] h-[24px]" />
                             </div>
                             <div className="space-y-4">
-                                <Skeleton variant="text" width="100%" height={24} />
-                                <Skeleton variant="text" width="100%" height={24} />
-                                <Skeleton variant="text" width="100%" height={24} />
-                                <Skeleton variant="text" width="100%" height={24} />
+                                <Skeleton className="w-full h-[24px]" />
+                                <Skeleton className="w-full h-[24px]" />
+                                <Skeleton className="w-full h-[24px]" />
+                                <Skeleton className="w-full h-[24px]" />
                             </div>
                         </GlassCard>
 
                         {/* Active Contracts */}
                         <GlassCard className="p-6">
                             <div className="flex justify-between mb-6">
-                                <Skeleton variant="text" width={180} height={24} />
-                                <Skeleton variant="text" width={60} />
+                                <Skeleton className="w-[180px] h-[24px]" />
+                                <Skeleton className="w-[60px] h-4" />
                             </div>
                             <div className="space-y-4">
                                 <div className="p-4 bg-zinc-800/50 rounded-xl space-y-3">
                                     <div className="flex justify-between">
-                                        <Skeleton variant="text" width={200} />
-                                        <Skeleton variant="rounded" width={80} height={24} />
+                                        <Skeleton className="w-[200px] h-4" />
+                                        <Skeleton className="w-[80px] h-[24px] rounded" />
                                     </div>
-                                    <Skeleton variant="text" width="100%" height={8} />
+                                    <Skeleton className="w-full h-[8px]" />
                                     <div className="flex justify-between">
-                                        <Skeleton variant="text" width={100} />
-                                        <Skeleton variant="text" width={100} />
+                                        <Skeleton className="w-[100px] h-4" />
+                                        <Skeleton className="w-[100px] h-4" />
                                     </div>
                                 </div>
                                 <div className="p-4 bg-zinc-800/50 rounded-xl space-y-3">
                                     <div className="flex justify-between">
-                                        <Skeleton variant="text" width={200} />
-                                        <Skeleton variant="rounded" width={80} height={24} />
+                                        <Skeleton className="w-[200px] h-4" />
+                                        <Skeleton className="w-[80px] h-[24px] rounded" />
                                     </div>
-                                    <Skeleton variant="text" width="100%" height={8} />
+                                    <Skeleton className="w-full h-[8px]" />
                                 </div>
                             </div>
                         </GlassCard>
@@ -84,25 +84,25 @@ export default function FreelancerDashboardLoading() {
                     <div className="space-y-6">
                         {/* Workload */}
                         <GlassCard className="p-6 flex flex-col items-center">
-                            <Skeleton variant="text" width={150} height={24} className="mb-4" />
-                            <Skeleton variant="circular" width={128} height={128} />
-                            <Skeleton variant="text" width={120} className="mt-4" />
-                            <Skeleton variant="rounded" width="100%" height={36} className="mt-4" />
+                            <Skeleton className="w-[150px] h-[24px] mb-4" />
+                            <Skeleton className="w-[128px] h-[128px] rounded-full" />
+                            <Skeleton className="w-[120px] h-4 mt-4" />
+                            <Skeleton className="w-full h-[36px] mt-4 rounded" />
                         </GlassCard>
 
                         {/* Skills */}
                         <GlassCard className="p-6">
                             <div className="flex justify-between mb-4">
-                                <Skeleton variant="text" width={120} height={24} />
-                                <Skeleton variant="circular" width={20} height={20} />
+                                <Skeleton className="w-[120px] h-[24px]" />
+                                <Skeleton className="w-[20px] h-[20px] rounded-full" />
                             </div>
                             <div className="space-y-3">
                                 {Array.from({ length: 4 }).map((_, i) => (
                                     <div key={i} className="flex gap-3">
-                                        <Skeleton variant="rounded" width={40} height={40} />
+                                        <Skeleton className="w-[40px] h-[40px] rounded" />
                                         <div className="flex-1 space-y-2">
-                                            <Skeleton variant="text" width="60%" />
-                                            <Skeleton variant="text" width="100%" />
+                                            <Skeleton className="w-[60%] h-4" />
+                                            <Skeleton className="w-full h-4" />
                                         </div>
                                     </div>
                                 ))}

@@ -9,16 +9,16 @@ export default function ExploreLoading() {
             <Navbar />
             <main className="container mx-auto px-6 pt-32 pb-20">
                 <div className="mb-10">
-                    <Skeleton variant="text" width="200px" height={40} className="mb-4" />
+                    <Skeleton className="w-[200px] h-[40px] mb-4" />
                     <GlassCard className="p-4">
-                        <Skeleton variant="rounded" height={48} className="w-full" />
+                        <Skeleton className="w-full h-[48px] rounded" />
                     </GlassCard>
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
                     <div className="hidden lg:block space-y-4">
-                        <Skeleton variant="text" width="60%" />
-                        <Skeleton variant="text" width="80%" />
-                        <Skeleton variant="text" width="70%" />
+                        <Skeleton className="w-[60%] h-4" />
+                        <Skeleton className="w-[80%] h-4" />
+                        <Skeleton className="w-[70%] h-4" />
                     </div>
                     <div className="lg:col-span-3 space-y-4">
                         {[1, 2, 3, 4, 5].map((i) => (

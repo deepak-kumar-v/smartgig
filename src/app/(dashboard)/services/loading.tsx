@@ -8,10 +8,10 @@ export default function ServicesLoading() {
             <div className="max-w-6xl mx-auto space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <Skeleton variant="text" width={180} height={32} />
-                        <Skeleton variant="text" width={280} height={20} className="mt-2" />
+                        <Skeleton className="w-[180px] h-[32px]" />
+                        <Skeleton className="w-[280px] h-[20px] mt-2" />
                     </div>
-                    <Skeleton variant="rounded" width={160} height={40} />
+                    <Skeleton className="w-[160px] h-[40px] rounded" />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -61,6 +61,49 @@ export interface ProposalPayload {
     hourlyWorkPlan?: HourlyWorkPlanEntry[];
 }
 
+export async function submitProposal(formData: FormData) {
+    const jobId = formData.get('jobId') as string;
+    const coverLetter = formData.get('coverLetter') as string;
+    const price = parseFloat(formData.get('price') as string);
+
+    if (!jobId || !coverLetter || isNaN(price)) {
+        return { success: false, error: "Missing required fields" };
+    }
+
+    const payload: ProposalPayload = {
+        jobId,
+        coverLetter,
+        proposedRate: price,
+        rateType: 'FIXED', // Defaulting to FIXED for quick apply
+        estimatedDuration: 'To be determined',
+        availability: 'As needed',
+        milestones: [
+            {
+                title: 'Full Project',
+                description: 'Complete project as per requirements',
+                amount: price,
+                duration: 'TBD'
+            }
+        ],
+        totalMilestoneAmount: price,
+        selectedPortfolioIds: [],
+        attachments: [],
+        screeningAnswers: {},
+        acceptsTrialTask: false,
+        isDraft: false,
+        lastEditedAt: new Date()
+    };
+
+    const result = await submitProposalV2(payload);
+
+    if (result.success) {
+        return { success: "Proposal submitted successfully!", proposalId: result.proposalId };
+    }
+
+    return result;
+}
+
+
 export async function submitProposalV2(payload: ProposalPayload) {
     const session = await auth();
 

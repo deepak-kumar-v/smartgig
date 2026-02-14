@@ -138,7 +138,7 @@ export default async function AdminJobsPage() {
                                     </div>
 
                                     <p className="text-sm text-zinc-400 mb-3 line-clamp-2">
-                                        {job.description}
+                                        {job.overview}
                                     </p>
 
                                     <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500">
@@ -148,7 +148,7 @@ export default async function AdminJobsPage() {
                                         </span>
                                         <span className="flex items-center gap-1">
                                             <DollarSign className="w-3.5 h-3.5" />
-                                            ${job.budget}
+                                            ${job.budgetMax}
                                         </span>
                                         <span className="flex items-center gap-1">
                                             <MapPin className="w-3.5 h-3.5" />

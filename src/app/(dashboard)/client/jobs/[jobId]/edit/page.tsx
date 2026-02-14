@@ -87,10 +87,10 @@ export default async function EditJobPage({ params }: PageProps) {
     // Note: Some fields are not in DB, so we use defaults or best guess
     const initialData: Partial<JobPostFormData> = {
         title: job.title,
-        description: job.description,
-        budgetMax: job.budget,
+        description: job.descriptionMd,
+        budgetMax: job.budgetMax,
         // Default budgetMin/Type since not in DB
-        budgetMin: Math.max(0, job.budget - 1000),
+        budgetMin: Math.max(0, job.budgetMax - 1000),
         budgetType: 'FIXED',
 
         skills: job.skills.map(s => s.name),

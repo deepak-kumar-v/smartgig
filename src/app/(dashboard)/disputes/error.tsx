@@ -13,7 +13,7 @@ export default function DisputesError({
     reset: () => void;
 }) {
     return (
-        <DashboardShell role="freelancer">
+        <DashboardShell>
             <div className="flex items-center justify-center min-h-[60vh]">
                 <GlassCard className="max-w-md p-8 text-center border-rose-500/20">
                     <div className="w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mx-auto mb-6">

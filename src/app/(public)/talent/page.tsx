@@ -27,7 +27,7 @@ async function getFreelancers() {
                 skills: true,
                 contracts: {
                     where: {
-                        status: 'IN_PROGRESS'
+                        status: 'ACTIVE'
                     },
                     select: { id: true }
                 },
