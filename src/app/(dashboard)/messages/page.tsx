@@ -48,6 +48,33 @@ function formatTime(dateString: string) {
     }
 }
 
+// Always returns HH:mm in 24-hour format — used for bubble timestamps only
+function formatBubbleTime(dateString: string) {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+// Timezone-safe local day comparison
+function isSameLocalDay(a: Date, b: Date): boolean {
+    return (
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth() === b.getMonth() &&
+        a.getDate() === b.getDate()
+    );
+}
+
+// Numeric key for local date grouping: YYYYMMDD
+function localDateKey(d: Date): number {
+    return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+// Returns "Today", "Yesterday", or "14 February 2026"
+function getDateSeparatorLabel(messageDate: Date, today: Date, yesterday: Date): string {
+    if (isSameLocalDay(messageDate, today)) return 'Today';
+    if (isSameLocalDay(messageDate, yesterday)) return 'Yesterday';
+    return messageDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 function ConversationItem({
     conversation,
     isActive,
@@ -346,7 +373,7 @@ function MessageBubble({
 
                 {/* Timestamp + Status + React Button */}
                 <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'justify-end' : ''}`}>
-                    <span className="text-zinc-500 text-xs">{formatTime(message.createdAt)}</span>
+                    <span className="text-zinc-500 text-xs">{formatBubbleTime(message.createdAt)}</span>
                     {isEdited && (
                         <button
                             onClick={() => onViewHistory(message.id)}
@@ -980,7 +1007,7 @@ export default function MessagesPage() {
                         <div
                             ref={messagesViewportRef}
                             onScroll={handleMessagesScroll}
-                            className="flex-1 overflow-y-auto p-4 flex flex-col-reverse gap-4"
+                            className="flex-1 overflow-y-auto p-4 flex flex-col gap-4"
                         >
                             {messages.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center">
@@ -990,25 +1017,52 @@ export default function MessagesPage() {
                                 </div>
                             ) : (
                                 <>
-                                    {[...messages].reverse().map((message) => (
-                                        <MessageBubble
-                                            key={message.id}
-                                            message={message}
-                                            isOwn={message.senderId === currentUserId}
-                                            currentUserId={currentUserId}
-                                            messageElementId={`chat-message-${message.id}`}
-                                            onReact={handleReact}
-                                            onReply={handleReply}
-                                            onEdit={handleEditStart}
-                                            onDelete={handleDelete}
-                                            onViewHistory={(id) => setVersionHistoryMessageId(id)}
-                                        />
-                                    ))}
+                                    {(() => {
+                                        const ordered = [...messages].sort(
+  (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+);
+                                        const now = new Date();
+                                        const yesterday = new Date(now);
+                                        yesterday.setDate(now.getDate() - 1);
 
-                                    {/* Date divider (rendered last = shown at top) */}
-                                    <div className="flex items-center justify-center my-4">
-                                        <span className="px-3 py-1 bg-zinc-800 rounded-full text-zinc-500 text-xs">Today</span>
-                                    </div>
+                                        let lastKey = -1;
+                                        return ordered.map((message) => {
+                                            const msgDate = new Date(message.createdAt);
+                                            console.log("DEBUG DATE CHECK", {
+    messageCreatedAtFromDB: message.createdAt,
+    messageLocalTime: msgDate.toString(),
+    currentLocalTime: new Date().toString(),
+    messageLocalDateKey: localDateKey(msgDate),
+    todayLocalDateKey: localDateKey(new Date())
+});
+                                            const key = localDateKey(msgDate);
+                                            const showSeparator = key !== lastKey;
+                                            lastKey = key;
+
+                                            return (
+                                                <React.Fragment key={message.id}>
+                                                    {showSeparator && (
+                                                        <div className="flex items-center justify-center my-4">
+                                                            <span className="px-3 py-1 bg-zinc-800 rounded-full text-zinc-500 text-xs">
+                                                                {getDateSeparatorLabel(msgDate, now, yesterday)}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    <MessageBubble
+                                                        message={message}
+                                                        isOwn={message.senderId === currentUserId}
+                                                        currentUserId={currentUserId}
+                                                        messageElementId={`chat-message-${message.id}`}
+                                                        onReact={handleReact}
+                                                        onReply={handleReply}
+                                                        onEdit={handleEditStart}
+                                                        onDelete={handleDelete}
+                                                        onViewHistory={(id) => setVersionHistoryMessageId(id)}
+                                                    />
+                                                </React.Fragment>
+                                            );
+                                        });
+                                    })()}
                                 </>
                             )}
                         </div>
