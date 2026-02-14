@@ -596,3 +596,33 @@ model AuditLog {
   @@index([entityType])
   @@index([createdAt(sort: Desc)])
 }
+
+// ============================================================================
+// Lifecycle Event System (Unified Roadmap)
+// ============================================================================
+
+enum ActorRole {
+  CLIENT
+  FREELANCER
+  SYSTEM
+}
+
+model LifecycleEvent {
+  id            String    @id @default(cuid())
+  jobId         String?
+  proposalId    String?
+  contractId    String?
+  milestoneId   String?
+
+  eventType     String    // JOB_POSTED, PROPOSAL_SENT, CONTRACT_DRAFTED, etc.
+  devState      String?   // Optional: DRAFT, PENDING_REVIEW, FINALIZED, ACTIVE, etc.
+  userMessage   String    // Human-readable description
+  actorId       String?
+  actorRole     ActorRole // CLIENT, FREELANCER, SYSTEM
+
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+
+  @@index([contractId])
+  @@index([jobId])
+}

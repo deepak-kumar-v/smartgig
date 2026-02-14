@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { ContractStatus } from '@prisma/client';
+import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 
 // ============================================================================
 // Contract Server Actions
@@ -127,6 +128,19 @@ export async function createContractFromProposal(
                 data: { contractId: contract.id }
             });
         }
+
+        // Lifecycle Event: CONTRACT_DRAFTED
+        recordLifecycleEvent({
+            contractId: contract.id,
+            proposalId: proposal.id,
+            jobId: proposal.jobId,
+            eventType: 'CONTRACT_DRAFTED',
+            devState: 'DRAFT',
+            userMessage: `${contractType === 'TRIAL' ? 'Trial' : 'Standard'} contract drafted: "${contract.title}"`,
+            actorId: session.user.id,
+            actorRole: 'CLIENT',
+            metadata: { contractType },
+        });
 
         // 9. Revalidation
         revalidatePath('/client/contracts');
@@ -359,6 +373,16 @@ export async function acceptContract(contractId: string) {
 
         // Phase 1: No Mock Escrow or Fund release yet.
 
+        // Lifecycle Event: CONTRACT_ACCEPTED
+        recordLifecycleEvent({
+            contractId,
+            eventType: 'CONTRACT_ACCEPTED',
+            devState: 'ACCEPTED',
+            userMessage: 'Freelancer accepted the contract',
+            actorId: session.user.id,
+            actorRole: 'FREELANCER',
+        });
+
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
         revalidatePath('/client/contracts');
@@ -407,6 +431,16 @@ export async function sendForReview(contractId: string) {
             data: { status: ContractStatus.PENDING_REVIEW }
         });
 
+        // Lifecycle Event: SENT_FOR_REVIEW
+        recordLifecycleEvent({
+            contractId,
+            eventType: 'SENT_FOR_REVIEW',
+            devState: 'PENDING_REVIEW',
+            userMessage: 'Contract sent for freelancer review',
+            actorId: session.user.id,
+            actorRole: 'CLIENT',
+        });
+
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
         return { success: true };
@@ -445,6 +479,16 @@ export async function requestChanges(contractId: string) {
         await db.contract.update({
             where: { id: contractId },
             data: { status: ContractStatus.DRAFT }
+        });
+
+        // Lifecycle Event: CHANGES_REQUESTED
+        recordLifecycleEvent({
+            contractId,
+            eventType: 'CHANGES_REQUESTED',
+            devState: 'DRAFT',
+            userMessage: 'Freelancer requested changes to the contract',
+            actorId: session.user.id,
+            actorRole: 'FREELANCER',
         });
 
         revalidatePath(`/client/contracts/${contractId}`);
@@ -489,6 +533,16 @@ export async function finalizeContract(contractId: string) {
                 status: ContractStatus.FINALIZED,
                 finalizedAt: new Date()
             }
+        });
+
+        // Lifecycle Event: CONTRACT_FINALIZED
+        recordLifecycleEvent({
+            contractId,
+            eventType: 'CONTRACT_FINALIZED',
+            devState: 'FINALIZED',
+            userMessage: 'Contract finalized by client',
+            actorId: session.user.id,
+            actorRole: 'CLIENT',
         });
 
         revalidatePath(`/client/contracts/${contractId}`);
@@ -543,6 +597,16 @@ export async function rejectContract(contractId: string) {
         await db.contract.update({
             where: { id: contractId },
             data: { status: ContractStatus.REJECTED }
+        });
+
+        // Lifecycle Event: CONTRACT_REJECTED
+        recordLifecycleEvent({
+            contractId,
+            eventType: 'CONTRACT_REJECTED',
+            devState: 'REJECTED',
+            userMessage: 'Freelancer rejected the contract',
+            actorId: session.user.id,
+            actorRole: 'FREELANCER',
         });
 
         revalidatePath(`/client/contracts/${contractId}`);

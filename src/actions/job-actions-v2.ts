@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
+import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 
 // V3.2 Schema - Clean schema aligned with post-job (NO legacy fields)
 const JobPostSchemaV2 = z.object({
@@ -213,6 +214,15 @@ export async function createJobPostV2(formData: FormData) {
         });
 
         console.log('[createJobPostV2] Job created:', job.id);
+
+        // Lifecycle Event: JOB_POSTED
+        recordLifecycleEvent({
+            jobId: job.id,
+            eventType: 'JOB_POSTED',
+            userMessage: `Job "${data.title}" was posted`,
+            actorId: session.user.id,
+            actorRole: 'CLIENT',
+        });
 
     } catch (err: any) {
         console.error("Failed to create job v2 - FULL ERROR DETAILS:");

@@ -6,7 +6,7 @@ import { GlassButton } from '@/components/ui/glass-button';
 import {
     User, Calendar, DollarSign, FileText, CheckCircle, XCircle,
     ArrowLeft, MessageSquare, FileSignature, Edit, Lock, Trash2, Clock,
-    AlertTriangle, ShieldAlert, ArrowRight, ShieldCheck
+    AlertTriangle, ShieldAlert, ArrowRight, ShieldCheck, Layers
 } from 'lucide-react';
 import Link from 'next/link';
 import { useTransition, useState } from 'react';
@@ -320,6 +320,14 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                     </div>
                 </div>
                 <div className="flex gap-2">
+                    {contract.jobId && (
+                        <Link href={`/jobs/${contract.jobId}/control`}>
+                            <GlassButton variant="secondary" size="sm">
+                                <Layers className="w-4 h-4 mr-2" />
+                                Control Center
+                            </GlassButton>
+                        </Link>
+                    )}
                     <GlassButton
                         variant="secondary"
                         size="sm"

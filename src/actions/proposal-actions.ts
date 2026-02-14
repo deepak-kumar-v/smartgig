@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
+import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 
 const ProposalSchema = z.object({
     jobId: z.string(),
@@ -184,6 +185,18 @@ export async function submitProposalV2(payload: ProposalPayload) {
                     { conversationId: conversation.id, userId: freelancerUserId },
                     { conversationId: conversation.id, userId: clientUserId }
                 ]
+            });
+        }
+
+        // Lifecycle Event: PROPOSAL_SENT (non-draft only)
+        if (!payload.isDraft) {
+            recordLifecycleEvent({
+                jobId: payload.jobId,
+                proposalId: proposal.id,
+                eventType: 'PROPOSAL_SENT',
+                userMessage: `Proposal submitted for job "${job.title}"`,
+                actorId: session.user.id,
+                actorRole: 'FREELANCER',
             });
         }
 
