@@ -1019,22 +1019,15 @@ export default function MessagesPage() {
                                 <>
                                     {(() => {
                                         const ordered = [...messages].sort(
-  (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-);
+                                            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                                        );
+                                        // Always use fresh client-local time for date comparison
                                         const now = new Date();
-                                        const yesterday = new Date(now);
-                                        yesterday.setDate(now.getDate() - 1);
+                                        const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
 
                                         let lastKey = -1;
                                         return ordered.map((message) => {
                                             const msgDate = new Date(message.createdAt);
-                                            console.log("DEBUG DATE CHECK", {
-    messageCreatedAtFromDB: message.createdAt,
-    messageLocalTime: msgDate.toString(),
-    currentLocalTime: new Date().toString(),
-    messageLocalDateKey: localDateKey(msgDate),
-    todayLocalDateKey: localDateKey(new Date())
-});
                                             const key = localDateKey(msgDate);
                                             const showSeparator = key !== lastKey;
                                             lastKey = key;
@@ -1042,8 +1035,8 @@ export default function MessagesPage() {
                                             return (
                                                 <React.Fragment key={message.id}>
                                                     {showSeparator && (
-                                                        <div className="flex items-center justify-center my-4">
-                                                            <span className="px-3 py-1 bg-zinc-800 rounded-full text-zinc-500 text-xs">
+                                                        <div className="flex items-center justify-center my-4" suppressHydrationWarning>
+                                                            <span className="px-3 py-1 bg-zinc-800 rounded-full text-zinc-500 text-xs" suppressHydrationWarning>
                                                                 {getDateSeparatorLabel(msgDate, now, yesterday)}
                                                             </span>
                                                         </div>
