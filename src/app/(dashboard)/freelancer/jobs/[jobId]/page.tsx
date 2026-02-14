@@ -22,7 +22,7 @@ import remarkGfm from 'remark-gfm';
 
 export const dynamic = 'force-dynamic';
 
-export default async function FreelancerJobDetailsPage({ params }: { params: { jobId: string } }) {
+export default async function FreelancerJobDetailsPage({ params }: { params: Promise<{ jobId: string }> }) {
     const { jobId } = await params;
 
     const job = await db.jobPost.findUnique({

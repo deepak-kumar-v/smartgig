@@ -694,39 +694,36 @@ export function getConversationLabel(conversation: Conversation, userRole?: stri
     const { contractStatus, contractType, contractTitle, proposalId, contractId } = conversation;
     const title = contractTitle || 'Unknown Job';
 
-    // 1. ACTIVE / ENDED / CANCELLED / COMPLETED Contracts (Highest Priority)
-    if (contractStatus === 'ACTIVE' || contractStatus === 'ENDED' || contractStatus === 'CANCELLED' || contractStatus === 'COMPLETED') {
-        const typeLabel = contractType === 'TRIAL' ? 'TRIAL' : 'STANDARD';
-        return `${contractStatus} · ${typeLabel} · ${title}`;
+    // 1. Contract priority states
+    if (contractId) {
+        if (contractStatus === 'DRAFT') {
+            return `Draft Contract — ${title}`;
+        }
+
+        if (contractStatus === 'PENDING_REVIEW') {
+            return `Under Review — ${title}`;
+        }
+
+        const standardStates = ['ACCEPTED', 'FINALIZED', 'FUNDED', 'ACTIVE', 'COMPLETED', 'CLOSED'];
+        if (contractStatus && standardStates.includes(contractStatus)) {
+            const typeLabel = (contractType === 'TRIAL') ? 'TRIAL' : 'STANDARD';
+            return `${contractStatus} · ${typeLabel} · ${title}`;
+        }
     }
 
-    // 2. DRAFT Contract
-
-    if (contractStatus === 'DRAFT') {
-        if (userRole === 'CLIENT') return `Draft Contract Sent — ${title}`;
-        if (userRole === 'FREELANCER') return `Draft Contract Received — ${title}`;
-        return `Contract sent — ${title}`;
-    }
-
-    // 3. REJECTED Contract
-    if (contractStatus === 'REJECTED') {
-        return "Contract rejected";
-    }
-
-    // 4. Proposal ACCEPTED (No contract yet)
+    // 2. Proposal ACCEPTED (No contract yet)
     if (!contractId && proposalId && contractStatus === 'ACCEPTED') {
         return `Proposal accepted — ${title}`;
     }
 
-    // 5. Proposal-only (Proposal exists, but no contract created yet)
-
+    // 3. Proposal-only (Proposal exists, but no contract created yet)
     if (proposalId && !contractId) {
         if (userRole === 'CLIENT') return `Proposal Received — ${title}`;
         if (userRole === 'FREELANCER') return `Proposal Sent — ${title}`;
         return `Freelancer proposal — ${title}`;
     }
 
-    // 5. Fallback
+    // 4. Fallback
     return "Conversation";
 }
 
@@ -755,13 +752,23 @@ export function getConversationTooltip(conversation: Conversation, userRole?: st
         }
     }
 
-    // 2. Draft Contract
-    if (contractStatus === 'DRAFT') {
+    // 3. Draft Contract
+    if (contractId && contractStatus === 'DRAFT') {
         if (userRole === 'CLIENT') {
             return "Draft contract sent to freelancer.\nAwaiting freelancer acceptance.";
         }
         if (userRole === 'FREELANCER') {
             return "Draft contract received.\nApproval pending from your end.";
+        }
+    }
+
+    // 4. Under Review
+    if (contractId && contractStatus === 'PENDING_REVIEW') {
+        if (userRole === 'CLIENT') {
+            return "Contract is currently under review by the freelancer.";
+        }
+        if (userRole === 'FREELANCER') {
+            return "Contract is awaiting your review and acceptance.";
         }
     }
 

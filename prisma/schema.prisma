@@ -8,6 +8,20 @@ generator client {
 }
 
 // Enums removed for SQLite compatibility, handled as Strings
+// V3.3: Re-introducing Enums for stricter Contract control (Postgres/Prisma is being used)
+enum ContractStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACCEPTED
+  FINALIZED
+  FUNDED
+  ACTIVE
+  COMPLETED
+  CLOSED
+  CANCELLED
+  REJECTED
+  DISPUTED
+}
 
 model User {
   id            String    @id @default(cuid())
@@ -270,7 +284,9 @@ model Contract {
   
   title         String
   totalBudget   Float
-  status        String @default("DRAFT") // DRAFT, ACTIVE, COMPLETE, REJECTED
+  status        ContractStatus @default(DRAFT)
+  finalizedAt   DateTime?
+  acceptedAt    DateTime?
   terms         String
   type          String   @default("FULL") // TRIAL, FULL
   startDate     DateTime?

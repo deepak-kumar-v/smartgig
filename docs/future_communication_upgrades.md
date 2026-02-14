@@ -80,6 +80,7 @@ This document lists **planned, optional, and advanced improvements** for SmartGI
 * Video attachments
 * File upload progress indicators
 * File size limits per plan
+* Share Calendar 
 
 ### 3.3 UX & Productivity
 

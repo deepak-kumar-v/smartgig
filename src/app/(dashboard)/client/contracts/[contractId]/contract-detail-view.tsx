@@ -12,7 +12,10 @@ import Link from 'next/link';
 import { useTransition, useState } from 'react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
-import { updateContract, acceptContract, rejectContract, deleteContract } from '@/actions/contract-actions';
+import {
+    updateContract, acceptContract, rejectContract, deleteContract,
+    sendForReview, requestChanges, finalizeContract
+} from '@/actions/contract-actions';
 import { approveTrialWork, rejectTrialWork, raiseDispute, upgradeToStandard } from '@/actions/trial-actions';
 
 interface ContractDetailData {
@@ -59,14 +62,17 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
     });
 
     const isTrial = contract.type === 'TRIAL';
-    // Allow editing DRAFT contracts OR Active Standard contracts
-    const canEdit = (role === 'CLIENT') && (
-        contract.status === 'DRAFT' ||
-        (contract.status === 'ACTIVE' && contract.type === 'FULL')
-    );
+    // Phase 1 Strict: Edit only in DRAFT
+    const canEdit = (role === 'CLIENT') && (contract.status === 'DRAFT');
     const canDelete = role === 'CLIENT' && contract.status === 'DRAFT';
-    const canDecide = role === 'FREELANCER' && contract.status === 'DRAFT';
-    const isLocked = contract.status === 'ACTIVE' || contract.status === 'REJECTED' || contract.status === 'COMPLETED';
+
+    // Action Visibilities
+    const showSendForReview = role === 'CLIENT' && contract.status === 'DRAFT';
+    const showClientFinalize = role === 'CLIENT' && contract.status === 'ACCEPTED';
+
+    const showFreelancerDecision = role === 'FREELANCER' && contract.status === 'PENDING_REVIEW';
+
+    const isLocked = contract.status !== 'DRAFT';
 
     // Trial Actions
     const canApproveTrial = role === 'CLIENT' && isTrial && contract.status === 'ACTIVE';
@@ -144,6 +150,54 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
         });
     };
 
+
+
+    // New Handlers
+    const handleSendForReview = () => {
+        if (!contract.totalBudget || contract.totalBudget <= 0) {
+            toast.error("Please set a budget before sending for review.");
+            return;
+        }
+        if (!contract.terms) {
+            toast.error("Please add terms before sending for review.");
+            return;
+        }
+
+        startTransition(async () => {
+            const result = await sendForReview(contract.id);
+            if (result.success) {
+                toast.success("Sent for review!");
+                router.refresh();
+            } else {
+                toast.error(result.error || "Failed to send");
+            }
+        });
+    };
+
+    const handleRequestChanges = () => {
+        startTransition(async () => {
+            const result = await requestChanges(contract.id);
+            if (result.success) {
+                toast.success("Requested changes. Contract is now Draft.");
+                router.refresh();
+            } else {
+                toast.error(result.error || "Failed using request changes");
+            }
+        });
+    };
+
+    const handleFinalize = () => {
+        startTransition(async () => {
+            const result = await finalizeContract(contract.id);
+            if (result.success) {
+                toast.success("Contract Finalized!");
+                router.refresh();
+            } else {
+                toast.error(result.error || "Failed to finalize");
+            }
+        });
+    };
+
     // Trial Handlers
     const handleApproveTrial = () => {
         if (!confirm("Are you sure you want to approve this trial work? Funds will be released.")) return;
@@ -205,11 +259,15 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
     };
 
     const statusColor = {
-        'DRAFT': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+        'DRAFT': 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
+        'PENDING_REVIEW': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+        'ACCEPTED': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+        'FINALIZED': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
         'ACTIVE': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
         'REJECTED': 'bg-red-500/10 text-red-400 border-red-500/20',
-        'COMPLETED': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+        'COMPLETED': 'bg-purple-500/10 text-purple-400 border-purple-500/20',
         'DISPUTED': 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+        'FUNDED': 'bg-green-500/10 text-green-400 border-green-500/20',
     }[contract.status] || 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20';
 
     const backLink = role === 'CLIENT' ? '/client/contracts' : '/freelancer/contracts';
@@ -492,18 +550,52 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                 </GlassCard>
             )}
 
-            {/* Draft Actions (Accept/Reject) for Freelancer/Client */}
-            {canDecide && (
+            {/* Freelancer Decision (PENDING_REVIEW) */}
+            {showFreelancerDecision && (
                 <GlassCard className="p-6 bg-amber-500/10 border-amber-500/20">
-                    <h3 className="text-lg font-medium text-white mb-4">Contract Decision Required</h3>
+                    <h3 className="text-lg font-medium text-white mb-4">Contract Review</h3>
                     <div className="flex gap-3">
                         <GlassButton variant="primary" size="lg" onClick={handleAccept} disabled={isPending} className="flex-1">
                             <CheckCircle className="w-5 h-5 mr-2" /> Accept
                         </GlassButton>
-                        <GlassButton variant="ghost" size="lg" onClick={handleReject} disabled={isPending}>
-                            <XCircle className="w-5 h-5 mr-2" /> Reject
+                        <GlassButton variant="ghost" size="lg" onClick={handleRequestChanges} disabled={isPending}>
+                            <Edit className="w-5 h-5 mr-2" /> Request Changes
                         </GlassButton>
                     </div>
+                </GlassCard>
+            )}
+
+            {/* Client Actions: Send for Review (DRAFT) or Finalize (ACCEPTED) */}
+            {showSendForReview && !isEditing && (
+                <GlassCard className="p-4 border-indigo-500/20 bg-indigo-500/5 mb-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h4 className="text-white font-medium">Ready for Review?</h4>
+                            <p className="text-sm text-zinc-400">Freelancer will be able to accept or request changes.</p>
+                        </div>
+                        <GlassButton variant="primary" onClick={handleSendForReview} disabled={isPending}>
+                            Send for Review <ArrowRight className="w-4 h-4 ml-2" />
+                        </GlassButton>
+                    </div>
+                </GlassCard>
+            )}
+
+            {showClientFinalize && (
+                <GlassCard className="p-6 bg-blue-500/10 border-blue-500/20">
+                    <h3 className="text-lg font-medium text-white mb-2">Contract Accepted!</h3>
+                    <p className="text-sm text-zinc-300 mb-4">The freelancer has accepted the terms. Finalize to seal the contract.</p>
+                    <GlassButton variant="primary" size="lg" onClick={handleFinalize} disabled={isPending} className="w-full md:w-auto">
+                        <ShieldCheck className="w-5 h-5 mr-2" /> Finalize Contract
+                    </GlassButton>
+                </GlassCard>
+            )}
+
+            {/* Finalized State info */}
+            {contract.status === 'FINALIZED' && (
+                <GlassCard className="p-4 bg-emerald-500/10 border-emerald-500/20 text-center">
+                    <ShieldCheck className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                    <h3 className="text-white font-medium">Contract Finalized</h3>
+                    <p className="text-sm text-zinc-400">Add funding (Phase 2) to activate.</p>
                 </GlassCard>
             )}
 

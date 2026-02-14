@@ -5,6 +5,8 @@ import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
+import { ContractStatus } from '@prisma/client';
+
 export async function createTrialContract(formData: FormData) {
     const session = await auth();
     if (!session?.user) return { error: 'Unauthorized' };
@@ -42,7 +44,7 @@ export async function createTrialContract(formData: FormData) {
                 totalBudget: 0,
                 type: 'TRIAL',
                 terms: '',
-                status: "DRAFT",
+                status: ContractStatus.DRAFT,
                 // Dates must be explicitly set
                 startDate: null,
                 endDate: null

@@ -3,6 +3,7 @@
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
+import { ContractStatus } from '@prisma/client';
 
 // ============================================================================
 // Contract Server Actions
@@ -93,7 +94,7 @@ export async function createContractFromProposal(
                 if (!existingTrialContract) {
                     return { success: false, error: "Trial contract must be completed first." };
                 }
-                if (existingTrialContract.status !== 'COMPLETE') {
+                if (existingTrialContract.status !== ContractStatus.COMPLETED) {
                     return { success: false, error: "Trial contract must be marked complete before creating full contract." };
                 }
             }
@@ -112,7 +113,7 @@ export async function createContractFromProposal(
                 totalBudget: 0,
                 type: contractType,
                 terms: "",
-                status: "DRAFT",
+                status: ContractStatus.DRAFT,
                 // Dates must be explicitly set by client later
                 startDate: null,
                 endDate: null
@@ -191,7 +192,7 @@ export async function createFullContractFromTrial(trialContractId: string) {
         }
 
         // 5. Trial must be COMPLETE
-        if (trialContract.status !== 'COMPLETE') {
+        if (trialContract.status !== ContractStatus.COMPLETED) {
             return { success: false, error: "Trial contract must be marked complete first." };
         }
 
@@ -211,7 +212,7 @@ export async function createFullContractFromTrial(trialContractId: string) {
                 totalBudget: 0,
                 type: 'FULL',
                 terms: "",
-                status: "DRAFT",
+                status: ContractStatus.DRAFT,
                 // Dates must be explicitly set by client later
                 startDate: null,
                 endDate: null
@@ -284,11 +285,9 @@ export async function updateContract(
             return { success: false, error: "Unauthorized. You do not own this contract." };
         }
 
-        // 4. Status check - DRAFT or ACTIVE STANDARD
-        const canEdit = contract.status === "DRAFT" || (contract.status === "ACTIVE" && contract.type === "FULL");
-
-        if (!canEdit) {
-            return { success: false, error: "Only draft or active standard contracts can be edited." };
+        // 4. Status check - DRAFT ONLY (Strict Phase 1)
+        if (contract.status !== ContractStatus.DRAFT) {
+            return { success: false, error: "Contract can only be edited in DRAFT status." };
         }
 
         // 5. Update Contract
@@ -344,35 +343,21 @@ export async function acceptContract(contractId: string) {
             return { success: false, error: "Contract not found." };
         }
 
-        // 3. Authorization
-        if (contract.freelancerId !== freelancerProfile.id) {
-            return { success: false, error: "Unauthorized. This contract is not for you." };
-        }
-
         // 4. Status check
-        if (contract.status !== "DRAFT") {
-            return { success: false, error: `Cannot accept contract in '${contract.status}' status.` };
+        if (contract.status !== ContractStatus.PENDING_REVIEW) {
+            return { success: false, error: `Cannot accept contract. Current status: ${contract.status}. Must be PENDING_REVIEW.` };
         }
 
-        // 5. Update to ACTIVE (locks the contract)
+        // 5. Update to ACCEPTED (Phase 1: No funding/active yet)
         await db.contract.update({
             where: { id: contractId },
             data: {
-                status: "ACTIVE",
-                ...(contract.type === 'TRIAL' ? { escrowStatus: 'FUNDED' } : {})
+                status: ContractStatus.ACCEPTED,
+                acceptedAt: new Date()
             }
         });
 
-        // Mock Escrow Transaction for TRIAL
-        if (contract.type === 'TRIAL') {
-            await db.mockEscrowTransaction.create({
-                data: {
-                    contractId: contract.id,
-                    amount: contract.totalBudget,
-                    status: 'FUNDED'
-                }
-            });
-        }
+        // Phase 1: No Mock Escrow or Fund release yet.
 
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
@@ -384,6 +369,134 @@ export async function acceptContract(contractId: string) {
     } catch (error) {
         console.error("Accept contract error:", error);
         return { success: false, error: "Failed to accept contract." };
+    }
+}
+
+/**
+ * Client sends contract for review.
+ * DRAFT -> PENDING_REVIEW
+ */
+export async function sendForReview(contractId: string) {
+    const session = await auth();
+
+    if (!session || !session.user || session.user.role !== "CLIENT") {
+        return { success: false, error: "Unauthorized. Only clients can send for review." };
+    }
+
+    try {
+        const contract = await db.contract.findUnique({
+            where: { id: contractId }
+        });
+
+        if (!contract) return { success: false, error: "Contract not found." };
+
+        // Auth check (Client ownership)
+        // We'll perform a quick check via DB query above or simple check here if we trust ID access pattern, 
+        // but better to check ownership.
+        const clientProfile = await db.clientProfile.findUnique({ where: { userId: session.user.id } });
+        if (!clientProfile || contract.clientId !== clientProfile.id) {
+            return { success: false, error: "Unauthorized." };
+        }
+
+        if (contract.status !== ContractStatus.DRAFT) {
+            return { success: false, error: "Contract must be DRAFT to send for review." };
+        }
+
+        await db.contract.update({
+            where: { id: contractId },
+            data: { status: ContractStatus.PENDING_REVIEW }
+        });
+
+        revalidatePath(`/client/contracts/${contractId}`);
+        revalidatePath(`/freelancer/contracts/${contractId}`);
+        return { success: true };
+
+    } catch (error) {
+        return { success: false, error: "Failed to send for review." };
+    }
+}
+
+/**
+ * Freelancer requests changes.
+ * PENDING_REVIEW -> DRAFT
+ */
+export async function requestChanges(contractId: string) {
+    const session = await auth();
+
+    if (!session || !session.user || session.user.role !== "FREELANCER") {
+        return { success: false, error: "Unauthorized." };
+    }
+
+    try {
+        const contract = await db.contract.findUnique({
+            where: { id: contractId },
+            include: { freelancer: true }
+        });
+
+        if (!contract) return { success: false, error: "Contract not found." };
+        if (contract.freelancer.userId !== session.user.id) {
+            return { success: false, error: "Unauthorized." };
+        }
+
+        if (contract.status !== ContractStatus.PENDING_REVIEW) {
+            return { success: false, error: "Contract must be PENDING_REVIEW to request changes." };
+        }
+
+        await db.contract.update({
+            where: { id: contractId },
+            data: { status: ContractStatus.DRAFT }
+        });
+
+        revalidatePath(`/client/contracts/${contractId}`);
+        revalidatePath(`/freelancer/contracts/${contractId}`);
+        return { success: true };
+
+    } catch (error) {
+        return { success: false, error: "Failed to request changes." };
+    }
+}
+
+/**
+ * Client finalizes contract.
+ * ACCEPTED -> FINALIZED
+ */
+export async function finalizeContract(contractId: string) {
+    const session = await auth();
+
+    if (!session || !session.user || session.user.role !== "CLIENT") {
+        return { success: false, error: "Unauthorized." };
+    }
+
+    try {
+        const contract = await db.contract.findUnique({
+            where: { id: contractId }
+        });
+
+        if (!contract) return { success: false, error: "Contract not found." };
+
+        const clientProfile = await db.clientProfile.findUnique({ where: { userId: session.user.id } });
+        if (!clientProfile || contract.clientId !== clientProfile.id) {
+            return { success: false, error: "Unauthorized." };
+        }
+
+        if (contract.status !== ContractStatus.ACCEPTED) {
+            return { success: false, error: "Contract must be ACCEPTED to finalize." };
+        }
+
+        await db.contract.update({
+            where: { id: contractId },
+            data: {
+                status: ContractStatus.FINALIZED,
+                finalizedAt: new Date()
+            }
+        });
+
+        revalidatePath(`/client/contracts/${contractId}`);
+        revalidatePath(`/freelancer/contracts/${contractId}`);
+        return { success: true };
+
+    } catch (error) {
+        return { success: false, error: "Failed to finalize contract." };
     }
 }
 
@@ -422,14 +535,14 @@ export async function rejectContract(contractId: string) {
         }
 
         // 4. Status check
-        if (contract.status !== "DRAFT") {
+        if (contract.status !== ContractStatus.DRAFT && contract.status !== ContractStatus.PENDING_REVIEW) {
             return { success: false, error: `Cannot reject contract in '${contract.status}' status.` };
         }
 
         // 5. Update to REJECTED
         await db.contract.update({
             where: { id: contractId },
-            data: { status: "REJECTED" }
+            data: { status: ContractStatus.REJECTED }
         });
 
         revalidatePath(`/client/contracts/${contractId}`);
@@ -529,7 +642,7 @@ export async function deleteContract(contractId: string) {
         }
 
         // 3. Status Check
-        if (contract.status !== "DRAFT") {
+        if (contract.status !== ContractStatus.DRAFT) {
             return { success: false, error: "Only draft contracts can be deleted." };
         }
 
