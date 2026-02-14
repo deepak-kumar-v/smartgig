@@ -104,10 +104,15 @@ export async function GET(request: NextRequest) {
                     image: otherParticipant.image
                 } : null,
                 lastMessage: lastMessage ? {
+                    id: lastMessage.id,
                     content: lastMessage.content,
                     createdAt: lastMessage.createdAt.toISOString(),
                     senderId: lastMessage.senderId,
-                    senderName: lastMessage.sender.name
+                    senderName: lastMessage.sender.name,
+                    deliveredAt: (lastMessage as any).deliveredAt?.toISOString?.() ?? null,
+                    readAt: (lastMessage as any).readAt?.toISOString?.() ?? null,
+                    isEdited: (lastMessage as any).isEdited ?? false,
+                    isDeleted: (lastMessage as any).isDeleted ?? false
                 } : null,
                 createdAt: conv.createdAt.toISOString(),
                 unreadCount: unreadCountsByConversation.get(conv.id) || 0

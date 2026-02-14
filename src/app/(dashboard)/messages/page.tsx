@@ -120,8 +120,20 @@ function ConversationItem({
                     </div>
                     {conversation.lastMessage && (
                         <p className="text-zinc-400 text-sm truncate flex items-center gap-1">
-                            {isOwnLastMessage && <CheckCheck className="w-3 h-3 text-indigo-400" />}
-                            {conversation.lastMessage.content}
+                            {isOwnLastMessage && (
+                                conversation.lastMessage.readAt
+                                    ? <CheckCheck className="w-3 h-3 text-blue-400 shrink-0" />
+                                    : conversation.lastMessage.deliveredAt
+                                        ? <CheckCheck className="w-3 h-3 text-zinc-500 shrink-0" />
+                                        : <Check className="w-3 h-3 text-zinc-500 shrink-0" />
+                            )}
+                            {conversation.lastMessage.isDeleted
+                                ? <span className="italic text-zinc-500">This message was deleted</span>
+                                : <>
+                                    {conversation.lastMessage.content}
+                                    {conversation.lastMessage.isEdited && <span className="text-zinc-600 text-[10px] ml-1 italic">(edited)</span>}
+                                </>
+                            }
                         </p>
                     )}
                 </div>
@@ -235,6 +247,16 @@ function MessageBubble({
                         <p className="text-[10px] text-zinc-600 mt-1 flex items-center gap-1">
                             <History className="w-3 h-3" /> View history
                         </p>
+                        {/* Reply button on deleted messages */}
+                        <div className={`mt-2 flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onReply(message); }}
+                                className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
+                                title="Reply to deleted message"
+                            >
+                                <Reply className="w-3 h-3" />
+                            </button>
+                        </div>
                     </div>
                 ) : (
                     <div className="relative">
@@ -271,18 +293,12 @@ function MessageBubble({
                             ? 'bg-indigo-500 text-white rounded-br-md'
                             : 'bg-zinc-800 text-white rounded-bl-md'
                             }`}>
-                            {/* Reply quote block — clickable: scrolls to original or opens history if deleted */}
+                            {/* Reply quote block — always scrolls to original message */}
                             {message.replyTo && (
                                 <div
                                     className={`mb-2 px-3 py-2 rounded-lg border-l-2 cursor-pointer hover:opacity-90 transition-opacity ${isOwn ? 'bg-indigo-600/50 border-white/40' : 'bg-zinc-700/60 border-indigo-400'
                                         }`}
-                                    onClick={() => {
-                                        if (message.replyTo!.isDeleted) {
-                                            onViewHistory(message.replyTo!.id);
-                                        } else {
-                                            scrollToOriginal(message.replyTo!.id);
-                                        }
-                                    }}
+                                    onClick={() => scrollToOriginal(message.replyTo!.id)}
                                 >
                                     <p className="text-[10px] font-semibold opacity-70 mb-0.5">
                                         {replyToDisplayName}
@@ -701,6 +717,17 @@ export default function MessagesPage() {
         setNewMessage('');
         setDraftAttachments([]);
         setReplyingTo(null);
+
+        // Auto-scroll to bottom after self-sent message
+        requestAnimationFrame(() => {
+            const container = messagesViewportRef.current;
+            if (container) {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        });
     };
 
     // Reply/Edit/Delete handlers

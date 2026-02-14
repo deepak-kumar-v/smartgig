@@ -65,10 +65,15 @@ export interface Conversation {
         image: string | null;
     } | null;
     lastMessage: {
+        id: string;
         content: string;
         createdAt: string;
         senderId: string;
         senderName: string | null;
+        deliveredAt?: string | null;
+        readAt?: string | null;
+        isEdited?: boolean;
+        isDeleted?: boolean;
     } | null;
     createdAt: string;
     unreadCount?: number;
@@ -295,6 +300,7 @@ export function useChat(options?: UseChatOptions) {
                     prev,
                     conversationId,
                     {
+                        id: data.message.id,
                         content: type === 'CALL'
                             ? `Started a ${callMeta?.mode || 'video'} call`
                             : (content || 'Sent an attachment'),
@@ -428,10 +434,15 @@ export function useChat(options?: UseChatOptions) {
                 const updatedConv = {
                     ...existingConv,
                     lastMessage: {
+                        id: message.id,
                         content: message.content,
                         createdAt: message.createdAt,
                         senderId: message.senderId,
-                        senderName: message.sender.name
+                        senderName: message.sender.name,
+                        deliveredAt: message.deliveredAt,
+                        readAt: message.readAt,
+                        isEdited: message.isEdited || false,
+                        isDeleted: message.isDeleted || false
                     }
                 };
 
@@ -491,6 +502,20 @@ export function useChat(options?: UseChatOptions) {
 
                 return next;
             });
+
+            // Sync sidebar lastMessage readAt
+            setConversations(prev => prev.map(conv => {
+                if (conv.id !== data.conversationId) return conv;
+                if (!conv.lastMessage?.id || !data.messageIds.includes(conv.lastMessage.id)) return conv;
+                return {
+                    ...conv,
+                    lastMessage: {
+                        ...conv.lastMessage,
+                        deliveredAt: conv.lastMessage.deliveredAt ?? data.readAt,
+                        readAt: data.readAt
+                    }
+                };
+            }));
         };
         socket.on('message:read:update', handleReadUpdate);
 
@@ -526,6 +551,19 @@ export function useChat(options?: UseChatOptions) {
 
                 return next;
             });
+
+            // Sync sidebar lastMessage deliveredAt
+            setConversations(prev => prev.map(conv => {
+                if (conv.id !== data.conversationId) return conv;
+                if (!conv.lastMessage?.id || !data.messageIds.includes(conv.lastMessage.id)) return conv;
+                return {
+                    ...conv,
+                    lastMessage: {
+                        ...conv.lastMessage,
+                        deliveredAt: data.deliveredAt
+                    }
+                };
+            }));
         };
         socket.on('message:delivered:update', handleDeliveredUpdate);
 
@@ -580,6 +618,19 @@ export function useChat(options?: UseChatOptions) {
                 }
                 return msg;
             }));
+
+            // Sync sidebar lastMessage if edited
+            setConversations(prev => prev.map(conv => {
+                if (!conv.lastMessage?.id || conv.lastMessage.id !== data.id) return conv;
+                return {
+                    ...conv,
+                    lastMessage: {
+                        ...conv.lastMessage,
+                        content: data.content,
+                        isEdited: true
+                    }
+                };
+            }));
         };
         socket.on('message:edited', handleMessageEdited);
 
@@ -607,6 +658,19 @@ export function useChat(options?: UseChatOptions) {
                     };
                 }
                 return msg;
+            }));
+
+            // Sync sidebar lastMessage if deleted
+            setConversations(prev => prev.map(conv => {
+                if (!conv.lastMessage?.id || conv.lastMessage.id !== data.id) return conv;
+                return {
+                    ...conv,
+                    lastMessage: {
+                        ...conv.lastMessage,
+                        content: data.content,
+                        isDeleted: true
+                    }
+                };
             }));
         };
         socket.on('message:deleted', handleMessageDeleted);
@@ -660,10 +724,15 @@ function updateConversationList(
     conversations: Conversation[],
     conversationId: string,
     newMessage: {
+        id: string;
         content: string;
         createdAt: string;
         senderId: string;
         senderName: string | null;
+        deliveredAt?: string | null;
+        readAt?: string | null;
+        isEdited?: boolean;
+        isDeleted?: boolean;
     }
 ): Conversation[] {
     const convIndex = conversations.findIndex(c => c.id === conversationId);
@@ -674,10 +743,15 @@ function updateConversationList(
     const updatedConv = {
         ...existingConv,
         lastMessage: {
+            id: newMessage.id,
             content: newMessage.content,
             createdAt: newMessage.createdAt,
             senderId: newMessage.senderId,
-            senderName: newMessage.senderName
+            senderName: newMessage.senderName,
+            deliveredAt: newMessage.deliveredAt,
+            readAt: newMessage.readAt,
+            isEdited: newMessage.isEdited || false,
+            isDeleted: newMessage.isDeleted || false
         }
     };
 
