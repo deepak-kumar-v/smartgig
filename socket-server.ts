@@ -183,12 +183,16 @@ io.on('connection', (socket) => {
         const { conversationId, content, attachments = [], type = 'TEXT', callMeta, clientTempId, replyToId } = data;
 
         // --- EXPLICIT LOGGING (DEBUG) ---
-        console.log('[SOCKET RECEIVE] send-message payload:', {
+        console.log('[DIAG][SOCKET_SERVER_RECEIVE] send-message:', {
+            socketUserId: userId,
+            socketUserRole: userRole,
+            socketId: socket.id,
             conversationId,
             contentLen: content?.length,
             attachmentsCount: attachments?.length,
             type,
-            hasCallMeta: !!callMeta
+            hasCallMeta: !!callMeta,
+            clientTempId
         });
 
         if (attachments && attachments.length > 0) {
@@ -275,7 +279,13 @@ io.on('connection', (socket) => {
                 }
             });
 
-            console.log('[DB] Message created:', message.id);
+            console.log('[DIAG][DB_MESSAGE_CREATED]', {
+                messageId: message.id,
+                dbSenderId: message.senderId,
+                socketUserId: userId,
+                senderIdMatchesSocket: message.senderId === userId,
+                conversationId: message.conversationId
+            });
 
             // --- STEP 2: CREATE ATTACHMENTS (if any) ---
             let createdAttachments: any[] = [];
@@ -388,9 +398,11 @@ io.on('connection', (socket) => {
             });
 
             // Broadcast to all participants in the room
-            console.log('[Socket][emit] new-message', {
+            console.log('[DIAG][SOCKET_EMIT] new-message', {
                 conversationId,
                 messageId: fullMessage.id,
+                emittedSenderId: fullMessage.senderId,
+                socketUserId: userId,
                 deliveredAt: statusSnapshot?.deliveredAt?.toISOString() || null,
                 readAt: statusSnapshot?.readAt?.toISOString() || null
             });

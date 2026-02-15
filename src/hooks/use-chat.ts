@@ -259,6 +259,15 @@ export function useChat(options?: UseChatOptions) {
 
             setMessages(prev => [...prev, optimisticMessage]);
 
+            console.log('[DIAG][SEND_MESSAGE]', {
+                conversationId,
+                optimisticSenderId: options?.currentUserId || 'current-user',
+                optionsCurrentUserId: options?.currentUserId,
+                content: content?.substring(0, 30),
+                type,
+                clientTempId
+            });
+
             console.log('[CHAT SEND PAYLOAD]', {
                 conversationId,
                 content,
@@ -359,8 +368,11 @@ export function useChat(options?: UseChatOptions) {
         if (!socket) return;
 
         const handleNewMessage = (message: ChatMessage) => {
-            console.log('[useChat][event:new-message]', {
+            console.log('[DIAG][SOCKET_RECEIVE_CLIENT]', {
                 messageId: message.id,
+                messageSenderId: message.senderId,
+                optionsCurrentUserId: options?.currentUserId,
+                isSelf: message.senderId === options?.currentUserId,
                 clientTempId: message.clientTempId,
                 conversationId: message.conversationId,
                 deliveredAt: message.deliveredAt,

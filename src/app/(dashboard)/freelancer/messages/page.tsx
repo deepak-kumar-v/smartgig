@@ -461,6 +461,15 @@ export default function MessagesPage() {
     const { data: session } = useSession();
     const { socket, isConnected } = useSocket();
     const currentUserId = session?.user?.id || '';
+    // --- DIAGNOSTIC: Session Identity ---
+    if (typeof window !== 'undefined') {
+        console.log('[DIAG][SESSION][FREELANCER_PAGE]', {
+            currentUserId,
+            role: session?.user?.role,
+            sessionStatus: session ? 'loaded' : 'null',
+            pathname: window.location.pathname
+        });
+    }
     // Use raw role for helper functions (expects uppercase CLIENT/FREELANCER)
     const currentUserRole = session?.user?.role || null;
 
@@ -1056,7 +1065,17 @@ export default function MessagesPage() {
                                                     )}
                                                     <MessageBubble
                                                         message={message}
-                                                        isOwn={message.senderId === currentUserId}
+                                                        isOwn={(() => {
+                                                            const isOwn = message.senderId === currentUserId;
+                                                            console.log('[DIAG][RENDER_DECISION]', {
+                                                                messageId: message.id,
+                                                                messageSenderId: message.senderId,
+                                                                currentUserId,
+                                                                isOwn,
+                                                                content: message.content?.substring(0, 20)
+                                                            });
+                                                            return isOwn;
+                                                        })()}
                                                         currentUserId={currentUserId}
                                                         messageElementId={`chat-message-${message.id}`}
                                                         onReact={handleReact}

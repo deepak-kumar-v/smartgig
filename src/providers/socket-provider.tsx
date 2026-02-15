@@ -50,7 +50,12 @@ export function SocketProvider({ children }: SocketProviderProps) {
         });
 
         socketInstance.on('connect', () => {
-            console.log('[Socket] Connected:', socketInstance.id);
+            console.log('[DIAG][SOCKET_PROVIDER] Connected:', {
+                socketId: socketInstance.id,
+                authUserId: session.user.id,
+                authRole: session.user.role,
+                pathname: typeof window !== 'undefined' ? window.location.pathname : 'SSR'
+            });
             setIsConnected(true);
         });
 
