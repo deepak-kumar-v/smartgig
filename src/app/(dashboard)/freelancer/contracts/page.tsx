@@ -1,5 +1,4 @@
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { auth } from '@/lib/auth';
@@ -38,7 +37,7 @@ export default async function FreelancerContractsPage() {
     const contracts = await getContracts(session.user.id);
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
@@ -122,6 +121,6 @@ export default async function FreelancerContractsPage() {
                     </div>
                 )}
             </div>
-        </DashboardShell>
+        </>
     );
 }

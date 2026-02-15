@@ -1,5 +1,4 @@
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { auth } from '@/lib/auth';
@@ -86,7 +85,7 @@ export default async function FreelancerDashboardPage() {
     };
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="space-y-8">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -318,6 +317,6 @@ export default async function FreelancerDashboardPage() {
                     </div>
                 </div>
             </div>
-        </DashboardShell>
+        </>
     );
 }

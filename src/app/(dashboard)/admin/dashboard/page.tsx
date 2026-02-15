@@ -1,13 +1,12 @@
 'use client';
 
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { ShieldAlert, AlertTriangle, CheckCircle, Activity } from 'lucide-react';
 
 export default function AdminDashboard() {
     return (
-        <DashboardShell role="admin">
+        <>
             <div className="space-y-8">
 
                 {/* Header */}
@@ -64,6 +63,6 @@ export default function AdminDashboard() {
                 </GlassCard>
 
             </div>
-        </DashboardShell>
+        </>
     );
 }

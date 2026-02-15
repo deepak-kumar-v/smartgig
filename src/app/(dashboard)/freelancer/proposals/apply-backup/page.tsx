@@ -6,7 +6,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassTextarea } from '@/components/ui/glass-textarea';
@@ -105,7 +104,7 @@ export default function SubmitProposalPage() {
     const totalMilestoneAmount = milestones.reduce((sum, m) => sum + (m.amount || 0), 0);
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="max-w-4xl mx-auto space-y-6">
                 {/* Job Summary Header */}
                 <GlassCard className="p-6">
@@ -628,6 +627,6 @@ Best regards,
                     </div>
                 </div>
             </div>
-        </DashboardShell>
+        </>
     );
 }

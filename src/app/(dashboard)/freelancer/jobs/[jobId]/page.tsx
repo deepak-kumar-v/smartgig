@@ -1,5 +1,4 @@
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
@@ -60,7 +59,7 @@ export default async function FreelancerJobDetailsPage({ params }: { params: Pro
     }
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="max-w-4xl mx-auto space-y-6">
 
                 {/* Back Link */}
@@ -337,6 +336,6 @@ export default async function FreelancerJobDetailsPage({ params }: { params: Pro
                 </div>
 
             </div>
-        </DashboardShell>
+        </>
     );
 }

@@ -1,10 +1,9 @@
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { Skeleton, SkeletonCard } from '@/components/ui/skeleton';
 
 export default function ClientContractsLoading() {
     return (
-        <DashboardShell role="client">
+        <>
             <div className="mb-8">
                 <Skeleton className="w-[200px] h-8 mb-2" />
                 <Skeleton className="w-[300px] h-4" />
@@ -15,6 +14,6 @@ export default function ClientContractsLoading() {
                     <SkeletonCard key={i} />
                 ))}
             </div>
-        </DashboardShell>
+        </>
     );
 }

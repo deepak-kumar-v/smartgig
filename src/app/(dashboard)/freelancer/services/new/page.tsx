@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassInput } from '@/components/ui/glass-input';
@@ -114,7 +113,7 @@ export default function CreateServicePage() {
     };
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="max-w-5xl mx-auto space-y-6 pb-20">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -507,7 +506,7 @@ export default function CreateServicePage() {
                     </div>
                 </div>
             </div>
-        </DashboardShell>
+        </>
     );
 }
 

@@ -2,7 +2,6 @@
 import React from 'react';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import Link from 'next/link';
 import {
     MapPin, Globe, Clock, Star, CheckCircle, Shield,
@@ -54,9 +53,9 @@ export default async function FreelancerProfilePage() {
 
     if (!user) {
         return (
-            <DashboardShell role="freelancer">
+            <>
                 <div className="text-center text-zinc-400 mt-20">User not found</div>
-            </DashboardShell>
+            </>
         );
     }
 
@@ -64,7 +63,7 @@ export default async function FreelancerProfilePage() {
 
     if (!profile) {
         return (
-            <DashboardShell role="freelancer">
+            <>
                 <div className="max-w-2xl mx-auto mt-20 text-center space-y-4">
                     <div className="p-4 bg-zinc-800/50 rounded-xl inline-block">
                         <AlertCircle className="w-10 h-10 text-zinc-500 mx-auto" />
@@ -75,7 +74,7 @@ export default async function FreelancerProfilePage() {
                         <GlassButton variant="primary">Create Profile</GlassButton>
                     </Link>
                 </div>
-            </DashboardShell>
+            </>
         );
     }
 
@@ -103,7 +102,7 @@ export default async function FreelancerProfilePage() {
     };
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="max-w-6xl mx-auto space-y-8">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -340,6 +339,6 @@ export default async function FreelancerProfilePage() {
                     </div>
                 </div>
             </div>
-        </DashboardShell>
+        </>
     );
 }

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassTextarea } from '@/components/ui/glass-textarea';
@@ -91,7 +90,7 @@ export default function AdminDisputesPage() {
     };
 
     return (
-        <DashboardShell role="admin">
+        <>
             <div className="max-w-6xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -174,8 +173,8 @@ export default function AdminDisputesPage() {
                                     key={f}
                                     onClick={() => setFilter(f as typeof filter)}
                                     className={`px-4 py-2 rounded-lg text-sm transition-all ${filter === f
-                                            ? 'bg-indigo-500 text-white'
-                                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                                        ? 'bg-indigo-500 text-white'
+                                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                                         }`}
                                 >
                                     {f === 'mine' ? 'My Cases' : f.charAt(0).toUpperCase() + f.slice(1)}
@@ -280,8 +279,8 @@ export default function AdminDisputesPage() {
                             <button
                                 onClick={() => setDecision('freelancer')}
                                 className={`p-4 rounded-xl border text-center transition-all ${decision === 'freelancer'
-                                        ? 'border-emerald-500 bg-emerald-500/10'
-                                        : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                                    ? 'border-emerald-500 bg-emerald-500/10'
+                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
                                     }`}
                             >
                                 <User className="w-6 h-6 mx-auto mb-2 text-emerald-400" />
@@ -290,8 +289,8 @@ export default function AdminDisputesPage() {
                             <button
                                 onClick={() => setDecision('client')}
                                 className={`p-4 rounded-xl border text-center transition-all ${decision === 'client'
-                                        ? 'border-blue-500 bg-blue-500/10'
-                                        : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                                    ? 'border-blue-500 bg-blue-500/10'
+                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
                                     }`}
                             >
                                 <User className="w-6 h-6 mx-auto mb-2 text-blue-400" />
@@ -300,8 +299,8 @@ export default function AdminDisputesPage() {
                             <button
                                 onClick={() => setDecision('split')}
                                 className={`p-4 rounded-xl border text-center transition-all ${decision === 'split'
-                                        ? 'border-violet-500 bg-violet-500/10'
-                                        : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                                    ? 'border-violet-500 bg-violet-500/10'
+                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
                                     }`}
                             >
                                 <Scale className="w-6 h-6 mx-auto mb-2 text-violet-400" />
@@ -335,6 +334,6 @@ export default function AdminDisputesPage() {
                     </div>
                 </div>
             </GlassModal>
-        </DashboardShell>
+        </>
     );
 }

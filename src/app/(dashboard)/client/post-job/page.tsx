@@ -3,7 +3,6 @@
 
 import React, { useState, useTransition, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassInput } from '@/components/ui/glass-input';
 import { GlassButton } from '@/components/ui/glass-button';
@@ -636,7 +635,7 @@ export default function PostJobV32Page() { // Renamed component
     };
 
     return (
-        <DashboardShell role="client">
+        <>
             <div className="max-w-4xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -1284,6 +1283,6 @@ export default function PostJobV32Page() { // Renamed component
 
                 </GlassCard>
             </div>
-        </DashboardShell>
+        </>
     );
 }

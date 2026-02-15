@@ -2,7 +2,6 @@ import React from 'react';
 import { notFound, redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { ContractDetailView } from './contract-detail-view';
 
 interface PageProps {
@@ -91,8 +90,8 @@ export default async function ClientContractDetailPage({ params }: PageProps) {
     };
 
     return (
-        <DashboardShell role="client">
+        <>
             <ContractDetailView contract={contractData} role="CLIENT" />
-        </DashboardShell>
+        </>
     );
 }

@@ -4,7 +4,6 @@
 'use client';
 
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import Link from 'next/link';
 import { GlassButton } from '@/components/ui/glass-button';
@@ -118,7 +117,7 @@ export function ClientDashboardView({
     activeJobs: JobItem[]
 }) {
     return (
-        <DashboardShell role="client">
+        <>
             <div className="space-y-8">
 
                 {/* Header */}
@@ -375,6 +374,6 @@ export function ClientDashboardView({
                 </div>
 
             </div>
-        </DashboardShell>
+        </>
     );
 }

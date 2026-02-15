@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import {
@@ -302,7 +301,7 @@ export default function PortfolioPage() {
     const pendingCount = portfolio.filter(p => p.status === 'pending').length;
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="space-y-8">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -396,6 +395,6 @@ export default function PortfolioPage() {
 
             {/* Add Portfolio Modal */}
             {showAddModal && <AddPortfolioModal onClose={() => setShowAddModal(false)} />}
-        </DashboardShell>
+        </>
     );
 }

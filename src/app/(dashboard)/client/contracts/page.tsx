@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { FileText, Clock, AlertTriangle, Shield, CheckCircle } from 'lucide-react';
@@ -38,7 +37,7 @@ export default async function ClientContractsPage() {
     const contracts = await getContracts(session.user.id);
 
     return (
-        <DashboardShell role="client">
+        <>
             <div className="mb-8">
                 <h1 className="text-2xl font-bold text-white mb-2">My Contracts</h1>
                 <p className="text-zinc-400">Manage active projects and monitor trial tasks.</p>
@@ -127,6 +126,6 @@ export default async function ClientContractsPage() {
                     })}
                 </div>
             )}
-        </DashboardShell>
+        </>
     );
 }

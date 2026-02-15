@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import {
@@ -40,7 +39,7 @@ export default function FreelancerSettingsPage() {
     };
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="max-w-4xl mx-auto space-y-8">
                 {/* Header */}
                 <div>
@@ -215,8 +214,8 @@ export default function FreelancerSettingsPage() {
                                         key={option.value}
                                         onClick={() => setPreferredDuration(option.value)}
                                         className={`py-2 px-3 rounded-lg text-sm font-medium transition-all ${preferredDuration === option.value
-                                                ? 'bg-blue-500 text-white'
-                                                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                                            ? 'bg-blue-500 text-white'
+                                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                                             }`}
                                     >
                                         {option.label}
@@ -343,6 +342,6 @@ export default function FreelancerSettingsPage() {
                     </GlassButton>
                 </div>
             </div>
-        </DashboardShell>
+        </>
     );
 }

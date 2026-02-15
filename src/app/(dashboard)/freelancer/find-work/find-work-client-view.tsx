@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import Link from 'next/link';
 import { Briefcase, Clock, DollarSign, Search, MapPin, Zap } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -37,7 +36,7 @@ interface FindWorkClientViewProps {
 
 export default function FindWorkClientView({ jobs }: FindWorkClientViewProps) {
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="max-w-7xl mx-auto space-y-8">
 
                 {/* Header Section */}
@@ -168,6 +167,6 @@ export default function FindWorkClientView({ jobs }: FindWorkClientViewProps) {
                     })}
                 </div>
             </div>
-        </DashboardShell>
+        </>
     );
 }

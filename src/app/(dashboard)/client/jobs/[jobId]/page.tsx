@@ -2,7 +2,6 @@ import React from 'react';
 import { notFound, redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { JobDetailsView, type JobDetailsData } from './job-details-view';
 
 interface PageProps {
@@ -135,8 +134,8 @@ export default async function JobDetailsPage({ params }: PageProps) {
     }));
 
     return (
-        <DashboardShell role="client">
+        <>
             <JobDetailsView job={jobData} proposals={proposals} />
-        </DashboardShell>
+        </>
     );
 }

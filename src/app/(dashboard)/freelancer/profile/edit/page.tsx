@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassInput } from '@/components/ui/glass-input';
@@ -24,10 +23,10 @@ function StepIndicator({ steps, currentStep }: { steps: string[]; currentStep: n
                     <div className="flex flex-col items-center">
                         <div
                             className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all ${index < currentStep
-                                    ? 'bg-emerald-500 text-white'
-                                    : index === currentStep
-                                        ? 'bg-indigo-500 text-white'
-                                        : 'bg-zinc-800 text-zinc-500'
+                                ? 'bg-emerald-500 text-white'
+                                : index === currentStep
+                                    ? 'bg-indigo-500 text-white'
+                                    : 'bg-zinc-800 text-zinc-500'
                                 }`}
                         >
                             {index < currentStep ? <CheckCircle className="w-5 h-5" /> : index + 1}
@@ -237,7 +236,7 @@ export default function EditProfilePage() {
     const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 0));
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="max-w-4xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -471,12 +470,12 @@ export default function EditProfilePage() {
                                             key={option.value}
                                             onClick={() => updateField('availability', option.value)}
                                             className={`p-4 rounded-xl border transition-all ${formData.availability === option.value
-                                                    ? `border-${option.color}-500 bg-${option.color}-500/10`
-                                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                                                ? `border-${option.color}-500 bg-${option.color}-500/10`
+                                                : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
                                                 }`}
                                         >
                                             <div className={`w-3 h-3 rounded-full mb-2 ${option.value === 'AVAILABLE' ? 'bg-emerald-400' :
-                                                    option.value === 'BUSY' ? 'bg-amber-400' : 'bg-rose-400'
+                                                option.value === 'BUSY' ? 'bg-amber-400' : 'bg-rose-400'
                                                 }`} />
                                             <span className="text-white text-sm">{option.label}</span>
                                         </button>
@@ -514,8 +513,8 @@ export default function EditProfilePage() {
                                             key={option.value}
                                             onClick={() => updateField('experienceLevel', option.value)}
                                             className={`p-4 rounded-xl border text-left transition-all ${formData.experienceLevel === option.value
-                                                    ? 'border-indigo-500 bg-indigo-500/10'
-                                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                                                ? 'border-indigo-500 bg-indigo-500/10'
+                                                : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
                                                 }`}
                                         >
                                             <span className="text-white text-sm font-medium block">{option.label}</span>
@@ -540,8 +539,8 @@ export default function EditProfilePage() {
                                                 updateField('categories', updated);
                                             }}
                                             className={`px-3 py-1.5 rounded-full text-sm transition-all ${(formData.categories || []).includes(cat.name)
-                                                    ? 'bg-indigo-500 text-white'
-                                                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                                                ? 'bg-indigo-500 text-white'
+                                                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                                                 }`}
                                         >
                                             {cat.name}
@@ -878,6 +877,6 @@ export default function EditProfilePage() {
                     </div>
                 </div>
             </div>
-        </DashboardShell>
+        </>
     );
 }

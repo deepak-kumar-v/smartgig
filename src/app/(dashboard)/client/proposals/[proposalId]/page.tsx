@@ -2,7 +2,6 @@ import React from 'react';
 import { notFound, redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { ProposalDetailView } from './proposal-detail-view';
 
 interface PageProps {
@@ -142,8 +141,8 @@ export default async function ProposalDetailPage({ params }: PageProps) {
     };
 
     return (
-        <DashboardShell role="client">
+        <>
             <ProposalDetailView proposal={proposalData} />
-        </DashboardShell>
+        </>
     );
 }

@@ -2,7 +2,6 @@ import React from 'react';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import Link from 'next/link';
@@ -50,7 +49,7 @@ export default async function ClientJobsPage() {
     }
 
     return (
-        <DashboardShell role="client">
+        <>
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -121,6 +120,6 @@ export default async function ClientJobsPage() {
                     </div>
                 )}
             </div>
-        </DashboardShell>
+        </>
     );
 }

@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { Plus, Edit2, Eye, Trash2, Clock, DollarSign, Package } from 'lucide-react';
@@ -35,17 +34,17 @@ export default async function FreelancerServicesPage() {
     if (!services) {
         // Handle case where user might not have a freelancer profile yet
         return (
-            <DashboardShell role="freelancer">
+            <>
                 <div className="text-center py-20">
                     <h2 className="text-xl font-semibold text-white">Profile Setup Required</h2>
                     <p className="text-zinc-400 mt-2">Please complete your freelancer profile to post services.</p>
                 </div>
-            </DashboardShell>
+            </>
         );
     }
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
                     <h1 className="text-2xl font-bold text-white mb-2">My "Open to Work" Profiles</h1>
@@ -126,6 +125,6 @@ export default async function FreelancerServicesPage() {
                     ))}
                 </div>
             )}
-        </DashboardShell>
+        </>
     );
 }

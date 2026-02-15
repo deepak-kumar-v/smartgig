@@ -1,5 +1,4 @@
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { auth } from '@/lib/auth';
@@ -27,11 +26,11 @@ export default async function FreelancerProposalsPage() {
 
     if (!freelancer?.freelancerProfile) {
         return (
-            <DashboardShell role="freelancer">
+            <>
                 <div className="p-8 text-center">
                     <p className="text-zinc-400">Freelancer profile not found. Please complete your profile.</p>
                 </div>
-            </DashboardShell>
+            </>
         );
     }
 
@@ -51,7 +50,7 @@ export default async function FreelancerProposalsPage() {
     });
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
@@ -87,9 +86,9 @@ export default async function FreelancerProposalsPage() {
                                                 </Link>
                                             </h3>
                                             <span className={`px-2.5 py-0.5 rounded text-[10px] font-semibold border uppercase tracking-wide ${proposal.status === 'ACCEPTED' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                                                    proposal.status === 'REJECTED' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                                                        proposal.status === 'WITHDRAWN' ? 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' :
-                                                            'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                                proposal.status === 'REJECTED' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                                    proposal.status === 'WITHDRAWN' ? 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' :
+                                                        'bg-amber-500/10 text-amber-400 border-amber-500/20'
                                                 }`}>
                                                 {proposal.status}
                                             </span>
@@ -126,6 +125,6 @@ export default async function FreelancerProposalsPage() {
                     </div>
                 )}
             </div>
-        </DashboardShell>
+        </>
     );
 }

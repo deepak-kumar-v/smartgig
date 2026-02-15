@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassTextarea } from '@/components/ui/glass-textarea';
@@ -281,7 +280,7 @@ export default function ProposalForm({ job }: ProposalFormProps) {
         : `$${job.budgetMax.toLocaleString()}`;
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="max-w-4xl mx-auto space-y-6">
                 {/* Job Summary Header */}
                 <GlassCard className="p-6">
@@ -935,6 +934,6 @@ Best regards,
                     </div>
                 </div>
             </div>
-        </DashboardShell>
+        </>
     );
 }

@@ -2,7 +2,6 @@ import React from 'react';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { redirect, notFound } from 'next/navigation';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import EditJobForm from './edit-job-form';
 import type { JobPostFormData } from '@/lib/types';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -47,7 +46,7 @@ export default async function EditJobPage({ params }: PageProps) {
 
     if (!job) {
         return (
-            <DashboardShell role="client">
+            <>
                 <div className="max-w-2xl mx-auto">
                     <GlassCard className="p-12 text-center">
                         <h3 className="text-lg font-medium text-white mb-2">Job Not Found</h3>
@@ -58,13 +57,13 @@ export default async function EditJobPage({ params }: PageProps) {
                         </Link>
                     </GlassCard>
                 </div>
-            </DashboardShell>
+            </>
         );
     }
 
     if (!isOwner) {
         return (
-            <DashboardShell role="client">
+            <>
                 <div className="max-w-2xl mx-auto">
                     <GlassCard className="p-12 text-center">
                         <div className="mx-auto w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
@@ -79,7 +78,7 @@ export default async function EditJobPage({ params }: PageProps) {
                         </Link>
                     </GlassCard>
                 </div>
-            </DashboardShell>
+            </>
         );
     }
 
@@ -104,9 +103,9 @@ export default async function EditJobPage({ params }: PageProps) {
     };
 
     return (
-        <DashboardShell role="client">
+        <>
             {/* Replaced JobForm with dedicated EditJobForm (Clone of PostJobPage) for strict parity */}
             <EditJobForm jobId={jobId} initialData={initialData} />
-        </DashboardShell>
+        </>
     );
 }

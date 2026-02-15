@@ -2,7 +2,6 @@ import React from 'react';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { TrustDashboard } from '@/components/dashboard/trust-dashboard';
 
 async function getUserTrustData(userId: string) {
@@ -57,7 +56,7 @@ export default async function FreelancerTrustPage() {
     }
 
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div>
                 <h1 className="text-2xl font-bold text-white mb-6">Trust & Safety Center</h1>
                 <TrustDashboard
@@ -66,6 +65,6 @@ export default async function FreelancerTrustPage() {
                     totalStrikes={data.totalStrikes}
                 />
             </div>
-        </DashboardShell>
+        </>
     );
 }

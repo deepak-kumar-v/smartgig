@@ -1,5 +1,4 @@
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { db } from '@/lib/db';
 import {
@@ -45,7 +44,7 @@ export default async function AdminUsersPage() {
     };
 
     return (
-        <DashboardShell role="admin">
+        <>
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -220,6 +219,6 @@ export default async function AdminUsersPage() {
                     )}
                 </GlassCard>
             </div>
-        </DashboardShell>
+        </>
     );
 }

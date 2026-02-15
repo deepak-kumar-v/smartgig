@@ -1,11 +1,10 @@
 import React from 'react';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Skeleton, SkeletonCard, SkeletonList } from '@/components/ui/skeleton';
 
 export default function FreelancerDashboardLoading() {
     return (
-        <DashboardShell role="freelancer">
+        <>
             <div className="space-y-8">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -111,6 +110,6 @@ export default function FreelancerDashboardLoading() {
                     </div>
                 </div>
             </div>
-        </DashboardShell>
+        </>
     );
 }
