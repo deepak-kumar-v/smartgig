@@ -1,19 +1,45 @@
 'use client';
 
 import React, { useState } from 'react';
-import { signOut, useSession } from 'next-auth/react';
+import { signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Logo } from '@/components/ui/logo';
-import { LogOut, Search, Menu, Settings, Bell } from 'lucide-react';
+import {
+    LogOut, Search, Menu, Settings, Bell,
+    LayoutDashboard, User, FileText, Briefcase, Image,
+    MessageSquare, Wallet, Receipt, ArrowDownToLine,
+    AlertTriangle, Star, Shield, Users
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
+
+/* ── Icon resolution map ── */
+const iconMap: Record<string, LucideIcon> = {
+    dashboard: LayoutDashboard,
+    user: User,
+    users: Users,
+    search: Search,
+    file: FileText,
+    briefcase: Briefcase,
+    image: Image,
+    message: MessageSquare,
+    wallet: Wallet,
+    receipt: Receipt,
+    withdraw: ArrowDownToLine,
+    alert: AlertTriangle,
+    star: Star,
+    bell: Bell,
+    shield: Shield,
+    settings: Settings,
+};
 
 export interface NavItem {
     name: string;
     href: string;
-    icon: LucideIcon;
+    /** String key resolved via iconMap inside this client component */
+    icon: string;
 }
 
 interface DashboardLayoutProps {
@@ -21,29 +47,25 @@ interface DashboardLayoutProps {
     navItems: NavItem[];
     roleLabel: string;
     settingsHref: string;
+    userName: string;
+    userInitials: string;
 }
 
-function getInitials(name: string) {
-    return name
-        .split(' ')
-        .map((n) => n[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
-}
-
-export function DashboardLayout({ children, navItems, roleLabel, settingsHref }: DashboardLayoutProps) {
+export function DashboardLayout({
+    children,
+    navItems,
+    roleLabel,
+    settingsHref,
+    userName,
+    userInitials,
+}: DashboardLayoutProps) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const pathname = usePathname();
     const router = useRouter();
-    const { data: session, status } = useSession();
 
     const handleUserClick = () => {
         router.push(settingsHref);
     };
-
-    const userInitials = session?.user?.name ? getInitials(session.user.name) : '??';
-    const userName = session?.user?.name || 'User';
 
     return (
         <div className="min-h-screen bg-background flex">
@@ -57,6 +79,7 @@ export function DashboardLayout({ children, navItems, roleLabel, settingsHref }:
                     <div className="text-xs font-medium text-white/30 px-3 uppercase tracking-wider mb-2">Menu</div>
                     {navItems.map((item) => {
                         const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                        const Icon = iconMap[item.icon];
                         return (
                             <Link key={item.href} href={item.href}>
                                 <div className={cn(
@@ -65,7 +88,7 @@ export function DashboardLayout({ children, navItems, roleLabel, settingsHref }:
                                         ? "bg-indigo-500/10 text-indigo-300 border border-indigo-500/20"
                                         : "text-white/60 hover:text-white hover:bg-white/5"
                                 )}>
-                                    <item.icon className={cn("w-4 h-4", isActive ? "text-indigo-400" : "text-white/40 group-hover:text-white")} />
+                                    {Icon && <Icon className={cn("w-4 h-4", isActive ? "text-indigo-400" : "text-white/40 group-hover:text-white")} />}
                                     {item.name}
                                 </div>
                             </Link>
@@ -74,44 +97,34 @@ export function DashboardLayout({ children, navItems, roleLabel, settingsHref }:
                 </div>
 
                 <div className="p-4 mt-auto border-t border-white/5">
-                    {(status === 'loading' || !session) ? (
-                        <div className="flex items-center gap-3 p-2 rounded-xl bg-white/5 border border-white/5 animate-pulse">
-                            <div className="w-8 h-8 rounded-full bg-white/10" />
-                            <div className="flex-1 space-y-2">
-                                <div className="h-3 w-20 bg-white/10 rounded" />
-                                <div className="h-2 w-12 bg-white/10 rounded" />
+                    <div
+                        className="flex items-center gap-3 p-2 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors group"
+                        onClick={handleUserClick}
+                    >
+                        <div className="w-8 h-8 rounded-full bg-indigo-500 gradient-avatar flex items-center justify-center text-xs font-bold text-white shrink-0">
+                            {userInitials}
+                        </div>
+                        <div className="overflow-hidden flex-1 min-w-0">
+                            <div className="text-sm text-white font-medium truncate group-hover:text-indigo-300 transition-colors">
+                                {userName}
+                            </div>
+                            <div className="text-xs text-white/40 truncate capitalize">
+                                {roleLabel}
                             </div>
                         </div>
-                    ) : (
-                        <div
-                            className="flex items-center gap-3 p-2 rounded-xl bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10 transition-colors group"
-                            onClick={handleUserClick}
+                        <Settings className="w-4 h-4 ml-auto text-white/30 group-hover:text-indigo-400 transition-colors shrink-0" />
+                        <div className="mx-1 w-px h-4 bg-white/10 shrink-0" />
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                signOut({ callbackUrl: '/login' });
+                            }}
+                            className="p-1.5 text-white/30 hover:text-rose-400 transition-colors rounded-lg hover:bg-white/5 shrink-0"
+                            title="Sign Out"
                         >
-                            <div className="w-8 h-8 rounded-full bg-indigo-500 gradient-avatar flex items-center justify-center text-xs font-bold text-white shrink-0">
-                                {userInitials}
-                            </div>
-                            <div className="overflow-hidden flex-1 min-w-0">
-                                <div className="text-sm text-white font-medium truncate group-hover:text-indigo-300 transition-colors">
-                                    {userName}
-                                </div>
-                                <div className="text-xs text-white/40 truncate capitalize">
-                                    {roleLabel}
-                                </div>
-                            </div>
-                            <Settings className="w-4 h-4 ml-auto text-white/30 group-hover:text-indigo-400 transition-colors shrink-0" />
-                            <div className="mx-1 w-px h-4 bg-white/10 shrink-0" />
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    signOut({ callbackUrl: '/login' });
-                                }}
-                                className="p-1.5 text-white/30 hover:text-rose-400 transition-colors rounded-lg hover:bg-white/5 shrink-0"
-                                title="Sign Out"
-                            >
-                                <LogOut className="w-4 h-4" />
-                            </button>
-                        </div>
-                    )}
+                            <LogOut className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
             </aside>
 
@@ -144,34 +157,35 @@ export function DashboardLayout({ children, navItems, roleLabel, settingsHref }:
                             </div>
 
                             <nav className="space-y-2 flex-1 overflow-y-auto mb-4">
-                                {navItems.map((item) => (
-                                    <Link key={item.href} href={item.href} onClick={() => setSidebarOpen(false)}>
-                                        <div className="flex items-center gap-3 px-3 py-3 rounded-lg text-white/70 hover:bg-white/10">
-                                            <item.icon className="w-5 h-5" />
-                                            {item.name}
-                                        </div>
-                                    </Link>
-                                ))}
+                                {navItems.map((item) => {
+                                    const Icon = iconMap[item.icon];
+                                    return (
+                                        <Link key={item.href} href={item.href} onClick={() => setSidebarOpen(false)}>
+                                            <div className="flex items-center gap-3 px-3 py-3 rounded-lg text-white/70 hover:bg-white/10">
+                                                {Icon && <Icon className="w-5 h-5" />}
+                                                {item.name}
+                                            </div>
+                                        </Link>
+                                    );
+                                })}
                             </nav>
 
                             <div className="pt-4 mt-auto border-t border-white/10 shrink-0">
-                                {session && (
-                                    <div
-                                        className="flex items-center gap-3 p-3 rounded-lg bg-white/5 mb-3 cursor-pointer"
-                                        onClick={() => {
-                                            setSidebarOpen(false);
-                                            handleUserClick();
-                                        }}
-                                    >
-                                        <div className="w-8 h-8 rounded-full bg-indigo-500 gradient-avatar flex items-center justify-center text-xs font-bold text-white">
-                                            {userInitials}
-                                        </div>
-                                        <div>
-                                            <div className="text-sm text-white font-medium">{userName}</div>
-                                            <div className="text-xs text-white/40 capitalize">{roleLabel}</div>
-                                        </div>
+                                <div
+                                    className="flex items-center gap-3 p-3 rounded-lg bg-white/5 mb-3 cursor-pointer"
+                                    onClick={() => {
+                                        setSidebarOpen(false);
+                                        handleUserClick();
+                                    }}
+                                >
+                                    <div className="w-8 h-8 rounded-full bg-indigo-500 gradient-avatar flex items-center justify-center text-xs font-bold text-white">
+                                        {userInitials}
                                     </div>
-                                )}
+                                    <div>
+                                        <div className="text-sm text-white font-medium">{userName}</div>
+                                        <div className="text-xs text-white/40 capitalize">{roleLabel}</div>
+                                    </div>
+                                </div>
                                 <button
                                     onClick={() => signOut({ callbackUrl: '/login' })}
                                     className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-rose-400 hover:bg-white/10 transition-colors"

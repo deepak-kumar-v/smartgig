@@ -1,46 +1,54 @@
-'use client';
-
-import React, { useEffect } from 'react';
-import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import React from 'react';
+import { auth } from '@/lib/auth';
+import { redirect } from 'next/navigation';
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
 import type { NavItem } from '@/components/dashboard/dashboard-layout';
-import {
-    LayoutDashboard, Briefcase, FileText, User, MessageSquare,
-    Wallet, Receipt, AlertTriangle, Star, Bell, Settings
-} from 'lucide-react';
 
 const clientNavItems: NavItem[] = [
-    { name: 'Dashboard', href: '/client/dashboard', icon: LayoutDashboard },
-    { name: 'Post a Job', href: '/client/post-job', icon: Briefcase },
-    { name: 'My Jobs', href: '/client/jobs', icon: FileText },
-    { name: 'Proposals', href: '/client/proposals', icon: User },
-    { name: 'Contracts', href: '/client/contracts', icon: Briefcase },
-    { name: 'Messages', href: '/messages', icon: MessageSquare },
-    { name: 'Payments', href: '/payments', icon: Wallet },
-    { name: 'Invoices', href: '/invoices', icon: Receipt },
-    { name: 'Disputes', href: '/disputes', icon: AlertTriangle },
-    { name: 'Reviews', href: '/reviews/new', icon: Star },
-    { name: 'Notifications', href: '/notifications', icon: Bell },
-    { name: 'Settings', href: '/settings/security', icon: Settings },
+    { name: 'Dashboard', href: '/client/dashboard', icon: 'dashboard' },
+    { name: 'Post a Job', href: '/client/post-job', icon: 'briefcase' },
+    { name: 'My Jobs', href: '/client/jobs', icon: 'file' },
+    { name: 'Proposals', href: '/client/proposals', icon: 'user' },
+    { name: 'Contracts', href: '/client/contracts', icon: 'briefcase' },
+    { name: 'Messages', href: '/client/messages', icon: 'message' },
+    { name: 'Payments', href: '/client/payments', icon: 'wallet' },
+    { name: 'Invoices', href: '/client/invoices', icon: 'receipt' },
+    { name: 'Disputes', href: '/client/disputes', icon: 'alert' },
+    { name: 'Reviews', href: '/client/reviews/new', icon: 'star' },
+    { name: 'Notifications', href: '/client/notifications', icon: 'bell' },
+    { name: 'Settings', href: '/client/settings/security', icon: 'settings' },
 ];
 
-export default function ClientLayout({ children }: { children: React.ReactNode }) {
-    const { data: session, status } = useSession();
-    const router = useRouter();
+function getInitials(name: string) {
+    return name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
+}
 
-    // Role validation: redirect if session role doesn't match namespace
-    useEffect(() => {
-        if (status === 'authenticated' && session?.user?.role && session.user.role !== 'CLIENT') {
-            router.replace(`/${session.user.role.toLowerCase()}/dashboard`);
-        }
-    }, [status, session?.user?.role, router]);
+export default async function ClientLayout({ children }: { children: React.ReactNode }) {
+    const session = await auth();
+
+    if (!session?.user) {
+        redirect('/login');
+    }
+
+    if (session.user.role && session.user.role !== 'CLIENT') {
+        redirect(`/${session.user.role.toLowerCase()}/dashboard`);
+    }
+
+    const userName = session.user.name || 'User';
+    const userInitials = session.user.name ? getInitials(session.user.name) : '??';
 
     return (
         <DashboardLayout
             navItems={clientNavItems}
             roleLabel="Client"
-            settingsHref="/settings/security"
+            settingsHref="/client/settings/security"
+            userName={userName}
+            userInitials={userInitials}
         >
             {children}
         </DashboardLayout>

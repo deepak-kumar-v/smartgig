@@ -1,41 +1,49 @@
-'use client';
-
-import React, { useEffect } from 'react';
-import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import React from 'react';
+import { auth } from '@/lib/auth';
+import { redirect } from 'next/navigation';
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
 import type { NavItem } from '@/components/dashboard/dashboard-layout';
-import {
-    LayoutDashboard, Users, Briefcase, FileText,
-    AlertTriangle, Wallet, Shield
-} from 'lucide-react';
 
 const adminNavItems: NavItem[] = [
-    { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-    { name: 'Users', href: '/admin/users', icon: Users },
-    { name: 'Jobs', href: '/admin/jobs', icon: Briefcase },
-    { name: 'Contracts', href: '/admin/contracts', icon: FileText },
-    { name: 'Disputes', href: '/admin/disputes', icon: AlertTriangle },
-    { name: 'Payments', href: '/payments', icon: Wallet },
-    { name: 'Trust & Safety', href: '/admin/trust', icon: Shield },
+    { name: 'Dashboard', href: '/admin/dashboard', icon: 'dashboard' },
+    { name: 'Users', href: '/admin/users', icon: 'users' },
+    { name: 'Jobs', href: '/admin/jobs', icon: 'briefcase' },
+    { name: 'Contracts', href: '/admin/contracts', icon: 'file' },
+    { name: 'Disputes', href: '/admin/disputes', icon: 'alert' },
+    { name: 'Payments', href: '/admin/payments', icon: 'wallet' },
+    { name: 'Trust & Safety', href: '/admin/trust', icon: 'shield' },
 ];
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-    const { data: session, status } = useSession();
-    const router = useRouter();
+function getInitials(name: string) {
+    return name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
+}
 
-    // Role validation: redirect if session role doesn't match namespace
-    useEffect(() => {
-        if (status === 'authenticated' && session?.user?.role && session.user.role !== 'ADMIN') {
-            router.replace(`/${session.user.role.toLowerCase()}/dashboard`);
-        }
-    }, [status, session?.user?.role, router]);
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+    const session = await auth();
+
+    if (!session?.user) {
+        redirect('/login');
+    }
+
+    if (session.user.role && session.user.role !== 'ADMIN') {
+        redirect(`/${session.user.role.toLowerCase()}/dashboard`);
+    }
+
+    const userName = session.user.name || 'User';
+    const userInitials = session.user.name ? getInitials(session.user.name) : '??';
 
     return (
         <DashboardLayout
             navItems={adminNavItems}
             roleLabel="Admin"
             settingsHref="/admin/dashboard"
+            userName={userName}
+            userInitials={userInitials}
         >
             {children}
         </DashboardLayout>
