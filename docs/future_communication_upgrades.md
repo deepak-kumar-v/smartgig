@@ -72,6 +72,8 @@ This document lists **planned, optional, and advanced improvements** for SmartGI
 * Message deletion (for self / for everyone)
 * Reply / quote messages
 * Typing indicators
+* Improvised -> always point to the last message when a conversation is opened
+* Reactions should count as a message and add them in badge count
 
 ### 3.2 Attachments & Media
 
