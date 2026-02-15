@@ -535,6 +535,7 @@ export default function MessagesPage() {
         : activeConversation?.otherParticipant?.name || 'Unknown';
     const messagesViewportRef = useRef<HTMLDivElement>(null);
     const lastReadEmitRef = useRef<string>('');
+    const hasAutoScrolledRef = useRef<string | null>(null);
     const isOneToOneActiveConversation = Boolean(activeConversationId && activeConversation?.otherParticipant?.id);
 
     const getLatestUnreadIncomingMessage = useCallback(() => {
@@ -684,6 +685,19 @@ export default function MessagesPage() {
         });
         return () => window.cancelAnimationFrame(frame);
     }, [messages, activeConversationId, maybeEmitRead]);
+
+    // Auto-scroll to bottom when conversation is opened or switched
+    useLayoutEffect(() => {
+        if (!activeConversationId) return;
+        if (messages.length === 0) return;
+        if (hasAutoScrolledRef.current === activeConversationId) return;
+
+        const container = messagesViewportRef.current;
+        if (!container) return;
+
+        container.scrollTop = container.scrollHeight;
+        hasAutoScrolledRef.current = activeConversationId;
+    }, [activeConversationId, messages]);
 
     const handleSelectConversation = (conversationId: string) => {
         setActiveConversationId(conversationId);
