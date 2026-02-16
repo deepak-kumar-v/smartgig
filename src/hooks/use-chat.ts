@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSocket } from '@/providers/socket-provider';
+import { useIdentity } from '@/providers/identity-provider';
 
 export interface ChatMessage {
     id: string;
@@ -81,9 +82,6 @@ export interface Conversation {
 
 interface UseChatOptions {
     conversationId?: string;
-    currentUserId?: string;
-    currentUserName?: string | null;
-    currentUserImage?: string | null;
 }
 
 interface MessageStatusPatch {
@@ -93,6 +91,7 @@ interface MessageStatusPatch {
 
 export function useChat(options?: UseChatOptions) {
     const { socket, isConnected } = useSocket();
+    const { userId, userName, userImage } = useIdentity();
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -240,11 +239,11 @@ export function useChat(options?: UseChatOptions) {
                 id: clientTempId,
                 clientTempId,
                 conversationId,
-                senderId: options?.currentUserId || 'current-user',
+                senderId: userId || '',
                 sender: {
-                    id: options?.currentUserId || 'current-user',
-                    name: options?.currentUserName ?? null,
-                    image: options?.currentUserImage ?? null
+                    id: userId || '',
+                    name: userName ?? null,
+                    image: userImage ?? null
                 },
                 content: optimisticContent,
                 type,
@@ -261,8 +260,7 @@ export function useChat(options?: UseChatOptions) {
 
             console.log('[DIAG][SEND_MESSAGE]', {
                 conversationId,
-                optimisticSenderId: options?.currentUserId || 'current-user',
-                optionsCurrentUserId: options?.currentUserId,
+                optimisticSenderId: userId,
                 content: content?.substring(0, 30),
                 type,
                 clientTempId
@@ -314,7 +312,7 @@ export function useChat(options?: UseChatOptions) {
                             ? `Started a ${callMeta?.mode || 'video'} call`
                             : (content || 'Sent an attachment'),
                         createdAt: new Date().toISOString(),
-                        senderId: options?.currentUserId || 'current-user',
+                        senderId: userId || '',
                         senderName: null
                     }
                 ));
@@ -322,7 +320,7 @@ export function useChat(options?: UseChatOptions) {
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to send message');
         }
-    }, [socket, isConnected, options?.currentUserId, options?.currentUserName, options?.currentUserImage, applyPendingStatus]);
+    }, [socket, isConnected, userId, userName, userImage, applyPendingStatus]);
 
     // Edit a message (sender-only, transactional on server)
     const editMessage = useCallback((messageId: string, newContent: string) => {
@@ -371,8 +369,8 @@ export function useChat(options?: UseChatOptions) {
             console.log('[DIAG][SOCKET_RECEIVE_CLIENT]', {
                 messageId: message.id,
                 messageSenderId: message.senderId,
-                optionsCurrentUserId: options?.currentUserId,
-                isSelf: message.senderId === options?.currentUserId,
+                identityUserId: userId,
+                isSelf: message.senderId === userId,
                 clientTempId: message.clientTempId,
                 conversationId: message.conversationId,
                 deliveredAt: message.deliveredAt,

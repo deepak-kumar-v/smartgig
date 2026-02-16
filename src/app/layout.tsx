@@ -5,6 +5,7 @@ import { SecurityProvider } from '@/components/providers/security-provider';
 import { Providers } from '@/providers/providers';
 import { Toaster } from 'sonner';
 import { OAuthBanner } from '@/components/auth/oauth-banner';
+import { auth } from '@/lib/auth';
 
 const manrope = Manrope({ subsets: ['latin'], variable: '--font-manrope' })
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
@@ -14,15 +15,17 @@ export const metadata: Metadata = {
     description: 'AI-Enabled Freelancing Platform',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
     children,
 }: {
     children: React.ReactNode
 }) {
+    const session = await auth();
+
     return (
         <html lang="en" className="dark scroll-smooth">
             <body className={`${manrope.variable} ${inter.variable} font-sans bg-background text-foreground overflow-x-hidden selection:bg-indigo-500/30`}>
-                <Providers>
+                <Providers session={session}>
                     <SecurityProvider>
                         <OAuthBanner />
                         {children}

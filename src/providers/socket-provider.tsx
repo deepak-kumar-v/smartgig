@@ -1,8 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { useSession } from 'next-auth/react';
 
 interface SocketContextType {
     socket: Socket | null;
@@ -20,76 +19,89 @@ export function useSocket() {
 
 interface SocketProviderProps {
     children: React.ReactNode;
+    userId: string | null;
+    userRole: string | null;
 }
 
-export function SocketProvider({ children }: SocketProviderProps) {
-    const { data: session, status } = useSession();
+export function SocketProvider({ children, userId, userRole }: SocketProviderProps) {
     const [socket, setSocket] = useState<Socket | null>(null);
     const [isConnected, setIsConnected] = useState(false);
+    const socketRef = useRef<Socket | null>(null);
 
     useEffect(() => {
-        // Don't connect until session is fully hydrated
-        if (status !== 'authenticated' || !session?.user?.id) {
+        if (!userId) {
             return;
         }
 
-        // Initialize socket connection with graceful fallback
+        // Idempotent guard: prevent Strict Mode double-mount from creating duplicate sockets
+        if (socketRef.current) {
+            return;
+        }
+
         const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+
+        console.log('[SOCKET] Creating socket for userId:', userId, 'role:', userRole);
+
         const socketInstance = io(socketUrl, {
             path: '/socket.io',
             auth: {
-                userId: session.user.id,
-                userRole: session.user.role
+                userId,
+                userRole
             },
             transports: ['websocket', 'polling'],
             reconnection: true,
             reconnectionAttempts: 5,
             reconnectionDelay: 1000,
             timeout: 10000,
-            autoConnect: true
+            autoConnect: false // Do NOT connect during constructor — register handlers first
         });
 
+        // Register all handlers BEFORE connecting
         socketInstance.on('connect', () => {
-            console.log('[DIAG][SOCKET_PROVIDER] Connected:', {
+            console.log('[SOCKET] Connected:', {
                 socketId: socketInstance.id,
-                authUserId: session.user.id,
-                authRole: session.user.role,
+                userId,
+                userRole,
                 pathname: typeof window !== 'undefined' ? window.location.pathname : 'SSR'
             });
             setIsConnected(true);
         });
 
         socketInstance.on('disconnect', (reason) => {
-            console.log('[Socket] Disconnected:', reason);
+            console.log('[SOCKET] Disconnected:', reason);
             setIsConnected(false);
         });
 
         socketInstance.on('connect_error', (error) => {
-            // Silently handle – expected when socket server isn't running
             if (error.message !== 'timeout' && process.env.NODE_ENV === 'development') {
-                console.debug('[Socket] Connection unavailable - using HTTP fallback');
+                console.debug('[SOCKET] Connection unavailable - using HTTP fallback');
             }
             setIsConnected(false);
-            // Let the built-in reconnection logic handle retries (up to 5 attempts)
-            // Do NOT call socketInstance.disconnect() here
         });
 
         socketInstance.on('error', (data: { message: string }) => {
-            console.error('[Socket] Server error:', data.message);
+            console.error('[SOCKET] Server error:', data.message);
             if (data.message === 'Unauthorized') {
                 setIsConnected(false);
                 socketInstance.disconnect();
             }
         });
 
+        // Commit to state
+        socketRef.current = socketInstance;
         setSocket(socketInstance);
 
+        // NOW connect — all handlers are registered, socket is in state
+        socketInstance.connect();
+
         return () => {
+            console.log('[SOCKET] Cleanup for userId:', userId);
             socketInstance.disconnect();
+            socketRef.current = null;
             setSocket(null);
             setIsConnected(false);
         };
-    }, [session?.user?.id, session?.user?.role, status]);
+    }, [userId, userRole]);
 
     return (
         <SocketContext.Provider value={{ socket, isConnected }}>
@@ -97,3 +109,4 @@ export function SocketProvider({ children }: SocketProviderProps) {
         </SocketContext.Provider>
     );
 }
+

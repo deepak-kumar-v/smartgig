@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useIdentity } from '@/providers/identity-provider';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { useChat, ChatMessage, Conversation, getConversationLabel, getConversationTooltip } from '@/hooks/use-chat';
@@ -458,20 +458,20 @@ function MessageBubble({
 }
 
 export default function MessagesPage() {
-    const { data: session } = useSession();
+    const { userId, userRole, userName, userImage } = useIdentity();
     const { socket, isConnected } = useSocket();
-    const currentUserId = session?.user?.id || '';
+    const currentUserId = userId;
     // --- DIAGNOSTIC: Session Identity ---
     if (typeof window !== 'undefined') {
         console.log('[DIAG][SESSION][CLIENT_PAGE]', {
             currentUserId,
-            role: session?.user?.role,
-            sessionStatus: session ? 'loaded' : 'null',
+            role: userRole,
+            identitySource: 'IdentityProvider',
             pathname: window.location.pathname
         });
     }
     // Use raw role for helper functions (expects uppercase CLIENT/FREELANCER)
-    const currentUserRole = session?.user?.role || null;
+    const currentUserRole = userRole;
 
     const {
         messages,
@@ -483,11 +483,7 @@ export default function MessagesPage() {
         sendMessage,
         editMessage,
         deleteMessage
-    } = useChat({
-        currentUserId,
-        currentUserName: session?.user?.name ?? null,
-        currentUserImage: session?.user?.image ?? null
-    });
+    } = useChat();
 
     // Video call hook
     const {
@@ -894,7 +890,7 @@ export default function MessagesPage() {
     );
 
     // Determine user role for dashboard shell
-    const userRole = session?.user?.role?.toLowerCase() as 'freelancer' | 'client' | 'admin' || 'freelancer';
+    const dashboardRole = (currentUserRole?.toLowerCase() as 'freelancer' | 'client' | 'admin') || 'freelancer';
 
     return (
         <>
