@@ -542,7 +542,8 @@ export default function MessagesPage() {
         const term = chatSearchTerm.toLowerCase();
         return messages
             .filter(m => !m.isDeleted && m.content.toLowerCase().includes(term))
-            .map(m => m.id);
+            .map(m => m.id)
+            .reverse(); // newest match first
     }, [chatSearchTerm, messages]);
 
     // Reset on match count change
