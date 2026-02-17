@@ -541,6 +541,14 @@ export default function MessagesPage() {
     const messagesViewportRef = useRef<HTMLDivElement>(null);
     const lastReadEmitRef = useRef<string>('');
     const hasAutoScrolledRef = useRef<string | null>(null);
+    // Divider state machine
+    const initialUnreadAnchorIdRef = useRef<string | null>(null);
+    const liveUnreadAnchorIdRef = useRef<string | null>(null);
+    const unreadSnapshotConvRef = useRef<string | null>(null);
+    const newMessagesDividerRef = useRef<HTMLDivElement | null>(null);
+    // Scroll tracking
+    const isUserAtBottomRef = useRef(true);
+    const prevMessagesLengthRef = useRef(0);
     const isOneToOneActiveConversation = Boolean(activeConversationId && activeConversation?.otherParticipant?.id);
 
     const getLatestUnreadIncomingMessage = useCallback(() => {
@@ -691,7 +699,40 @@ export default function MessagesPage() {
         return () => window.cancelAnimationFrame(frame);
     }, [messages, activeConversationId, maybeEmitRead]);
 
-    // Auto-scroll to bottom when conversation is opened or switched
+    // STEP 2: Scroll position tracking
+    useEffect(() => {
+        const container = messagesViewportRef.current;
+        if (!container) return;
+        const handleScroll = () => {
+            const threshold = 30;
+            const atBottom =
+                container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+            isUserAtBottomRef.current = atBottom;
+            if (atBottom) {
+                liveUnreadAnchorIdRef.current = null;
+            }
+        };
+        container.addEventListener("scroll", handleScroll);
+        return () => container.removeEventListener("scroll", handleScroll);
+    }, []);
+
+    // STEP 3: Snapshot first unread on conversation open
+    useEffect(() => {
+        if (!activeConversationId) return;
+        if (messages.length === 0) return;
+        if (unreadSnapshotConvRef.current === activeConversationId) return;
+        const ordered = [...messages].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        const firstUnread = ordered.find(
+            (m) => m.senderId !== currentUserId && !m.readAt
+        );
+        initialUnreadAnchorIdRef.current = firstUnread?.id ?? null;
+        liveUnreadAnchorIdRef.current = null;
+        unreadSnapshotConvRef.current = activeConversationId;
+    }, [activeConversationId, messages, currentUserId]);
+
+    // STEP 4: Deterministic initial scroll
     useLayoutEffect(() => {
         if (!activeConversationId) return;
         if (messages.length === 0) return;
@@ -700,9 +741,42 @@ export default function MessagesPage() {
         const container = messagesViewportRef.current;
         if (!container) return;
 
-        container.scrollTop = container.scrollHeight;
+        const targetId = initialUnreadAnchorIdRef.current;
+        if (targetId) {
+            const divider = newMessagesDividerRef.current;
+            if (divider) {
+                divider.scrollIntoView({ block: "start" });
+            }
+        } else {
+            container.scrollTop = container.scrollHeight;
+        }
+
         hasAutoScrolledRef.current = activeConversationId;
     }, [activeConversationId, messages]);
+
+    // STEP 5: Live incoming message detection
+    useEffect(() => {
+        if (messages.length > prevMessagesLengthRef.current && messages.length > 0) {
+            const lastMsg = messages[messages.length - 1];
+            if (
+                lastMsg.senderId !== currentUserId &&
+                !isUserAtBottomRef.current &&
+                !liveUnreadAnchorIdRef.current
+            ) {
+                liveUnreadAnchorIdRef.current = lastMsg.id;
+            }
+        }
+        prevMessagesLengthRef.current = messages.length;
+    }, [messages, currentUserId]);
+
+    // STEP 7: Reset on conversation switch
+    useEffect(() => {
+        initialUnreadAnchorIdRef.current = null;
+        liveUnreadAnchorIdRef.current = null;
+        unreadSnapshotConvRef.current = null;
+        hasAutoScrolledRef.current = null;
+        prevMessagesLengthRef.current = 0;
+    }, [activeConversationId]);
 
     const handleSelectConversation = (conversationId: string) => {
         setActiveConversationId(conversationId);
@@ -1050,6 +1124,12 @@ export default function MessagesPage() {
                                             const showSeparator = key !== lastKey;
                                             lastKey = key;
 
+                                            // STEP 6: Divider at snapshotted/live anchor position
+                                            const isDividerPosition =
+                                                message.id === liveUnreadAnchorIdRef.current ||
+                                                (liveUnreadAnchorIdRef.current === null &&
+                                                    message.id === initialUnreadAnchorIdRef.current);
+
                                             return (
                                                 <React.Fragment key={message.id}>
                                                     {showSeparator && (
@@ -1057,6 +1137,18 @@ export default function MessagesPage() {
                                                             <span className="px-3 py-1 bg-zinc-800 rounded-full text-zinc-500 text-xs" suppressHydrationWarning>
                                                                 {getDateSeparatorLabel(msgDate, now, yesterday)}
                                                             </span>
+                                                        </div>
+                                                    )}
+                                                    {isDividerPosition && (
+                                                        <div
+                                                            ref={newMessagesDividerRef}
+                                                            className="flex items-center gap-3 my-4"
+                                                        >
+                                                            <div className="flex-1 h-px bg-indigo-500/50" />
+                                                            <span className="text-xs font-medium text-indigo-400 whitespace-nowrap">
+                                                                New Messages
+                                                            </span>
+                                                            <div className="flex-1 h-px bg-indigo-500/50" />
                                                         </div>
                                                     )}
                                                     <MessageBubble
