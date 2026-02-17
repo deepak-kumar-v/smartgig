@@ -472,10 +472,94 @@ export function useChat(options?: UseChatOptions) {
 
         // Reaction updates (full-replace from server)
         const handleReactionUpdate = (data: { messageId: string; reactions: { id: string; userId: string; emoji: string }[] }) => {
-            setMessages(prev => prev.map(msg => {
-                if (msg.id !== data.messageId) return msg;
-                return { ...msg, reactions: data.reactions };
-            }));
+            let reactedMsg: ChatMessage | null = null;
+            let oldReactions: { id: string; userId: string; emoji: string }[] = [];
+            let latestConvMsg: ChatMessage | null = null;
+
+            setMessages(prev => {
+                const next = prev.map(msg => {
+                    if (msg.id !== data.messageId) return msg;
+                    reactedMsg = msg;
+                    oldReactions = msg.reactions ?? [];
+                    return { ...msg, reactions: data.reactions };
+                });
+
+                // Pre-compute latest message in this conversation (for removal case)
+                if (reactedMsg) {
+                    const targetConvId = (reactedMsg as ChatMessage).conversationId;
+                    latestConvMsg = next
+                        .filter(m => m.conversationId === targetConvId)
+                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null;
+                }
+
+                return next;
+            });
+
+            if (!reactedMsg) return;
+            const targetMsg = reactedMsg as ChatMessage;
+
+            // Diff: find newly added reaction
+            const oldIds = new Set(oldReactions.map(r => r.id));
+            const newReaction = data.reactions.find(r => !oldIds.has(r.id));
+
+            if (newReaction) {
+                // === ADDITION: show reaction preview ===
+                const trimmedContent = targetMsg.content.length > 35
+                    ? targetMsg.content.substring(0, 35) + '…'
+                    : targetMsg.content;
+                const isOwnReaction = newReaction.userId === userId;
+
+                setConversations(prev => {
+                    const convIndex = prev.findIndex(c => c.id === targetMsg.conversationId);
+                    if (convIndex === -1) return prev;
+
+                    const conv = prev[convIndex];
+                    const reactorName = isOwnReaction
+                        ? 'You'
+                        : (conv.otherParticipant?.name ?? 'Someone');
+
+                    const preview = `${reactorName} reacted ${newReaction.emoji} to "${trimmedContent}"`;
+
+                    const updatedConv = {
+                        ...conv,
+                        lastMessage: {
+                            id: targetMsg.id,
+                            content: preview,
+                            createdAt: new Date().toISOString(),
+                            senderId: newReaction.userId,
+                            senderName: reactorName
+                        }
+                    };
+
+                    const next = [...prev];
+                    next.splice(convIndex, 1);
+                    next.unshift(updatedConv);
+                    return next;
+                });
+            } else {
+                // === REMOVAL: revert to true latest message ===
+                if (!latestConvMsg) return;
+                const latest = latestConvMsg as ChatMessage;
+
+                setConversations(prev => {
+                    const convIndex = prev.findIndex(c => c.id === targetMsg.conversationId);
+                    if (convIndex === -1) return prev;
+
+                    const conv = prev[convIndex];
+                    const next = [...prev];
+                    next[convIndex] = {
+                        ...conv,
+                        lastMessage: {
+                            id: latest.id,
+                            content: latest.content,
+                            createdAt: latest.createdAt,
+                            senderId: latest.senderId,
+                            senderName: latest.sender?.name ?? null
+                        }
+                    };
+                    return next;
+                });
+            }
         };
         socket.on('reaction:update', handleReactionUpdate);
 
