@@ -12,7 +12,7 @@ import { CallModal } from '@/components/call/CallModal';
 import {
     Send, Paperclip, Search, MoreVertical, Phone, Video,
     Check, CheckCheck, FileText, Image as ImageIcon, Download,
-    ChevronLeft, Wifi, WifiOff, MessageSquare, Info, X, Plus, Smile, ArrowDown,
+    ChevronLeft, ChevronUp, ChevronDown, Wifi, WifiOff, MessageSquare, Info, X, Plus, Smile, ArrowDown,
     Reply, Edit2, Trash2, CornerUpRight, History
 } from 'lucide-react';
 import { MessageVersionHistory } from '@/components/chat/message-version-history';
@@ -531,6 +531,38 @@ export default function MessagesPage() {
     const [editContent, setEditContent] = useState('');
     const [versionHistoryMessageId, setVersionHistoryMessageId] = useState<string | null>(null);
     const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+    // In-conversation search
+    const [chatSearchTerm, setChatSearchTerm] = useState('');
+    const [chatSearchOpen, setChatSearchOpen] = useState(false);
+    const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+
+    const matchedMessageIds = React.useMemo(() => {
+        if (!chatSearchTerm.trim()) return [] as string[];
+        const term = chatSearchTerm.toLowerCase();
+        return messages
+            .filter(m => !m.isDeleted && m.content.toLowerCase().includes(term))
+            .map(m => m.id);
+    }, [chatSearchTerm, messages]);
+
+    // Reset on match count change
+    useEffect(() => { setActiveMatchIndex(0); }, [matchedMessageIds.length]);
+
+    // Auto-scroll to active match
+    useEffect(() => {
+        if (matchedMessageIds.length === 0) return;
+        const id = matchedMessageIds[activeMatchIndex];
+        if (!id) return;
+        const el = document.getElementById(`chat-message-${id}`);
+        if (el) el.scrollIntoView({ behavior: 'auto', block: 'center' });
+    }, [activeMatchIndex, matchedMessageIds]);
+
+    // Reset search on conversation switch
+    useEffect(() => {
+        setChatSearchTerm('');
+        setChatSearchOpen(false);
+        setActiveMatchIndex(0);
+    }, [activeConversationId]);
 
     // Determine if video call modal should show
     const showCallModal = callState !== 'idle' && callState !== 'ended';
@@ -1091,11 +1123,61 @@ export default function MessagesPage() {
                                 >
                                     <Video className={`w-5 h-5 ${isConnected ? 'text-indigo-400' : 'text-zinc-600'}`} />
                                 </button>
+                                <button
+                                    onClick={() => setChatSearchOpen(prev => !prev)}
+                                    className={`p-2 hover:bg-zinc-800 rounded-lg ${chatSearchOpen ? 'bg-zinc-800' : ''}`}
+                                >
+                                    <Search className="w-5 h-5 text-zinc-400" />
+                                </button>
                                 <button className="p-2 hover:bg-zinc-800 rounded-lg">
                                     <MoreVertical className="w-5 h-5 text-zinc-400" />
                                 </button>
                             </div>
                         </div>
+
+                        {/* In-Conversation Search Bar */}
+                        {chatSearchOpen && (
+                            <div className="px-4 py-2 border-b border-zinc-800 flex items-center gap-2 bg-zinc-900/80">
+                                <Search className="w-4 h-4 text-zinc-500 shrink-0" />
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    value={chatSearchTerm}
+                                    onChange={(e) => setChatSearchTerm(e.target.value)}
+                                    placeholder="Search in conversation..."
+                                    className="flex-1 bg-transparent text-white text-sm focus:outline-none placeholder-zinc-500"
+                                />
+                                {matchedMessageIds.length > 0 && (
+                                    <span className="text-xs text-zinc-500 whitespace-nowrap">
+                                        {activeMatchIndex + 1}/{matchedMessageIds.length}
+                                    </span>
+                                )}
+                                <button
+                                    onClick={() => setActiveMatchIndex(prev =>
+                                        prev > 0 ? prev - 1 : matchedMessageIds.length - 1
+                                    )}
+                                    disabled={matchedMessageIds.length === 0}
+                                    className="p-1 hover:bg-zinc-800 rounded disabled:opacity-30"
+                                >
+                                    <ChevronUp className="w-4 h-4 text-zinc-400" />
+                                </button>
+                                <button
+                                    onClick={() => setActiveMatchIndex(prev =>
+                                        prev < matchedMessageIds.length - 1 ? prev + 1 : 0
+                                    )}
+                                    disabled={matchedMessageIds.length === 0}
+                                    className="p-1 hover:bg-zinc-800 rounded disabled:opacity-30"
+                                >
+                                    <ChevronDown className="w-4 h-4 text-zinc-400" />
+                                </button>
+                                <button
+                                    onClick={() => { setChatSearchOpen(false); setChatSearchTerm(''); }}
+                                    className="p-1 hover:bg-zinc-800 rounded"
+                                >
+                                    <X className="w-4 h-4 text-zinc-400" />
+                                </button>
+                            </div>
+                        )}
 
 
 
@@ -1156,27 +1238,35 @@ export default function MessagesPage() {
                                                                 <div className="flex-1 h-px bg-indigo-500/50" />
                                                             </div>
                                                         )}
-                                                        <MessageBubble
-                                                            message={message}
-                                                            isOwn={(() => {
-                                                                const isOwn = message.senderId === currentUserId;
-                                                                console.log('[DIAG][RENDER_DECISION]', {
-                                                                    messageId: message.id,
-                                                                    messageSenderId: message.senderId,
-                                                                    currentUserId,
-                                                                    isOwn,
-                                                                    content: message.content?.substring(0, 20)
-                                                                });
-                                                                return isOwn;
-                                                            })()}
-                                                            currentUserId={currentUserId}
-                                                            messageElementId={`chat-message-${message.id}`}
-                                                            onReact={handleReact}
-                                                            onReply={handleReply}
-                                                            onEdit={handleEditStart}
-                                                            onDelete={handleDelete}
-                                                            onViewHistory={(id) => setVersionHistoryMessageId(id)}
-                                                        />
+                                                        <div className={
+                                                            matchedMessageIds.includes(message.id)
+                                                                ? message.id === matchedMessageIds[activeMatchIndex]
+                                                                    ? 'ring-2 ring-indigo-500/70 bg-indigo-500/10 rounded-2xl transition-all duration-300'
+                                                                    : 'bg-amber-500/5 rounded-2xl transition-all duration-300'
+                                                                : ''
+                                                        }>
+                                                            <MessageBubble
+                                                                message={message}
+                                                                isOwn={(() => {
+                                                                    const isOwn = message.senderId === currentUserId;
+                                                                    console.log('[DIAG][RENDER_DECISION]', {
+                                                                        messageId: message.id,
+                                                                        messageSenderId: message.senderId,
+                                                                        currentUserId,
+                                                                        isOwn,
+                                                                        content: message.content?.substring(0, 20)
+                                                                    });
+                                                                    return isOwn;
+                                                                })()}
+                                                                currentUserId={currentUserId}
+                                                                messageElementId={`chat-message-${message.id}`}
+                                                                onReact={handleReact}
+                                                                onReply={handleReply}
+                                                                onEdit={handleEditStart}
+                                                                onDelete={handleDelete}
+                                                                onViewHistory={(id) => setVersionHistoryMessageId(id)}
+                                                            />
+                                                        </div>
                                                     </React.Fragment>
                                                 );
                                             });
