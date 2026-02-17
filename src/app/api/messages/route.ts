@@ -58,8 +58,10 @@ export async function GET(request: NextRequest) {
                     select: {
                         id: true,
                         userId: true,
-                        emoji: true
-                    }
+                        emoji: true,
+                        createdAt: true
+                    },
+                    orderBy: { createdAt: 'asc' as const }
                 },
                 replyTo: {
                     select: {

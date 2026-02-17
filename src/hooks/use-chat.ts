@@ -35,6 +35,7 @@ export interface ChatMessage {
         id: string;
         userId: string;
         emoji: string;
+        createdAt?: string;
     }[];
     // Reply support
     replyToId?: string | null;
@@ -99,6 +100,7 @@ export function useChat(options?: UseChatOptions) {
     const currentConversationRef = useRef<string | null>(null);
     const pendingDeliveredRef = useRef<Map<string, string>>(new Map());
     const pendingReadRef = useRef<Map<string, string>>(new Map());
+    const reactionTimelineRef = useRef<Map<string, { messageId: string; emoji: string; userId: string; timestamp: string; content: string }[]>>(new Map());
 
     const mergeMessageStatus = useCallback((msg: ChatMessage, patch: MessageStatusPatch): ChatMessage => {
         return {
@@ -139,7 +141,60 @@ export function useChat(options?: UseChatOptions) {
             const res = await fetch('/api/conversations');
             if (!res.ok) throw new Error('Failed to fetch conversations');
             const data = await res.json();
-            const sortedConversations = (data.conversations || []).sort((a: Conversation, b: Conversation) => {
+            const rawConversations: (Conversation & { latestReaction?: { id: string; messageId: string; userId: string; emoji: string; createdAt: string; messageContent: string } | null })[] = data.conversations || [];
+
+            // Hydrate reactionTimelineRef and compute sidebar previews
+            const processedConversations: Conversation[] = rawConversations.map(conv => {
+                const lr = conv.latestReaction;
+                if (lr) {
+                    // Seed timeline with the latest reaction from DB
+                    const existing = reactionTimelineRef.current.get(conv.id) ?? [];
+                    if (existing.length === 0) {
+                        existing.push({
+                            messageId: lr.messageId,
+                            emoji: lr.emoji,
+                            userId: lr.userId,
+                            timestamp: lr.createdAt,
+                            content: lr.messageContent
+                        });
+                        reactionTimelineRef.current.set(conv.id, existing);
+                    }
+
+                    // Compare: is this reaction newer than lastMessage?
+                    const lastMsgTime = conv.lastMessage?.createdAt
+                        ? new Date(conv.lastMessage.createdAt).getTime()
+                        : 0;
+                    const reactionTime = new Date(lr.createdAt).getTime();
+
+                    if (reactionTime >= lastMsgTime) {
+                        const trimmed = lr.messageContent.length > 35
+                            ? lr.messageContent.substring(0, 35) + '\u2026'
+                            : lr.messageContent;
+                        const isOwn = lr.userId === userId;
+                        const reactorName = isOwn ? 'You' : (conv.otherParticipant?.name ?? 'Someone');
+                        const preview = `${reactorName} reacted ${lr.emoji} to "${trimmed}"`;
+
+                        // Strip latestReaction from the object and override lastMessage
+                        const { latestReaction: _lr, ...rest } = conv;
+                        return {
+                            ...rest,
+                            lastMessage: {
+                                id: lr.messageId,
+                                content: preview,
+                                createdAt: lr.createdAt,
+                                senderId: lr.userId,
+                                senderName: reactorName
+                            }
+                        };
+                    }
+                }
+
+                // Strip latestReaction field, keep lastMessage as-is
+                const { latestReaction: _lr, ...rest } = conv;
+                return rest;
+            });
+
+            const sortedConversations = processedConversations.sort((a: Conversation, b: Conversation) => {
                 const dateA = new Date(a.lastMessage?.createdAt || a.createdAt).getTime();
                 const dateB = new Date(b.lastMessage?.createdAt || b.createdAt).getTime();
                 return dateB - dateA;
@@ -150,7 +205,7 @@ export function useChat(options?: UseChatOptions) {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [userId]);
 
     // Fetch messages for a conversation (HTTP fallback)
     const fetchMessages = useCallback(async (conversationId: string) => {
@@ -484,7 +539,6 @@ export function useChat(options?: UseChatOptions) {
                     return { ...msg, reactions: data.reactions };
                 });
 
-                // Pre-compute latest message in this conversation (for removal case)
                 if (reactedMsg) {
                     const targetConvId = (reactedMsg as ChatMessage).conversationId;
                     latestConvMsg = next
@@ -497,36 +551,59 @@ export function useChat(options?: UseChatOptions) {
 
             if (!reactedMsg) return;
             const targetMsg = reactedMsg as ChatMessage;
+            const convId = targetMsg.conversationId;
 
-            // Diff: find newly added reaction
+            // Diff old vs new reactions
             const oldIds = new Set(oldReactions.map(r => r.id));
-            const newReaction = data.reactions.find(r => !oldIds.has(r.id));
+            const newIds = new Set(data.reactions.map(r => r.id));
+            const addedReaction = data.reactions.find(r => !oldIds.has(r.id));
+            const removedReaction = oldReactions.find(r => !newIds.has(r.id));
 
-            if (newReaction) {
-                // === ADDITION: show reaction preview ===
-                const trimmedContent = targetMsg.content.length > 35
-                    ? targetMsg.content.substring(0, 35) + '…'
-                    : targetMsg.content;
-                const isOwnReaction = newReaction.userId === userId;
+            // --- Maintain reaction timeline ---
+            const timeline = reactionTimelineRef.current.get(convId) ?? [];
+
+            if (addedReaction) {
+                timeline.push({
+                    messageId: data.messageId,
+                    emoji: addedReaction.emoji,
+                    userId: addedReaction.userId,
+                    timestamp: new Date().toISOString(),
+                    content: targetMsg.content
+                });
+                reactionTimelineRef.current.set(convId, timeline);
+            } else if (removedReaction) {
+                const idx = timeline.findIndex(
+                    e => e.messageId === data.messageId && e.emoji === removedReaction.emoji && e.userId === removedReaction.userId
+                );
+                if (idx !== -1) timeline.splice(idx, 1);
+                reactionTimelineRef.current.set(convId, timeline);
+            }
+
+            // --- Update sidebar preview ---
+            const latestEvent = timeline.length > 0 ? timeline[timeline.length - 1] : null;
+
+            if (latestEvent) {
+                // Sidebar shows the latest reaction event
+                const trimmed = latestEvent.content.length > 35
+                    ? latestEvent.content.substring(0, 35) + '…'
+                    : latestEvent.content;
 
                 setConversations(prev => {
-                    const convIndex = prev.findIndex(c => c.id === targetMsg.conversationId);
+                    const convIndex = prev.findIndex(c => c.id === convId);
                     if (convIndex === -1) return prev;
-
                     const conv = prev[convIndex];
-                    const reactorName = isOwnReaction
-                        ? 'You'
-                        : (conv.otherParticipant?.name ?? 'Someone');
 
-                    const preview = `${reactorName} reacted ${newReaction.emoji} to "${trimmedContent}"`;
+                    const isOwn = latestEvent.userId === userId;
+                    const reactorName = isOwn ? 'You' : (conv.otherParticipant?.name ?? 'Someone');
+                    const preview = `${reactorName} reacted ${latestEvent.emoji} to "${trimmed}"`;
 
                     const updatedConv = {
                         ...conv,
                         lastMessage: {
-                            id: targetMsg.id,
+                            id: latestEvent.messageId,
                             content: preview,
-                            createdAt: new Date().toISOString(),
-                            senderId: newReaction.userId,
+                            createdAt: latestEvent.timestamp,
+                            senderId: latestEvent.userId,
                             senderName: reactorName
                         }
                     };
@@ -537,14 +614,13 @@ export function useChat(options?: UseChatOptions) {
                     return next;
                 });
             } else {
-                // === REMOVAL: revert to true latest message ===
+                // No reaction events remain — revert to latest text message
                 if (!latestConvMsg) return;
                 const latest = latestConvMsg as ChatMessage;
 
                 setConversations(prev => {
-                    const convIndex = prev.findIndex(c => c.id === targetMsg.conversationId);
+                    const convIndex = prev.findIndex(c => c.id === convId);
                     if (convIndex === -1) return prev;
-
                     const conv = prev[convIndex];
                     const next = [...prev];
                     next[convIndex] = {

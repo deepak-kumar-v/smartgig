@@ -82,10 +82,43 @@ export async function GET(request: NextRequest) {
             }
         }
 
+        // Fetch latest reaction per conversation (for sidebar preview persistence)
+        const latestReactionsByConversation = new Map<string, { id: string; messageId: string; userId: string; emoji: string; createdAt: Date; messageContent: string }>();
+
+        if (conversationIds.length > 0) {
+            for (const convId of conversationIds) {
+                const latestReaction = await db.messageReaction.findFirst({
+                    where: {
+                        message: { conversationId: convId }
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    select: {
+                        id: true,
+                        messageId: true,
+                        userId: true,
+                        emoji: true,
+                        createdAt: true,
+                        message: { select: { content: true } }
+                    }
+                });
+                if (latestReaction) {
+                    latestReactionsByConversation.set(convId, {
+                        id: latestReaction.id,
+                        messageId: latestReaction.messageId,
+                        userId: latestReaction.userId,
+                        emoji: latestReaction.emoji,
+                        createdAt: latestReaction.createdAt,
+                        messageContent: latestReaction.message.content
+                    });
+                }
+            }
+        }
+
         // Transform data for frontend
         const formattedConversations = conversations.map(conv => {
             const otherParticipant = conv.participants.find(p => p.userId !== userId)?.user;
             const lastMessage = conv.messages[0] || null;
+            const latestReaction = latestReactionsByConversation.get(conv.id) || null;
 
             // Use contract title, or fallback to proposal job title
             const title = conv.contract?.title || conv.proposal?.job?.title || null;
@@ -113,6 +146,14 @@ export async function GET(request: NextRequest) {
                     readAt: (lastMessage as any).readAt?.toISOString?.() ?? null,
                     isEdited: (lastMessage as any).isEdited ?? false,
                     isDeleted: (lastMessage as any).isDeleted ?? false
+                } : null,
+                latestReaction: latestReaction ? {
+                    id: latestReaction.id,
+                    messageId: latestReaction.messageId,
+                    userId: latestReaction.userId,
+                    emoji: latestReaction.emoji,
+                    createdAt: latestReaction.createdAt.toISOString(),
+                    messageContent: latestReaction.messageContent
                 } : null,
                 createdAt: conv.createdAt.toISOString(),
                 unreadCount: unreadCountsByConversation.get(conv.id) || 0
