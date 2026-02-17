@@ -12,7 +12,7 @@ import { CallModal } from '@/components/call/CallModal';
 import {
     Send, Paperclip, Search, MoreVertical, Phone, Video,
     Check, CheckCheck, FileText, Image as ImageIcon, Download,
-    ChevronLeft, Wifi, WifiOff, MessageSquare, Info, X, Plus, Smile,
+    ChevronLeft, Wifi, WifiOff, MessageSquare, Info, X, Plus, Smile, ArrowDown,
     Reply, Edit2, Trash2, CornerUpRight, History
 } from 'lucide-react';
 import { MessageVersionHistory } from '@/components/chat/message-version-history';
@@ -530,6 +530,7 @@ export default function MessagesPage() {
     const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
     const [editContent, setEditContent] = useState('');
     const [versionHistoryMessageId, setVersionHistoryMessageId] = useState<string | null>(null);
+    const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
     // Determine if video call modal should show
     const showCallModal = callState !== 'idle' && callState !== 'ended';
@@ -710,11 +711,12 @@ export default function MessagesPage() {
             isUserAtBottomRef.current = atBottom;
             if (atBottom) {
                 liveUnreadAnchorIdRef.current = null;
+                setShowJumpToLatest(false);
             }
         };
         container.addEventListener("scroll", handleScroll);
         return () => container.removeEventListener("scroll", handleScroll);
-    }, []);
+    }, [activeConversationId]);
 
     // STEP 3: Snapshot first unread on conversation open
     useEffect(() => {
@@ -764,6 +766,7 @@ export default function MessagesPage() {
                 !liveUnreadAnchorIdRef.current
             ) {
                 liveUnreadAnchorIdRef.current = lastMsg.id;
+                setShowJumpToLatest(true);
             }
         }
         prevMessagesLengthRef.current = messages.length;
@@ -776,6 +779,7 @@ export default function MessagesPage() {
         unreadSnapshotConvRef.current = null;
         hasAutoScrolledRef.current = null;
         prevMessagesLengthRef.current = 0;
+        setShowJumpToLatest(false);
     }, [activeConversationId]);
 
     const handleSelectConversation = (conversationId: string) => {
@@ -1096,87 +1100,105 @@ export default function MessagesPage() {
 
 
                         {/* Messages */}
-                        <div
-                            ref={messagesViewportRef}
-                            onScroll={handleMessagesScroll}
-                            className="flex-1 overflow-y-auto p-4 flex flex-col gap-4"
-                        >
-                            {messages.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center">
-                                    <MessageSquare className="w-12 h-12 text-zinc-700 mb-4" />
-                                    <p className="text-zinc-400">No messages yet</p>
-                                    <p className="text-zinc-600 text-sm mt-1">Start the conversation!</p>
-                                </div>
-                            ) : (
-                                <>
-                                    {(() => {
-                                        const ordered = [...messages].sort(
-                                            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-                                        );
-                                        // Always use fresh client-local time for date comparison
-                                        const now = new Date();
-                                        const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-
-                                        let lastKey = -1;
-                                        return ordered.map((message) => {
-                                            const msgDate = new Date(message.createdAt);
-                                            const key = localDateKey(msgDate);
-                                            const showSeparator = key !== lastKey;
-                                            lastKey = key;
-
-                                            // STEP 6: Divider at snapshotted/live anchor position
-                                            const isDividerPosition =
-                                                message.id === liveUnreadAnchorIdRef.current ||
-                                                (liveUnreadAnchorIdRef.current === null &&
-                                                    message.id === initialUnreadAnchorIdRef.current);
-
-                                            return (
-                                                <React.Fragment key={message.id}>
-                                                    {showSeparator && (
-                                                        <div className="flex items-center justify-center my-4" suppressHydrationWarning>
-                                                            <span className="px-3 py-1 bg-zinc-800 rounded-full text-zinc-500 text-xs" suppressHydrationWarning>
-                                                                {getDateSeparatorLabel(msgDate, now, yesterday)}
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                    {isDividerPosition && (
-                                                        <div
-                                                            ref={newMessagesDividerRef}
-                                                            className="flex items-center gap-3 my-4"
-                                                        >
-                                                            <div className="flex-1 h-px bg-indigo-500/50" />
-                                                            <span className="text-xs font-medium text-indigo-400 whitespace-nowrap">
-                                                                New Messages
-                                                            </span>
-                                                            <div className="flex-1 h-px bg-indigo-500/50" />
-                                                        </div>
-                                                    )}
-                                                    <MessageBubble
-                                                        message={message}
-                                                        isOwn={(() => {
-                                                            const isOwn = message.senderId === currentUserId;
-                                                            console.log('[DIAG][RENDER_DECISION]', {
-                                                                messageId: message.id,
-                                                                messageSenderId: message.senderId,
-                                                                currentUserId,
-                                                                isOwn,
-                                                                content: message.content?.substring(0, 20)
-                                                            });
-                                                            return isOwn;
-                                                        })()}
-                                                        currentUserId={currentUserId}
-                                                        messageElementId={`chat-message-${message.id}`}
-                                                        onReact={handleReact}
-                                                        onReply={handleReply}
-                                                        onEdit={handleEditStart}
-                                                        onDelete={handleDelete}
-                                                        onViewHistory={(id) => setVersionHistoryMessageId(id)}
-                                                    />
-                                                </React.Fragment>
+                        <div className="flex-1 relative overflow-hidden flex flex-col">
+                            <div
+                                ref={messagesViewportRef}
+                                onScroll={handleMessagesScroll}
+                                className="flex-1 overflow-y-auto p-4 flex flex-col gap-4"
+                            >
+                                {messages.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-center">
+                                        <MessageSquare className="w-12 h-12 text-zinc-700 mb-4" />
+                                        <p className="text-zinc-400">No messages yet</p>
+                                        <p className="text-zinc-600 text-sm mt-1">Start the conversation!</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {(() => {
+                                            const ordered = [...messages].sort(
+                                                (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
                                             );
-                                        });
-                                    })()}
-                                </>
+                                            // Always use fresh client-local time for date comparison
+                                            const now = new Date();
+                                            const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+
+                                            let lastKey = -1;
+                                            return ordered.map((message) => {
+                                                const msgDate = new Date(message.createdAt);
+                                                const key = localDateKey(msgDate);
+                                                const showSeparator = key !== lastKey;
+                                                lastKey = key;
+
+                                                // STEP 6: Divider at snapshotted/live anchor position
+                                                const isDividerPosition =
+                                                    message.id === liveUnreadAnchorIdRef.current ||
+                                                    (liveUnreadAnchorIdRef.current === null &&
+                                                        message.id === initialUnreadAnchorIdRef.current);
+
+                                                return (
+                                                    <React.Fragment key={message.id}>
+                                                        {showSeparator && (
+                                                            <div className="flex items-center justify-center my-4" suppressHydrationWarning>
+                                                                <span className="px-3 py-1 bg-zinc-800 rounded-full text-zinc-500 text-xs" suppressHydrationWarning>
+                                                                    {getDateSeparatorLabel(msgDate, now, yesterday)}
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                        {isDividerPosition && (
+                                                            <div
+                                                                ref={newMessagesDividerRef}
+                                                                className="flex items-center gap-3 my-4"
+                                                            >
+                                                                <div className="flex-1 h-px bg-indigo-500/50" />
+                                                                <span className="text-xs font-medium text-indigo-400 whitespace-nowrap">
+                                                                    New Messages
+                                                                </span>
+                                                                <div className="flex-1 h-px bg-indigo-500/50" />
+                                                            </div>
+                                                        )}
+                                                        <MessageBubble
+                                                            message={message}
+                                                            isOwn={(() => {
+                                                                const isOwn = message.senderId === currentUserId;
+                                                                console.log('[DIAG][RENDER_DECISION]', {
+                                                                    messageId: message.id,
+                                                                    messageSenderId: message.senderId,
+                                                                    currentUserId,
+                                                                    isOwn,
+                                                                    content: message.content?.substring(0, 20)
+                                                                });
+                                                                return isOwn;
+                                                            })()}
+                                                            currentUserId={currentUserId}
+                                                            messageElementId={`chat-message-${message.id}`}
+                                                            onReact={handleReact}
+                                                            onReply={handleReply}
+                                                            onEdit={handleEditStart}
+                                                            onDelete={handleDelete}
+                                                            onViewHistory={(id) => setVersionHistoryMessageId(id)}
+                                                        />
+                                                    </React.Fragment>
+                                                );
+                                            });
+                                        })()}
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Jump to Latest button */}
+                            {showJumpToLatest && (
+                                <button
+                                    onClick={() => {
+                                        const divider = newMessagesDividerRef.current;
+                                        if (divider) {
+                                            divider.scrollIntoView({ block: "start" });
+                                        }
+                                    }}
+                                    className="absolute bottom-4 right-4 z-10 flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-full shadow-lg transition-all duration-200"
+                                >
+                                    <ArrowDown className="w-3.5 h-3.5" />
+                                    Jump to New Messages
+                                </button>
                             )}
                         </div>
 
