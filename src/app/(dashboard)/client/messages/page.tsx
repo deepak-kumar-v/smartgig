@@ -257,7 +257,7 @@ function MessageBubble({
         : '';
 
     return (
-        <div id={messageElementId} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4 group`}>
+        <div id={messageElementId} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4 group transition-all duration-500`}>
             <div className={`max-w-[70%] ${isOwn ? 'order-2' : ''}`}>
                 {/* Call Message Card */}
                 {isCall ? (
@@ -1192,6 +1192,15 @@ export default function MessagesPage() {
                                         const divider = newMessagesDividerRef.current;
                                         if (divider) {
                                             divider.scrollIntoView({ block: "start" });
+                                        }
+                                        // Highlight the first unread message
+                                        const anchorId = liveUnreadAnchorIdRef.current ?? initialUnreadAnchorIdRef.current;
+                                        if (anchorId) {
+                                            const el = document.getElementById(`chat-message-${anchorId}`);
+                                            if (el) {
+                                                el.classList.add('ring-2', 'ring-indigo-500/60', 'bg-indigo-500/10', 'rounded-2xl');
+                                                setTimeout(() => el.classList.remove('ring-2', 'ring-indigo-500/60', 'bg-indigo-500/10', 'rounded-2xl'), 2000);
+                                            }
                                         }
                                     }}
                                     className="absolute bottom-4 right-4 z-10 flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-full shadow-lg transition-all duration-200"
