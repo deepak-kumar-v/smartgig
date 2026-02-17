@@ -15,7 +15,8 @@ export interface ChatMessage {
         image: string | null;
     };
     content: string;
-    type?: string; // TEXT, CALL
+    type?: string; // TEXT, CALL, AUDIO
+    audioUrl?: string | null;
     callMeta?: {
         mode: 'audio' | 'video';
         provider: string;
@@ -69,6 +70,8 @@ export interface Conversation {
     lastMessage: {
         id: string;
         content: string;
+        type?: string;
+        audioUrl?: string | null;
         createdAt: string;
         senderId: string;
         senderName: string | null;
@@ -100,7 +103,7 @@ export function useChat(options?: UseChatOptions) {
     const currentConversationRef = useRef<string | null>(null);
     const pendingDeliveredRef = useRef<Map<string, string>>(new Map());
     const pendingReadRef = useRef<Map<string, string>>(new Map());
-    const reactionTimelineRef = useRef<Map<string, { messageId: string; emoji: string; userId: string; timestamp: string; content: string }[]>>(new Map());
+
 
     const mergeMessageStatus = useCallback((msg: ChatMessage, patch: MessageStatusPatch): ChatMessage => {
         return {
@@ -143,38 +146,24 @@ export function useChat(options?: UseChatOptions) {
             const data = await res.json();
             const rawConversations: (Conversation & { latestReaction?: { id: string; messageId: string; userId: string; emoji: string; createdAt: string; messageContent: string } | null })[] = data.conversations || [];
 
-            // Hydrate reactionTimelineRef and compute sidebar previews
+            // Compute sidebar previews: compare latestReaction.createdAt vs lastMessage.createdAt
             const processedConversations: Conversation[] = rawConversations.map(conv => {
                 const lr = conv.latestReaction;
                 if (lr) {
-                    // Seed timeline with the latest reaction from DB
-                    const existing = reactionTimelineRef.current.get(conv.id) ?? [];
-                    if (existing.length === 0) {
-                        existing.push({
-                            messageId: lr.messageId,
-                            emoji: lr.emoji,
-                            userId: lr.userId,
-                            timestamp: lr.createdAt,
-                            content: lr.messageContent
-                        });
-                        reactionTimelineRef.current.set(conv.id, existing);
-                    }
-
-                    // Compare: is this reaction newer than lastMessage?
                     const lastMsgTime = conv.lastMessage?.createdAt
                         ? new Date(conv.lastMessage.createdAt).getTime()
                         : 0;
                     const reactionTime = new Date(lr.createdAt).getTime();
 
                     if (reactionTime >= lastMsgTime) {
-                        const trimmed = lr.messageContent.length > 35
-                            ? lr.messageContent.substring(0, 35) + '\u2026'
-                            : lr.messageContent;
+                        const displayContent = lr.messageContent === '' ? '🎵 Audio message' : lr.messageContent;
+                        const trimmed = displayContent.length > 35
+                            ? displayContent.substring(0, 35) + '\u2026'
+                            : displayContent;
                         const isOwn = lr.userId === userId;
                         const reactorName = isOwn ? 'You' : (conv.otherParticipant?.name ?? 'Someone');
                         const preview = `${reactorName} reacted ${lr.emoji} to "${trimmed}"`;
 
-                        // Strip latestReaction from the object and override lastMessage
                         const { latestReaction: _lr, ...rest } = conv;
                         return {
                             ...rest,
@@ -267,7 +256,8 @@ export function useChat(options?: UseChatOptions) {
         attachments: any[] = [],
         type: string = 'TEXT',
         callMeta?: { mode: 'audio' | 'video'; provider: string; meetingUrl: string },
-        replyToId?: string
+        replyToId?: string,
+        audioUrl?: string
     ) => {
         const conversationId = currentConversationRef.current;
 
@@ -275,7 +265,7 @@ export function useChat(options?: UseChatOptions) {
         if (!conversationId) return;
         if (type === 'CALL') {
             if (!callMeta?.meetingUrl) return;
-        } else if (!content.trim() && attachments.length === 0) {
+        } else if (type !== 'AUDIO' && !content.trim() && attachments.length === 0) {
             return;
         }
 
@@ -288,7 +278,9 @@ export function useChat(options?: UseChatOptions) {
             }));
             const optimisticContent = type === 'CALL'
                 ? `Started a ${callMeta?.mode || 'video'} call`
-                : (content?.trim() || 'Sent an attachment');
+                : type === 'AUDIO'
+                    ? ''
+                    : (content?.trim() || 'Sent an attachment');
 
             const optimisticMessage: ChatMessage = {
                 id: clientTempId,
@@ -302,6 +294,7 @@ export function useChat(options?: UseChatOptions) {
                 },
                 content: optimisticContent,
                 type,
+                audioUrl: type === 'AUDIO' ? (audioUrl || null) : null,
                 callMeta,
                 createdAt: new Date().toISOString(),
                 deliveredAt: null,
@@ -336,7 +329,7 @@ export function useChat(options?: UseChatOptions) {
                 return;
             }
 
-            socket.emit('send-message', { conversationId, content, attachments, type, callMeta, clientTempId, replyToId });
+            socket.emit('send-message', { conversationId, content, attachments, type, callMeta, clientTempId, replyToId, audioUrl });
             return;
         }
 
@@ -345,7 +338,7 @@ export function useChat(options?: UseChatOptions) {
             const res = await fetch('/api/messages', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId, content, attachments, type, callMeta, replyToId })
+                body: JSON.stringify({ conversationId, content, attachments, type, callMeta, replyToId, audioUrl })
             });
 
             if (!res.ok) throw new Error('Failed to send message');
@@ -500,7 +493,9 @@ export function useChat(options?: UseChatOptions) {
                     ...existingConv,
                     lastMessage: {
                         id: message.id,
-                        content: message.content,
+                        content: message.type === 'AUDIO' ? '🎵 Audio message' : message.content,
+                        type: message.type,
+                        audioUrl: message.audioUrl,
                         createdAt: message.createdAt,
                         senderId: message.senderId,
                         senderName: message.sender.name,
@@ -526,116 +521,102 @@ export function useChat(options?: UseChatOptions) {
         socket.on('joined-conversation', handleJoinedConversation);
 
         // Reaction updates (full-replace from server)
-        const handleReactionUpdate = (data: { messageId: string; reactions: { id: string; userId: string; emoji: string }[] }) => {
-            let reactedMsg: ChatMessage | null = null;
-            let oldReactions: { id: string; userId: string; emoji: string }[] = [];
-            let latestConvMsg: ChatMessage | null = null;
+        const handleReactionUpdate = (data: { messageId: string; reactions: { id: string; userId: string; emoji: string; createdAt?: string }[] }) => {
+            let targetConvId: string | null = null;
 
+            // Step 1: Patch reactions on the target message
             setMessages(prev => {
-                const next = prev.map(msg => {
+                return prev.map(msg => {
                     if (msg.id !== data.messageId) return msg;
-                    reactedMsg = msg;
-                    oldReactions = msg.reactions ?? [];
+                    targetConvId = msg.conversationId;
                     return { ...msg, reactions: data.reactions };
                 });
-
-                if (reactedMsg) {
-                    const targetConvId = (reactedMsg as ChatMessage).conversationId;
-                    latestConvMsg = next
-                        .filter(m => m.conversationId === targetConvId)
-                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null;
-                }
-
-                return next;
             });
 
-            if (!reactedMsg) return;
-            const targetMsg = reactedMsg as ChatMessage;
-            const convId = targetMsg.conversationId;
+            if (!targetConvId) return;
+            const convId = targetConvId as string;
 
-            // Diff old vs new reactions
-            const oldIds = new Set(oldReactions.map(r => r.id));
-            const newIds = new Set(data.reactions.map(r => r.id));
-            const addedReaction = data.reactions.find(r => !oldIds.has(r.id));
-            const removedReaction = oldReactions.find(r => !newIds.has(r.id));
+            // Step 2: Deterministically compute sidebar preview from messages state
+            // We read messages via a second setMessages call to get the latest state
+            setMessages(currentMessages => {
+                const convMessages = currentMessages.filter(m => m.conversationId === convId);
+                if (convMessages.length === 0) return currentMessages;
 
-            // --- Maintain reaction timeline ---
-            const timeline = reactionTimelineRef.current.get(convId) ?? [];
-
-            if (addedReaction) {
-                timeline.push({
-                    messageId: data.messageId,
-                    emoji: addedReaction.emoji,
-                    userId: addedReaction.userId,
-                    timestamp: new Date().toISOString(),
-                    content: targetMsg.content
-                });
-                reactionTimelineRef.current.set(convId, timeline);
-            } else if (removedReaction) {
-                const idx = timeline.findIndex(
-                    e => e.messageId === data.messageId && e.emoji === removedReaction.emoji && e.userId === removedReaction.userId
+                // Find latest message by createdAt
+                const latestMsg = convMessages.reduce((a, b) =>
+                    new Date(a.createdAt).getTime() >= new Date(b.createdAt).getTime() ? a : b
                 );
-                if (idx !== -1) timeline.splice(idx, 1);
-                reactionTimelineRef.current.set(convId, timeline);
-            }
 
-            // --- Update sidebar preview ---
-            const latestEvent = timeline.length > 0 ? timeline[timeline.length - 1] : null;
+                // Find latest reaction across ALL messages in this conversation
+                let latestReaction: { emoji: string; userId: string; createdAt: string; messageContent: string; messageType?: string; messageId: string } | null = null;
+                for (const msg of convMessages) {
+                    for (const r of (msg.reactions ?? [])) {
+                        if (r.createdAt) {
+                            if (!latestReaction || new Date(r.createdAt).getTime() > new Date(latestReaction.createdAt).getTime()) {
+                                latestReaction = {
+                                    emoji: r.emoji,
+                                    userId: r.userId,
+                                    createdAt: r.createdAt,
+                                    messageContent: msg.content,
+                                    messageType: msg.type,
+                                    messageId: msg.id
+                                };
+                            }
+                        }
+                    }
+                }
 
-            if (latestEvent) {
-                // Sidebar shows the latest reaction event
-                const trimmed = latestEvent.content.length > 35
-                    ? latestEvent.content.substring(0, 35) + '…'
-                    : latestEvent.content;
+                // Compare: which is newer — latest message or latest reaction?
+                const latestMsgTime = new Date(latestMsg.createdAt).getTime();
+                const latestReactionTime = latestReaction ? new Date(latestReaction.createdAt).getTime() : 0;
 
                 setConversations(prev => {
                     const convIndex = prev.findIndex(c => c.id === convId);
                     if (convIndex === -1) return prev;
                     const conv = prev[convIndex];
 
-                    const isOwn = latestEvent.userId === userId;
-                    const reactorName = isOwn ? 'You' : (conv.otherParticipant?.name ?? 'Someone');
-                    const preview = `${reactorName} reacted ${latestEvent.emoji} to "${trimmed}"`;
+                    let updatedLastMessage: Conversation['lastMessage'];
 
-                    const updatedConv = {
-                        ...conv,
-                        lastMessage: {
-                            id: latestEvent.messageId,
+                    if (latestReaction && latestReactionTime >= latestMsgTime) {
+                        // Reaction wins — show reaction preview
+                        const displayContent = latestReaction.messageType === 'AUDIO' ? '🎵 Audio message' : latestReaction.messageContent;
+                        const trimmed = displayContent.length > 35
+                            ? displayContent.substring(0, 35) + '…'
+                            : displayContent;
+                        const isOwn = latestReaction.userId === userId;
+                        const reactorName = isOwn ? 'You' : (conv.otherParticipant?.name ?? 'Someone');
+                        const preview = `${reactorName} reacted ${latestReaction.emoji} to "${trimmed}"`;
+
+                        updatedLastMessage = {
+                            id: latestReaction.messageId,
                             content: preview,
-                            createdAt: latestEvent.timestamp,
-                            senderId: latestEvent.userId,
+                            createdAt: latestReaction.createdAt,
+                            senderId: latestReaction.userId,
                             senderName: reactorName
-                        }
-                    };
+                        };
+                    } else {
+                        // Message wins — show message preview
+                        updatedLastMessage = {
+                            id: latestMsg.id,
+                            content: latestMsg.type === 'AUDIO' ? '🎵 Audio message' : latestMsg.content,
+                            type: latestMsg.type,
+                            audioUrl: latestMsg.audioUrl,
+                            createdAt: latestMsg.createdAt,
+                            senderId: latestMsg.senderId,
+                            senderName: latestMsg.sender?.name ?? null
+                        };
+                    }
 
+                    const updatedConv = { ...conv, lastMessage: updatedLastMessage };
                     const next = [...prev];
                     next.splice(convIndex, 1);
                     next.unshift(updatedConv);
                     return next;
                 });
-            } else {
-                // No reaction events remain — revert to latest text message
-                if (!latestConvMsg) return;
-                const latest = latestConvMsg as ChatMessage;
 
-                setConversations(prev => {
-                    const convIndex = prev.findIndex(c => c.id === convId);
-                    if (convIndex === -1) return prev;
-                    const conv = prev[convIndex];
-                    const next = [...prev];
-                    next[convIndex] = {
-                        ...conv,
-                        lastMessage: {
-                            id: latest.id,
-                            content: latest.content,
-                            createdAt: latest.createdAt,
-                            senderId: latest.senderId,
-                            senderName: latest.sender?.name ?? null
-                        }
-                    };
-                    return next;
-                });
-            }
+                // Return messages unchanged — this second call was only to read state
+                return currentMessages;
+            });
         };
         socket.on('reaction:update', handleReactionUpdate);
 

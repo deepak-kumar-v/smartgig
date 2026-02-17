@@ -400,7 +400,8 @@ model Message {
   senderId       String
   sender         User         @relation(fields: [senderId], references: [id])
   content        String
-  type           String       @default("TEXT") // TEXT, CALL
+  type           String       @default("TEXT") // TEXT, CALL, AUDIO
+  audioUrl       String?      // Only set when type = 'AUDIO'
   callMeta       String?      // JSON: { mode: "audio"|"video", provider: string, meetingUrl: string }
   createdAt      DateTime     @default(now())
   deliveredAt    DateTime?

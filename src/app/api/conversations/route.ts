@@ -139,6 +139,8 @@ export async function GET(request: NextRequest) {
                 lastMessage: lastMessage ? {
                     id: lastMessage.id,
                     content: lastMessage.content,
+                    type: (lastMessage as any).type || 'TEXT',
+                    audioUrl: (lastMessage as any).audioUrl || null,
                     createdAt: lastMessage.createdAt.toISOString(),
                     senderId: lastMessage.senderId,
                     senderName: lastMessage.sender.name,

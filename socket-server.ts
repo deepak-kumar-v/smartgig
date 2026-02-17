@@ -176,11 +176,12 @@ io.on('connection', (socket) => {
         content: string;
         attachments?: any[];
         type?: string;
+        audioUrl?: string;
         callMeta?: { mode: string; provider: string; meetingUrl: string };
         clientTempId?: string;
         replyToId?: string;
     }) => {
-        const { conversationId, content, attachments = [], type = 'TEXT', callMeta, clientTempId, replyToId } = data;
+        const { conversationId, content, attachments = [], type = 'TEXT', audioUrl, callMeta, clientTempId, replyToId } = data;
 
         // --- EXPLICIT LOGGING (DEBUG) ---
         console.log('[DIAG][SOCKET_SERVER_RECEIVE] send-message:', {
@@ -212,7 +213,7 @@ io.on('connection', (socket) => {
                 socket.emit('error', { message: 'Call requires meetingUrl' });
                 return;
             }
-        } else if (!content?.trim() && (!attachments || attachments.length === 0)) {
+        } else if (type !== 'AUDIO' && !content?.trim() && (!attachments || attachments.length === 0)) {
             socket.emit('error', { message: 'Empty message: content or attachment required' });
             return;
         }
@@ -261,7 +262,14 @@ io.on('connection', (socket) => {
             // Determine content based on type
             const messageContent = type === 'CALL'
                 ? `Started a ${callMeta?.mode || 'video'} call`
-                : (content?.trim() || 'Sent an attachment');
+                : type === 'AUDIO'
+                    ? ''
+                    : (content?.trim() || 'Sent an attachment');
+
+            // [DIAG] Log audioUrl before DB insert
+            if (type === 'AUDIO') {
+                console.log('[DIAG] Saving AUDIO message with audioUrl:', audioUrl);
+            }
 
             const message = await prisma.message.create({
                 data: {
@@ -269,6 +277,7 @@ io.on('connection', (socket) => {
                     senderId: userId,
                     content: messageContent,
                     type,
+                    audioUrl: type === 'AUDIO' ? (audioUrl || null) : null,
                     callMeta: callMeta ? JSON.stringify(callMeta) : null,
                     ...(replyToId ? { replyToId } : {}),
                 },
@@ -414,6 +423,7 @@ io.on('connection', (socket) => {
                 sender: fullMessage.sender,
                 content: fullMessage.content,
                 type: (fullMessage as any).type || 'TEXT',
+                audioUrl: (fullMessage as any).audioUrl || null,
                 callMeta: (fullMessage as any).callMeta
                     ? JSON.parse((fullMessage as any).callMeta)
                     : null,
@@ -702,7 +712,7 @@ io.on('connection', (socket) => {
             // Fetch fresh reaction list for this message and broadcast
             const reactions = await prisma.messageReaction.findMany({
                 where: { messageId },
-                select: { id: true, userId: true, emoji: true }
+                select: { id: true, userId: true, emoji: true, createdAt: true }
             });
 
             io.to(`conversation:${conversationId}`).emit('reaction:update', {

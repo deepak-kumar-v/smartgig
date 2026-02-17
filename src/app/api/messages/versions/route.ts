@@ -22,6 +22,8 @@ export async function GET(request: NextRequest) {
             select: {
                 id: true,
                 conversationId: true,
+                type: true,
+                audioUrl: true,
                 conversation: {
                     include: {
                         participants: {
@@ -50,7 +52,11 @@ export async function GET(request: NextRequest) {
             orderBy: { versionNumber: 'asc' }
         });
 
-        return NextResponse.json({ versions });
+        return NextResponse.json({
+            versions,
+            messageType: message.type,
+            audioUrl: message.audioUrl
+        });
     } catch (error) {
         console.error('GET /api/messages/versions error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

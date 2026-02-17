@@ -113,12 +113,12 @@ export default auth((req) => {
 export const config = {
     matcher: [
         /*
-         * Match all request paths except:
+         * Match all request paths EXCEPT:
          * - _next/static (static files)
-         * - _next/image (image optimization files)
-         * - favicon.ico (favicon file)
-         * - public folder
+         * - _next/image (image optimization)
+         * - favicon.ico
+         * - /uploads (user-uploaded static files)
          */
-        '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+        '/((?!_next/static|_next/image|favicon\\.ico|uploads).*)',
     ],
 };

@@ -25,6 +25,8 @@ export function MessageVersionHistory({ messageId, isOpen, onClose }: MessageVer
     const [versions, setVersions] = useState<MessageVersion[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [messageType, setMessageType] = useState<string | null>(null);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
     // Lazy fetch — only when modal opens and messageId is set
     const fetchVersions = useCallback(async () => {
@@ -39,6 +41,8 @@ export function MessageVersionHistory({ messageId, isOpen, onClose }: MessageVer
             }
             const data = await res.json();
             setVersions(data.versions || []);
+            setMessageType(data.messageType || null);
+            setAudioUrl(data.audioUrl || null);
         } catch (err: any) {
             setError(err.message || 'Failed to load version history');
         } finally {
@@ -125,8 +129,8 @@ export function MessageVersionHistory({ messageId, isOpen, onClose }: MessageVer
                                 <div
                                     key={version.id}
                                     className={`relative p-3 rounded-xl border ${index === versions.length - 1
-                                            ? 'border-indigo-500/40 bg-indigo-500/5'
-                                            : 'border-zinc-800 bg-zinc-800/30'
+                                        ? 'border-indigo-500/40 bg-indigo-500/5'
+                                        : 'border-zinc-800 bg-zinc-800/30'
                                         }`}
                                 >
                                     {/* Version header */}
@@ -146,12 +150,18 @@ export function MessageVersionHistory({ messageId, isOpen, onClose }: MessageVer
                                     </div>
 
                                     {/* Version content */}
-                                    <p className={`text-sm leading-relaxed ${version.changeType === 'DELETE'
+                                    {messageType === 'AUDIO' && audioUrl ? (
+                                        <div className="mt-1">
+                                            <audio controls src={audioUrl} className="max-w-full" preload="metadata" />
+                                        </div>
+                                    ) : (
+                                        <p className={`text-sm leading-relaxed ${version.changeType === 'DELETE'
                                             ? 'text-zinc-500 italic line-through'
                                             : 'text-zinc-300'
-                                        }`}>
-                                        {version.content}
-                                    </p>
+                                            }`}>
+                                            {version.content}
+                                        </p>
+                                    )}
 
                                     {/* Hash footer */}
                                     <p className="mt-2 text-[9px] text-zinc-700 font-mono truncate" title={version.contentHash}>

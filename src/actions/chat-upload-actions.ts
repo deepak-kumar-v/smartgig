@@ -1,6 +1,6 @@
 'use server';
 
-import { writeFile, mkdir } from 'fs/promises';
+import { writeFile, mkdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { auth } from '@/lib/auth';
 
@@ -20,22 +20,9 @@ export async function uploadChatAttachment(formData: FormData) {
         return { error: "No file provided" };
     }
 
-    // Basic validation
-    // Max 10MB
-    if (file.size > 10 * 1024 * 1024) {
-        return { error: "File too large (max 10MB)" };
-    }
-
-    // Allowed types (Simple check)
-    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/png', 'image/jpeg', 'application/zip'];
-    if (!allowedTypes.includes(file.type)) {
-        // Relaxed check: just warn or allow common types? 
-        // User request said: pdf, doc, docx, png, jpg, zip
-        // We will strictly enforce if possible, but mime types vary.
-        // For now, let's allow it but log it? Or return error?
-        // Let's return error to be safe as per "STRICT ISOLATION" and "SECURITY" rules.
-        // Actually, let's just proceed with generic file handling but ensuring it's safe-ish.
-        // const isAllowed = allowedTypes.some(t => file.type.includes(t.split('/')[1]));
+    // Max 20MB
+    if (file.size > 20 * 1024 * 1024) {
+        return { error: "File too large (max 20MB)" };
     }
 
     try {
@@ -52,11 +39,20 @@ export async function uploadChatAttachment(formData: FormData) {
         const uniqueFilename = `${timestamp}-${safeName}`;
         const filePath = join(uploadDir, uniqueFilename);
 
+        // [DIAG] Log filename pipeline
+        console.log('[UPLOAD] file.name:', file.name, '| safeName:', safeName, '| uniqueFilename:', uniqueFilename);
+        console.log('[UPLOAD] filePath:', filePath);
+
         // Write file
         await writeFile(filePath, buffer);
 
+        // [DIAG] Verify file existence immediately after write
+        const fileStats = await stat(filePath);
+        console.log('[UPLOAD] Verified: file exists, size:', fileStats.size, 'bytes');
+
         // Return seralizable metadata
         const publicUrl = `/uploads/chat/${uniqueFilename}`;
+        console.log('[UPLOAD] publicUrl:', publicUrl);
 
         return {
             success: true,

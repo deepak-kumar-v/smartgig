@@ -13,7 +13,7 @@ import {
     Send, Paperclip, Search, MoreVertical, Phone, Video,
     Check, CheckCheck, FileText, Image as ImageIcon, Download,
     ChevronLeft, ChevronUp, ChevronDown, Wifi, WifiOff, MessageSquare, Info, X, Plus, Smile, ArrowDown,
-    Reply, Edit2, Trash2, CornerUpRight, History
+    Reply, Edit2, Trash2, CornerUpRight, History, Mic, Square
 } from 'lucide-react';
 import { MessageVersionHistory } from '@/components/chat/message-version-history';
 import { uploadChatAttachment } from '@/actions/chat-upload-actions';
@@ -156,7 +156,9 @@ function ConversationItem({
                             {conversation.lastMessage.isDeleted
                                 ? <span className="italic text-zinc-500">This message was deleted</span>
                                 : <>
-                                    {conversation.lastMessage.content}
+                                    {conversation.lastMessage.type === 'AUDIO'
+                                        ? '🎵 Audio message'
+                                        : conversation.lastMessage.content}
                                     {conversation.lastMessage.isEdited && <span className="text-zinc-600 text-[10px] ml-1 italic">(edited)</span>}
                                 </>
                             }
@@ -297,13 +299,15 @@ function MessageBubble({
                             </button>
                             {isOwn && (
                                 <>
-                                    <button
-                                        onClick={() => onEdit(message)}
-                                        className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
-                                        title="Edit"
-                                    >
-                                        <Edit2 className="w-3 h-3" />
-                                    </button>
+                                    {message.type !== 'AUDIO' && (
+                                        <button
+                                            onClick={() => onEdit(message)}
+                                            className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
+                                            title="Edit"
+                                        >
+                                            <Edit2 className="w-3 h-3" />
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => onDelete(message.id)}
                                         className="p-1 bg-zinc-800 hover:bg-red-600 rounded text-zinc-400 hover:text-white transition-colors"
@@ -330,15 +334,21 @@ function MessageBubble({
                                         {replyToDisplayName}
                                     </p>
                                     <p className="text-xs opacity-80 line-clamp-2">
-                                        {message.replyTo.isDeleted ? '🗑️ This message was deleted' : message.replyTo.content}
+                                        {message.replyTo.isDeleted
+                                            ? '🗑️ This message was deleted'
+                                            : message.replyTo.content === '' || !message.replyTo.content
+                                                ? '🎵 Audio message'
+                                                : message.replyTo.content}
                                     </p>
                                 </div>
                             )}
 
-                            {/* Only show content if it's real text, not placeholder when attachments exist */}
-                            {(message.content && message.content !== 'Sent an attachment') ||
+                            {/* Audio message rendering */}
+                            {message.type === 'AUDIO' && message.audioUrl ? (
+                                <audio controls src={message.audioUrl} className="max-w-[250px]" preload="metadata" />
+                            ) : (message.content && message.content !== 'Sent an attachment') ||
                                 !(message.attachments && message.attachments.length > 0) ? (
-                                <p className="text-sm border-0 focus:ring-0">{message.content}</p>
+                                <p className="text-sm border-0 focus:ring-0">{message.type === 'AUDIO' ? '🎵 Audio message' : message.content}</p>
                             ) : null}
                             {message.attachments && message.attachments.length > 0 && (
                                 <div className={`flex flex-col gap-2 ${message.content && message.content !== 'Sent an attachment' ? 'mt-2' : ''}`}>
@@ -564,6 +574,86 @@ export default function MessagesPage() {
         setChatSearchOpen(false);
         setActiveMatchIndex(0);
     }, [activeConversationId]);
+
+    // ==================== AUDIO RECORDING ====================
+    const [isRecording, setIsRecording] = useState(false);
+    const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+    const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+
+    // Cleanup: stop recording on unmount or conversation switch
+    useEffect(() => {
+        return () => {
+            if (mediaRecorderRef.current?.state === 'recording') {
+                mediaRecorderRef.current.stop();
+            }
+            if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+        };
+    }, [activeConversationId]);
+
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            audioChunksRef.current = [];
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+            recorder.onstop = () => {
+                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                setAudioBlob(blob);
+                setAudioPreviewUrl(URL.createObjectURL(blob));
+                stream.getTracks().forEach(t => t.stop());
+            };
+            mediaRecorderRef.current = recorder;
+            recorder.start();
+            setIsRecording(true);
+        } catch (err) {
+            console.error('[Audio] Failed to start recording:', err);
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
+        setIsRecording(false);
+    };
+
+    const discardRecording = () => {
+        if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+        setAudioBlob(null);
+        setAudioPreviewUrl(null);
+        setIsRecording(false);
+    };
+
+    const sendAudioMessage = async () => {
+        if (!audioBlob) return;
+        try {
+            const formData = new FormData();
+            const audioFile = new File([audioBlob], `audio-${Date.now()}.webm`, { type: 'audio/webm' });
+            formData.append('file', audioFile);
+            const result = await uploadChatAttachment(formData);
+            if (result.error || !result.data) {
+                console.error('[Audio] Upload failed:', result.error);
+                return;
+            }
+            sendMessage('', [], 'AUDIO', undefined, replyingTo?.id, result.data.url);
+            discardRecording();
+            setReplyingTo(null);
+            // Auto-scroll
+            requestAnimationFrame(() => {
+                const container = messagesViewportRef.current;
+                if (container) {
+                    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                }
+            });
+        } catch (err) {
+            console.error('[Audio] Send failed:', err);
+        }
+    };
+    // ==================== END AUDIO RECORDING ====================
 
     // Determine if video call modal should show
     const showCallModal = callState !== 'idle' && callState !== 'ended';
@@ -973,21 +1063,23 @@ export default function MessagesPage() {
             const file = e.target.files[0];
             setIsUploading(true);
 
-            const formData = new FormData();
-            formData.append('file', file);
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
 
-            const result = await uploadChatAttachment(formData);
+                const result = await uploadChatAttachment(formData);
 
-            if (result.success && result.data) {
-                setDraftAttachments(prev => [...prev, result.data]);
-            } else {
-                console.error("Upload failed", result.error);
-                // Optionally show toast error
+                if (result.success && result.data) {
+                    setDraftAttachments(prev => [...prev, result.data]);
+                } else {
+                    console.error("Upload failed", result.error);
+                }
+            } catch (err) {
+                console.error("Upload error:", err);
+            } finally {
+                setIsUploading(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
             }
-            setIsUploading(false);
-
-            // Reset input
-            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
 
@@ -1460,23 +1552,61 @@ export default function MessagesPage() {
                                         </div>
                                     )}
                                 </div>
-                                <input
-                                    type="text"
-                                    value={editingMessage ? editContent : newMessage}
-                                    onChange={editingMessage ? (e) => setEditContent(e.target.value) : handleInputChange}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                                    placeholder={editingMessage ? 'Edit your message...' : 'Type a message...'}
-                                    className={`flex-1 bg-zinc-800/50 border text-white rounded-lg px-4 py-2 text-sm focus:outline-none ${editingMessage ? 'border-amber-500/50 focus:border-amber-500' : 'border-zinc-700 focus:border-indigo-500'
-                                        }`}
-                                />
-                                <GlassButton
-                                    variant={editingMessage ? 'secondary' : 'primary'}
-                                    size="sm"
-                                    onClick={handleSend}
-                                    disabled={editingMessage ? !editContent.trim() : (!newMessage.trim() && draftAttachments.length === 0)}
-                                >
-                                    {editingMessage ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-                                </GlassButton>
+                                {/* Audio recording UI */}
+                                {isRecording ? (
+                                    <div className="flex-1 flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2">
+                                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                        <span className="text-sm text-red-400 flex-1">Recording...</span>
+                                        <button
+                                            onClick={stopRecording}
+                                            className="p-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-red-400 hover:text-red-300 transition-colors"
+                                            title="Stop recording"
+                                        >
+                                            <Square className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ) : audioPreviewUrl ? (
+                                    <div className="flex-1 flex items-center gap-2 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2">
+                                        <audio controls src={audioPreviewUrl} className="flex-1 h-8" preload="metadata" />
+                                        <button
+                                            onClick={discardRecording}
+                                            className="p-1.5 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-colors"
+                                            title="Discard"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                        <GlassButton variant="primary" size="sm" onClick={sendAudioMessage}>
+                                            <Send className="w-4 h-4" />
+                                        </GlassButton>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <button
+                                            onClick={startRecording}
+                                            className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
+                                            title="Record audio"
+                                        >
+                                            <Mic className="w-5 h-5 text-zinc-400" />
+                                        </button>
+                                        <input
+                                            type="text"
+                                            value={editingMessage ? editContent : newMessage}
+                                            onChange={editingMessage ? (e) => setEditContent(e.target.value) : handleInputChange}
+                                            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                                            placeholder={editingMessage ? 'Edit your message...' : 'Type a message...'}
+                                            className={`flex-1 bg-zinc-800/50 border text-white rounded-lg px-4 py-2 text-sm focus:outline-none ${editingMessage ? 'border-amber-500/50 focus:border-amber-500' : 'border-zinc-700 focus:border-indigo-500'
+                                                }`}
+                                        />
+                                        <GlassButton
+                                            variant={editingMessage ? 'secondary' : 'primary'}
+                                            size="sm"
+                                            onClick={handleSend}
+                                            disabled={editingMessage ? !editContent.trim() : (!newMessage.trim() && draftAttachments.length === 0)}
+                                        >
+                                            {editingMessage ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+                                        </GlassButton>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
