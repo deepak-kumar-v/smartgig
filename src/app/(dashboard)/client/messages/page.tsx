@@ -1059,27 +1059,26 @@ export default function MessagesPage() {
     };
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            setIsUploading(true);
+        const file = e.target.files?.[0];
+        if (!file) return;
 
-            try {
-                const formData = new FormData();
-                formData.append('file', file);
+        setIsUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file, file.name);
 
-                const result = await uploadChatAttachment(formData);
+            const result = await uploadChatAttachment(formData);
 
-                if (result.success && result.data) {
-                    setDraftAttachments(prev => [...prev, result.data]);
-                } else {
-                    console.error("Upload failed", result.error);
-                }
-            } catch (err) {
-                console.error("Upload error:", err);
-            } finally {
-                setIsUploading(false);
-                if (fileInputRef.current) fileInputRef.current.value = '';
+            if (result.success && result.data) {
+                setDraftAttachments(prev => [...prev, result.data]);
+            } else {
+                console.error('[Attach] Upload returned error:', result.error);
             }
+        } catch (err) {
+            console.error('[Attach] Upload threw:', err);
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
 
@@ -1466,7 +1465,7 @@ export default function MessagesPage() {
                                     ref={fileInputRef}
                                     className="hidden"
                                     onChange={handleFileSelect}
-                                    accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.zip"
+                                    accept="image/*,audio/*,.pdf,.doc,.docx,.zip,.txt,.xlsx,.pptx,.csv"
                                 />
                                 <button
                                     className={`p-2 hover:bg-zinc-800 rounded-lg ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}

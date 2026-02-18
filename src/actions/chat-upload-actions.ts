@@ -25,6 +25,36 @@ export async function uploadChatAttachment(formData: FormData) {
         return { error: "File too large (max 20MB)" };
     }
 
+    // --- MIME validation (relaxed allowlist + explicit blocklist) ---
+    const blockedTypes = ['text/html', 'application/javascript', 'application/x-msdownload'];
+    const blockedExtensions = ['.html', '.htm', '.js', '.exe', '.msi', '.bat', '.cmd'];
+
+    const mime = file.type?.toLowerCase() || '';
+    const ext = file.name.includes('.') ? '.' + file.name.split('.').pop()!.toLowerCase() : '';
+
+    // Explicit block
+    if (blockedTypes.includes(mime) || blockedExtensions.includes(ext)) {
+        return { error: "File type not allowed" };
+    }
+
+    // If MIME is present, check allowlist
+    if (mime) {
+        const allowed =
+            mime.startsWith('image/') ||
+            mime.startsWith('audio/') ||
+            mime === 'application/pdf' ||
+            mime.includes('zip') ||
+            mime.startsWith('application/vnd') ||
+            mime === 'text/plain' ||
+            mime === 'application/msword' ||
+            mime === 'application/octet-stream';
+
+        if (!allowed) {
+            return { error: `File type "${mime}" not allowed` };
+        }
+    }
+    // If MIME is empty, extension blocklist already checked above — allow through
+
     try {
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
