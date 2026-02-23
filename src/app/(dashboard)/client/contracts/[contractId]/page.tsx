@@ -48,7 +48,14 @@ export default async function ClientContractDetailPage({ params }: PageProps) {
                 }
             },
             conversation: { select: { id: true } },
-            milestones: true
+            milestones: true,
+            escrowAccount: {
+                include: {
+                    locks: {
+                        select: { amount: true, released: true, milestoneId: true }
+                    }
+                }
+            }
         }
     });
 
@@ -70,8 +77,6 @@ export default async function ClientContractDetailPage({ params }: PageProps) {
         status: contract.status,
         terms: contract.terms,
         type: contract.type,
-        escrowStatus: contract.escrowStatus,
-        trialAmount: contract.trialAmount,
         startDate: contract.startDate,
         endDate: contract.endDate,
 
@@ -85,7 +90,11 @@ export default async function ClientContractDetailPage({ params }: PageProps) {
         jobId: contract.proposal?.jobId || null,
         conversationId: contract.conversation?.id || null,
         rateType: contract.proposal?.rateType || 'FIXED',
-        milestones: contract.milestones || [],
+        milestones: contract.milestones.map(m => ({
+            ...m,
+            dueDate: m.dueDate ? m.dueDate.toISOString() : null
+        })),
+        escrowAccount: contract.escrowAccount,
         hourlyWorkPlan: [] // Contracts start empty, do not show proposal plan
     };
 

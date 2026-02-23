@@ -54,8 +54,8 @@ const PHASE_ENCYCLOPEDIA: Record<MasterPhase, PhaseEncyclopedia> = {
         label: 'Proposal', devKey: 'PROPOSAL',
         oneLiner: 'A freelancer has submitted a proposal. Client is reviewing.',
         devStates: [
-            { state: 'PENDING', transitionBy: 'Freelancer', actionFunction: 'submitProposalV2()', allowedNext: ['ACCEPTED', 'REJECTED'], lockBehavior: 'Editable by freelancer' },
-            { state: 'SUBMITTED', transitionBy: 'Freelancer', actionFunction: 'submitProposalV2()', allowedNext: ['ACCEPTED', 'REJECTED'], lockBehavior: 'Read-only after submit' },
+            { state: 'PENDING', transitionBy: 'Freelancer', actionFunction: 'submitProposal()', allowedNext: ['ACCEPTED', 'REJECTED'], lockBehavior: 'Editable by freelancer' },
+            { state: 'SUBMITTED', transitionBy: 'Freelancer', actionFunction: 'submitProposal()', allowedNext: ['ACCEPTED', 'REJECTED'], lockBehavior: 'Read-only after submit' },
         ],
         clientExplanation: { meaning: 'A freelancer has proposed to work on your job.', action: 'Review the proposal and accept or reject it.', waiting: 'The freelancer is waiting for your decision.', blocker: 'You must decide before a contract can be created.' },
         freelancerExplanation: { meaning: 'You have submitted your proposal to the client.', canEdit: 'You can edit your proposal while it is pending.', waiting: 'Waiting for the client to review and decide.', locked: 'Once accepted, your proposal terms are locked.' },

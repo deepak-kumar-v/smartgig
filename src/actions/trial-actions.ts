@@ -4,45 +4,192 @@ import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
+import { assertEscrowIntegrity } from '@/lib/escrow-integrity';
+import { getPlatformWallet } from '@/lib/platform-wallet';
+import {
+    ContractStatus,
+    EscrowStatus,
+    MilestoneStatus,
+    WalletTransactionType,
+    Prisma,
+} from '@prisma/client';
 
+// ============================================================================
+// Trial Actions — Wallet-First Architecture
+// ============================================================================
+
+/**
+ * CLIENT: Approves trial work and releases escrow funds with commission split.
+ *
+ * Lock-release pattern (same as releaseMilestoneFunds):
+ *  1. Find the EscrowLock for the trial milestone
+ *  2. Read commissionRate from contract (immutable, snapshotted at FINALIZED)
+ *  3. Compute: commission = lockAmount * commissionRate
+ *  4. Credit freelancer wallet (lockAmount - commission)
+ *  5. Credit platform wallet (commission) via PLATFORM_FEE
+ *  6. Assert: freelancerPayout + commission === lockAmount
+ *  7. Mark lock as released
+ *  8. Milestone → PAID, Contract → COMPLETED, Escrow → CLOSED
+ */
 export async function approveTrialWork(contractId: string) {
     try {
         const session = await auth();
         if (!session?.user?.id) return { error: 'Unauthorized' };
 
-        // Verify ownership (Client only)
         const contract = await db.contract.findUnique({
             where: { id: contractId },
-            include: { client: true }
+            include: {
+                client: { include: { user: true } },
+                freelancer: { include: { user: true } },
+                escrowAccount: {
+                    include: { locks: true },
+                },
+                milestones: { select: { id: true, amount: true, title: true } },
+            },
         });
 
         if (!contract) return { error: 'Contract not found' };
         if (contract.client.userId !== session.user.id) return { error: 'Unauthorized Access' };
         if (contract.type !== 'TRIAL') return { error: 'Not a trial contract' };
-        if (contract.status !== 'ACTIVE') return { error: 'Contract not active' };
+        if (contract.status !== ContractStatus.ACTIVE) return { error: 'Contract not active' };
 
-        // Transaction: Update Contract + Create Escrow Record
-        await db.$transaction([
-            db.contract.update({
+        const escrow = contract.escrowAccount;
+        if (!escrow) return { error: 'Escrow account not found' };
+
+        // Trial = exactly 1 milestone
+        const milestone = contract.milestones[0];
+        if (!milestone) return { error: 'No milestone found for trial' };
+
+        const freelancerUserId = contract.freelancer.userId;
+        let releaseAmount: Prisma.Decimal = new Prisma.Decimal(0);
+        let commissionAmount: Prisma.Decimal = new Prisma.Decimal(0);
+        let freelancerPayout: Prisma.Decimal = new Prisma.Decimal(0);
+
+        // Atomic transaction: all financial assertions inside
+        await db.$transaction(async (tx) => {
+            // A. Ensure freelancer wallet exists inside tx
+            let freelancerWallet = await tx.wallet.findUnique({ where: { userId: freelancerUserId } });
+            if (!freelancerWallet) {
+                freelancerWallet = await tx.wallet.create({ data: { userId: freelancerUserId } });
+            }
+
+            // B. Re-fetch contract.status + commissionRate inside tx
+            const freshContract = await tx.contract.findUnique({
                 where: { id: contractId },
+                select: { status: true, commissionRate: true },
+            });
+            if (freshContract?.status !== ContractStatus.ACTIVE) {
+                throw new Error(`CONTRACT_NOT_ACTIVE: status=${freshContract?.status}`);
+            }
+
+            // C. Read immutable commission rate
+            if (freshContract.commissionRate === null || freshContract.commissionRate === undefined) {
+                throw new Error('COMMISSION_RATE_MISSING: contract.commissionRate is null');
+            }
+            const commissionRate = new Prisma.Decimal(freshContract.commissionRate);
+
+            // D. Re-fetch the EscrowLock inside tx
+            const lock = await tx.escrowLock.findFirst({
+                where: { milestoneId: milestone.id, escrowId: escrow.id },
+            });
+
+            if (!lock) throw new Error('ESCROW_LOCK_NOT_FOUND: No lock for trial milestone');
+
+            // E. Assert not already released (double-release prevention inside tx)
+            if (lock.released) throw new Error('ESCROW_ALREADY_RELEASED: Trial funds already released');
+
+            // F. Assert non-zero lock amount
+            const lockAmount = new Prisma.Decimal(lock.amount);
+            if (!lockAmount.isPositive()) {
+                throw new Error(`ESCROW_LOCK_ZERO_AMOUNT: lock ${lock.id} has non-positive amount`);
+            }
+
+            // G. Compute commission split
+            commissionAmount = lockAmount.mul(commissionRate);
+            freelancerPayout = lockAmount.minus(commissionAmount);
+            releaseAmount = lockAmount;
+
+            // H. COMMISSION_SPLIT_INCONSISTENT assertion (MANDATORY)
+            if (!freelancerPayout.plus(commissionAmount).equals(lockAmount)) {
+                throw new Error(
+                    `COMMISSION_SPLIT_INCONSISTENT: freelancer=${freelancerPayout} + commission=${commissionAmount} != lock=${lockAmount}`
+                );
+            }
+
+            // I. Sanity: freelancer payout must not be negative
+            if (freelancerPayout.isNegative()) {
+                throw new Error(`COMMISSION_EXCEEDS_LOCK: commission=${commissionAmount}, lock=${lockAmount}`);
+            }
+
+            // J. Credit freelancer wallet (payout after commission)
+            await tx.walletLedger.create({
                 data: {
-                    status: 'COMPLETED',
-                    escrowStatus: 'RELEASED',
-                }
-            }),
-            db.mockEscrowTransaction.create({
-                data: {
-                    contractId: contractId,
-                    amount: contract.trialAmount || contract.totalBudget,
-                    status: 'RELEASED'
-                }
-            })
-        ]);
+                    walletId: freelancerWallet.id,
+                    amount: freelancerPayout,
+                    type: WalletTransactionType.ESCROW_RELEASE,
+                    contractId,
+                    milestoneId: milestone.id,
+                },
+            });
+
+            // K. Credit platform wallet (commission)
+            if (commissionAmount.isPositive()) {
+                const platformWallet = await getPlatformWallet(tx);
+                await tx.walletLedger.create({
+                    data: {
+                        walletId: platformWallet.id,
+                        amount: commissionAmount,
+                        type: WalletTransactionType.PLATFORM_FEE,
+                        contractId,
+                        milestoneId: milestone.id,
+                    },
+                });
+            }
+
+            // F. Mark lock as released
+            await tx.escrowLock.update({
+                where: { id: lock.id },
+                data: { released: true },
+            });
+
+            // G. Milestone → PAID
+            await tx.milestone.update({
+                where: { id: milestone.id },
+                data: { status: MilestoneStatus.PAID, approvedAt: new Date() },
+            });
+
+            // H. Contract → COMPLETED
+            await tx.contract.update({
+                where: { id: contractId },
+                data: { status: ContractStatus.COMPLETED },
+            });
+
+            // I. Escrow → CLOSED
+            await tx.escrowAccount.update({
+                where: { id: escrow.id },
+                data: { status: EscrowStatus.CLOSED },
+            });
+
+            // J. Assert escrow integrity
+            await assertEscrowIntegrity(tx, escrow.id, contractId);
+
+            // K. Item 7: Wallet consistency — freelancer available balance must be >= 0
+            const freelancerLedgerSum = await tx.walletLedger.aggregate({
+                where: { walletId: freelancerWallet.id },
+                _sum: { amount: true },
+            });
+            const freelancerAvailable = new Prisma.Decimal(freelancerLedgerSum._sum.amount ?? 0);
+            if (freelancerAvailable.isNegative()) {
+                throw new Error(
+                    `WALLET_NEGATIVE_AVAILABLE_ERROR: freelancer available=${freelancerAvailable} after trial approval`
+                );
+            }
+        });
 
         revalidatePath('/client/contracts');
         revalidatePath(`/client/contracts/${contractId}`);
+        revalidatePath(`/freelancer/contracts/${contractId}`);
 
-        // Lifecycle Event: TRIAL_APPROVED
         recordLifecycleEvent({
             contractId,
             eventType: 'TRIAL_APPROVED',
@@ -52,10 +199,26 @@ export async function approveTrialWork(contractId: string) {
             actorRole: 'CLIENT',
         });
 
+        db.auditLog
+            .create({
+                data: {
+                    userId: session.user.id,
+                    actorRole: 'CLIENT',
+                    action: 'TRIAL_APPROVED',
+                    entityType: 'CONTRACT',
+                    entityId: contractId,
+                    details: { amount: releaseAmount.toNumber() },
+                },
+            })
+            .catch((err: unknown) => {
+                console.error('[AuditLog] Failed to log TRIAL_APPROVED:', err);
+            });
+
         return { success: true };
     } catch (error) {
         console.error('Approve Trial Error:', error);
-        return { error: 'Failed to approve trial work' };
+        const message = error instanceof Error ? error.message : 'Failed to approve trial work';
+        return { error: message };
     }
 }
 
@@ -75,16 +238,12 @@ export async function rejectTrialWork(contractId: string) {
 
         await db.contract.update({
             where: { id: contractId },
-            data: {
-                status: 'REJECTED',
-                // Escrow remains FUNDED
-            }
+            data: { status: ContractStatus.REJECTED }
         });
 
         revalidatePath('/client/contracts');
         revalidatePath(`/client/contracts/${contractId}`);
 
-        // Lifecycle Event: TRIAL_REJECTED
         recordLifecycleEvent({
             contractId,
             eventType: 'TRIAL_REJECTED',
@@ -114,15 +273,13 @@ export async function raiseDispute(contractId: string) {
         if (!contract) return { error: 'Contract not found' };
         if (contract.freelancer.userId !== session.user.id) return { error: 'Unauthorized Access' };
 
-        // Only allow dispute if rejected
-        if (contract.status !== 'REJECTED') return { error: 'Can only dispute rejected work' };
+        if (contract.status !== ContractStatus.REJECTED) return { error: 'Can only dispute rejected work' };
 
         await db.contract.update({
             where: { id: contractId },
-            data: { status: 'DISPUTED' }
+            data: { status: ContractStatus.DISPUTED }
         });
 
-        // Lifecycle Event: DISPUTE_RAISED
         recordLifecycleEvent({
             contractId,
             eventType: 'DISPUTE_RAISED',
@@ -141,6 +298,10 @@ export async function raiseDispute(contractId: string) {
     }
 }
 
+/**
+ * CLIENT: Upgrades a completed TRIAL contract to a FULL contract.
+ * Creates in DRAFT status with totalBudget: 0 (must add milestones).
+ */
 export async function upgradeToStandard(trialContractId: string) {
     try {
         const session = await auth();
@@ -148,34 +309,38 @@ export async function upgradeToStandard(trialContractId: string) {
 
         const trialContract = await db.contract.findUnique({
             where: { id: trialContractId },
-            include: { client: true, proposal: true, conversation: true }
+            include: {
+                client: true,
+                proposal: {
+                    include: { job: { select: { title: true } } }
+                },
+                conversation: true
+            }
         });
 
         if (!trialContract) return { error: 'Trial contract not found' };
         if (trialContract.client.userId !== session.user.id) return { error: 'Unauthorized Access' };
         if (trialContract.type !== 'TRIAL') return { error: 'Source must be a trial contract' };
-        if (trialContract.status !== 'COMPLETED') return { error: 'Trial must be completed first' };
-
-        // Create Standard Contract
-        // We reuse proposalId but type='FULL'
-        // Wait, Schema has @@unique([proposalId, type]). So we can verify uniqueness is respected.
+        if (trialContract.status !== ContractStatus.COMPLETED) return { error: 'Trial must be completed first' };
 
         const newContract = await db.contract.create({
             data: {
                 proposalId: trialContract.proposalId,
                 clientId: trialContract.clientId,
                 freelancerId: trialContract.freelancerId,
-                title: trialContract.title.replace(' (Trial)', '') + ' (Standard)',
-                totalBudget: trialContract.proposal.proposedRate,
-                status: 'ACTIVE',
-                terms: 'Standard terms derived from proposal',
+                title: trialContract.proposal.job.title,
+                totalBudget: 0, // Must add milestones to set budget
+                status: ContractStatus.DRAFT,
+                terms: '',
                 type: 'FULL',
                 sourceTrialId: trialContractId,
-                startDate: new Date(),
+                commissionRate: 0, // Placeholder — snapshotted from SystemConfig at FINALIZED
+                startDate: null,
+                endDate: null,
             }
         });
 
-        // Update Conversation to point to new Standard Contract
+        // Update Conversation to point to new contract
         if (trialContract.conversation) {
             await db.conversation.update({
                 where: { id: trialContract.conversation.id },
@@ -183,12 +348,11 @@ export async function upgradeToStandard(trialContractId: string) {
             });
         }
 
-        // Lifecycle Event: TRIAL_UPGRADED
         recordLifecycleEvent({
             contractId: newContract.id,
             eventType: 'TRIAL_UPGRADED',
-            devState: 'ACTIVE',
-            userMessage: 'Trial upgraded to standard contract',
+            devState: 'DRAFT',
+            userMessage: 'Trial upgraded to standard contract (DRAFT)',
             actorId: session.user.id,
             actorRole: 'CLIENT',
             metadata: { sourceTrialId: trialContractId },

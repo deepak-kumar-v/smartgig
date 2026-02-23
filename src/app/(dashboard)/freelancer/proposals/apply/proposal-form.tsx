@@ -11,7 +11,7 @@ import {
     CheckCircle, ChevronRight, ChevronLeft, Paperclip, Image,
     Star, MapPin, AlertCircle, Send, Eye
 } from 'lucide-react';
-import { submitProposalV2 } from '@/actions/proposal-actions';
+import { submitProposal } from '@/actions/proposal-actions';
 import { useRouter } from 'next/navigation';
 
 // ============================================================================
@@ -256,7 +256,7 @@ export default function ProposalForm({ job }: ProposalFormProps) {
             const payload = assemblePayload();
             console.log('📦 Submitting Real Proposal Payload:', payload);
 
-            const result = await submitProposalV2(payload);
+            const result = await submitProposal(payload);
 
             if (result.success === true) {
                 alert('Proposal submitted successfully!');
@@ -413,35 +413,64 @@ Best regards,
                                 </div>
                             </div>
 
-                            {/* Proposed Rate */}
-                            <div className="space-y-3">
-                                <label className="text-white font-medium text-sm">
-                                    Your {job.budgetType === 'HOURLY' ? 'Hourly Rate' : 'Fixed Price'}
-                                </label>
-                                <div className="flex items-center gap-4">
-                                    <div className="relative flex-1 max-w-[200px]">
-                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400">$</span>
-                                        <input
-                                            type="number"
-                                            value={proposedRate}
-                                            onChange={(e) => setProposedRate(parseInt(e.target.value))}
-                                            className="w-full bg-zinc-800/50 border border-zinc-700 text-white rounded-lg pl-8 pr-4 py-3 focus:outline-none focus:border-indigo-500 text-lg font-bold"
-                                        />
-                                        {job.budgetType === 'HOURLY' && (
+                            {/* Proposed Rate (Only for HOURLY) */}
+                            {job.budgetType === 'HOURLY' ? (
+                                <div className="space-y-3">
+                                    <label className="text-white font-medium text-sm">
+                                        Your Hourly Rate
+                                    </label>
+                                    <div className="flex items-center gap-4">
+                                        <div className="relative flex-1 max-w-[200px]">
+                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400">$</span>
+                                            <input
+                                                type="number"
+                                                value={proposedRate}
+                                                onChange={(e) => setProposedRate(parseInt(e.target.value))}
+                                                className="w-full bg-zinc-800/50 border border-zinc-700 text-white rounded-lg pl-8 pr-4 py-3 focus:outline-none focus:border-indigo-500 text-lg font-bold"
+                                            />
                                             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500">/hr</span>
-                                        )}
+                                        </div>
+                                        <div className="text-sm text-zinc-500">
+                                            Client's budget: <span className="text-white">{budgetDisplay}</span>
+                                        </div>
                                     </div>
-                                    <div className="text-sm text-zinc-500">
-                                        Client's budget: <span className="text-white">{budgetDisplay}</span>
+                                    <div className="p-3 bg-zinc-800/50 rounded-lg">
+                                        <p className="text-sm text-zinc-400">
+                                            You'll receive: <span className="text-emerald-400 font-bold">${(proposedRate * 0.9).toFixed(2)}</span>/hr after 10% platform fee
+                                        </p>
                                     </div>
                                 </div>
-                                <div className="p-3 bg-zinc-800/50 rounded-lg">
-                                    <p className="text-sm text-zinc-400">
-                                        You'll receive: <span className="text-emerald-400 font-bold">${(proposedRate * 0.9).toFixed(2)}</span>
-                                        {job.budgetType === 'HOURLY' && '/hr'} after 10% platform fee
-                                    </p>
+                            ) : (
+                                <div className="space-y-3">
+                                    <label className="text-white font-medium text-sm">
+                                        Project Value
+                                    </label>
+                                    <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+                                        <p className="text-white font-medium mb-1">
+                                            Total: <span className="text-emerald-400 font-bold">${totalMilestoneAmount.toLocaleString()}</span>
+                                        </p>
+                                        <p className="text-zinc-400 text-sm">
+                                            Total value is calculated automatically from your milestone breakdown.
+                                            You can adjust this in the next step.
+                                        </p>
+                                    </div>
+
+                                    {job.budgetMax && totalMilestoneAmount > job.budgetMax && (
+                                        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3">
+                                            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                                            <div>
+                                                <p className="text-amber-400 font-medium text-sm">
+                                                    Budget Warning
+                                                </p>
+                                                <p className="text-amber-400/80 text-xs mt-1">
+                                                    Your proposal (${totalMilestoneAmount.toLocaleString()}) exceeds the client's stated budget (${job.budgetMax.toLocaleString()}).
+                                                    The client may be less likely to accept.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
+                            )}
 
                             {/* Estimated Duration */}
                             <div className="space-y-3">
@@ -822,7 +851,7 @@ Best regards,
                                         <div>
                                             <p className="text-zinc-500 text-sm">Proposed Rate</p>
                                             <p className="text-2xl font-bold text-white">
-                                                ${proposedRate}{job.budgetType === 'HOURLY' && '/hr'}
+                                                ${job.budgetType === 'HOURLY' ? proposedRate : totalMilestoneAmount}{job.budgetType === 'HOURLY' && '/hr'}
                                             </p>
                                         </div>
                                         <div className="text-right">

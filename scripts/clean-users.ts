@@ -12,9 +12,10 @@ async function main() {
         await prisma.milestone.deleteMany();
 
         // 2. Clear financial/transactional
-        await prisma.escrowTransaction.deleteMany();
+        await prisma.escrowLock.deleteMany();
         await prisma.escrowAccount.deleteMany();
         await prisma.walletLedger.deleteMany();
+        await prisma.wallet.deleteMany();
 
         // 3. Communications
         await prisma.attachment.deleteMany();
@@ -35,7 +36,7 @@ async function main() {
         await prisma.review.deleteMany();
         await prisma.invoice.deleteMany();
         await prisma.invoiceLineItem.deleteMany();
-        await prisma.withdrawal.deleteMany();
+        await prisma.withdrawalRequest.deleteMany();
         await prisma.paymentMethod.deleteMany();
         await prisma.videoRoom.deleteMany();
         await prisma.callParticipant.deleteMany();

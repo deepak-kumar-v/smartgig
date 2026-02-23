@@ -45,6 +45,7 @@ export async function createTrialContract(formData: FormData) {
                 type: 'TRIAL',
                 terms: '',
                 status: ContractStatus.DRAFT,
+                commissionRate: 0, // Placeholder — snapshotted from SystemConfig at FINALIZED
                 // Dates must be explicitly set
                 startDate: null,
                 endDate: null

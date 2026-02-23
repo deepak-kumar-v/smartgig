@@ -10,7 +10,8 @@ const adminNavItems: NavItem[] = [
     { name: 'Jobs', href: '/admin/jobs', icon: 'briefcase' },
     { name: 'Contracts', href: '/admin/contracts', icon: 'file' },
     { name: 'Disputes', href: '/admin/disputes', icon: 'alert' },
-    { name: 'Payments', href: '/admin/payments', icon: 'wallet' },
+    { name: 'Financial Overview', href: '/admin/financial-overview', icon: 'wallet' },
+    { name: 'Withdrawals', href: '/admin/withdrawals', icon: 'wallet' },
     { name: 'Trust & Safety', href: '/admin/trust', icon: 'shield' },
 ];
 

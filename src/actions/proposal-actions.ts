@@ -1,19 +1,12 @@
 'use server';
 
-import { z } from 'zod';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 
-const ProposalSchema = z.object({
-    jobId: z.string(),
-    coverLetter: z.string().min(50, { message: "Cover letter must be at least 50 characters long." }),
-    price: z.coerce.number().min(1, { message: "Bid amount must be at least $1" }),
-});
-
 // ============================================================================
-// V2 Submission Logic (Production Ready)
+// Types
 // ============================================================================
 
 export interface Milestone {
@@ -61,50 +54,11 @@ export interface ProposalPayload {
     hourlyWorkPlan?: HourlyWorkPlanEntry[];
 }
 
-export async function submitProposal(formData: FormData) {
-    const jobId = formData.get('jobId') as string;
-    const coverLetter = formData.get('coverLetter') as string;
-    const price = parseFloat(formData.get('price') as string);
+// ============================================================================
+// Unified Submission Logic
+// ============================================================================
 
-    if (!jobId || !coverLetter || isNaN(price)) {
-        return { success: false, error: "Missing required fields" };
-    }
-
-    const payload: ProposalPayload = {
-        jobId,
-        coverLetter,
-        proposedRate: price,
-        rateType: 'FIXED', // Defaulting to FIXED for quick apply
-        estimatedDuration: 'To be determined',
-        availability: 'As needed',
-        milestones: [
-            {
-                title: 'Full Project',
-                description: 'Complete project as per requirements',
-                amount: price,
-                duration: 'TBD'
-            }
-        ],
-        totalMilestoneAmount: price,
-        selectedPortfolioIds: [],
-        attachments: [],
-        screeningAnswers: {},
-        acceptsTrialTask: false,
-        isDraft: false,
-        lastEditedAt: new Date()
-    };
-
-    const result = await submitProposalV2(payload);
-
-    if (result.success) {
-        return { success: "Proposal submitted successfully!", proposalId: result.proposalId };
-    }
-
-    return result;
-}
-
-
-export async function submitProposalV2(payload: ProposalPayload) {
+export async function submitProposal(payload: ProposalPayload) {
     const session = await auth();
 
     if (!session || !session.user || session.user.role !== "FREELANCER") {
@@ -122,7 +76,7 @@ export async function submitProposalV2(payload: ProposalPayload) {
             return { success: false, error: "Freelancer profile not found." };
         }
 
-        // 2. Validate Job exists and is OPEN (include title + client.userId for notification)
+        // 2. Validate Job exists and is OPEN (include title + client.userId + budget details)
         const job = await db.jobPost.findUnique({
             where: { id: payload.jobId },
             select: {
@@ -130,6 +84,8 @@ export async function submitProposalV2(payload: ProposalPayload) {
                 status: true,
                 clientId: true,
                 title: true,
+                budgetType: true,
+                budgetMax: true,
                 client: { select: { userId: true } }
             }
         });
@@ -157,7 +113,33 @@ export async function submitProposalV2(payload: ProposalPayload) {
             }
         }
 
-        // 4. Persist Proposal
+        // 4. PRICE ENFORCEMENT & VALIDATION
+        let finalProposedRate = payload.proposedRate;
+
+        if (job.budgetType === 'FIXED') {
+            // Recalculate milestone sum from payload (Source of Truth)
+            const milestoneSum = payload.milestones.reduce((sum, m) => sum + (m.amount || 0), 0);
+
+            // Validation: Must have at least one milestone with value
+            if (milestoneSum <= 0) {
+                return { success: false, error: "Fixed price proposals must have at least one funded milestone." };
+            }
+
+            // NOTE: We allow proposals to exceed budget, but frontend should warn the user.
+            // if (job.budgetMax && milestoneSum > job.budgetMax) {
+            //    return { success: false, error: `Proposed amount ($${milestoneSum}) exceeds the client's budget ($${job.budgetMax}).` };
+            // }
+
+            // Enforcement: Override proposedRate with calculated sum
+            finalProposedRate = milestoneSum;
+        } else {
+            // HOURLY: Ensure proposed rate is valid
+            if (finalProposedRate <= 0) {
+                return { success: false, error: "Hourly rate must be greater than zero." };
+            }
+        }
+
+        // 5. Persist Proposal
         const proposal = await db.proposal.create({
             data: {
                 jobId: payload.jobId,
@@ -166,8 +148,8 @@ export async function submitProposalV2(payload: ProposalPayload) {
 
                 // Core
                 coverLetter: payload.coverLetter,
-                proposedRate: payload.proposedRate,
-                rateType: payload.rateType,
+                proposedRate: finalProposedRate, // Enforced rate
+                rateType: job.budgetType as 'HOURLY' | 'FIXED', // Enforce job's budget type
                 availability: payload.availability,
                 availabilityHoursPerWeek: payload.availabilityHoursPerWeek,
                 expectedStartDate: payload.expectedStartDate,
@@ -180,7 +162,7 @@ export async function submitProposalV2(payload: ProposalPayload) {
 
                 // Complex Data (JSON as Strings)
                 milestones: JSON.stringify(payload.milestones),
-                totalMilestoneAmount: payload.totalMilestoneAmount,
+                totalMilestoneAmount: job.budgetType === 'FIXED' ? finalProposedRate : payload.totalMilestoneAmount, // Consistency
                 screeningAnswers: JSON.stringify(payload.screeningAnswers),
                 selectedPortfolioIds: JSON.stringify(payload.selectedPortfolioIds),
                 attachments: JSON.stringify(payload.attachments),
@@ -198,7 +180,7 @@ export async function submitProposalV2(payload: ProposalPayload) {
             }
         });
 
-        // 5. Create Notification for Client (only for non-draft submissions)
+        // 6. Create Notification for Client (only for non-draft submissions)
         if (!payload.isDraft && job.client?.userId) {
             await db.notification.create({
                 data: {
@@ -211,7 +193,7 @@ export async function submitProposalV2(payload: ProposalPayload) {
             });
         }
 
-        // 6. Create Conversation for messaging (only for non-draft submissions)
+        // 7. Create Conversation for messaging (only for non-draft submissions)
         if (!payload.isDraft && job.client?.userId) {
             const clientUserId = job.client.userId;
             const freelancerUserId = session.user.id!;
@@ -255,11 +237,10 @@ export async function submitProposalV2(payload: ProposalPayload) {
             });
         }
 
-        // 7. Revalidation (all affected routes)
+        // 8. Revalidation (all affected routes)
         revalidatePath('/freelancer/find-work');
         revalidatePath(`/freelancer/jobs/${payload.jobId}`);
         revalidatePath('/freelancer/proposals');
-        revalidatePath('/client/dashboard');
         revalidatePath('/client/dashboard');
         revalidatePath('/client/dashboard-v3');
         revalidatePath('/client/jobs');
@@ -314,12 +295,7 @@ export async function acceptProposal(proposalId: string) {
             return { success: false, error: "Unauthorized. You do not own this job." };
         }
 
-        // 4. State Validation
-        // if (proposal.status !== "SUBMITTED") {
-        //     return { success: false, error: `Cannot accept proposal in '${proposal.status}' state.` };
-        // }
-
-        // 5. Update Status
+        // 4. Update Status
         await db.proposal.update({
             where: { id: proposalId },
             data: {

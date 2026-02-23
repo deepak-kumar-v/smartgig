@@ -10,6 +10,16 @@ export async function GET(req: Request) {
             return new NextResponse("Unauthorized", { status: 401 });
         }
 
+        // Look up the user's wallet
+        const wallet = await db.wallet.findUnique({
+            where: { userId: session.user.id },
+        });
+
+        if (!wallet) {
+            // No wallet = no ledger entries
+            return NextResponse.json([]);
+        }
+
         // Parse query parameters
         const { searchParams } = new URL(req.url);
         const type = searchParams.get('type');
@@ -19,8 +29,8 @@ export async function GET(req: Request) {
         const limit = parseInt(searchParams.get('limit') || '50');
         const offset = parseInt(searchParams.get('offset') || '0');
 
-        // Build where clause
-        const where: any = { userId: session.user.id };
+        // Build where clause — now keyed on walletId
+        const where: any = { walletId: wallet.id };
 
         if (type) where.type = type;
         if (contractId) where.contractId = contractId;
@@ -41,7 +51,7 @@ export async function GET(req: Request) {
         await db.auditLog.create({
             data: {
                 userId: session.user.id,
-                actorRole: 'FREELANCER', // Default role for ledger access
+                actorRole: 'FREELANCER',
                 action: 'LEDGER_VIEWED',
                 entityType: 'LEDGER',
                 entityId: null,

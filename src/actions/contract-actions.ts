@@ -3,7 +3,7 @@
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
-import { ContractStatus } from '@prisma/client';
+import { ContractStatus, Prisma } from '@prisma/client';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 
 // ============================================================================
@@ -107,19 +107,31 @@ export async function createContractFromProposal(
                 proposalId: proposal.id,
                 clientId: clientProfile.id,
                 freelancerId: proposal.freelancerId,
-                title: contractType === 'TRIAL'
-                    ? `Trial: ${proposal.job.title}`
-                    : proposal.job.title,
+                title: proposal.job.title,
                 // EMPTY SHELL: Client must explicitly set budget and terms.
                 totalBudget: 0,
                 type: contractType,
                 terms: "",
                 status: ContractStatus.DRAFT,
+                commissionRate: 0, // Placeholder — snapshotted from SystemConfig at FINALIZED
                 // Dates must be explicitly set by client later
                 startDate: null,
                 endDate: null
             }
         });
+
+        // 7b. Auto-create default milestone for TRIAL contracts
+        if (contractType === 'TRIAL') {
+            await db.milestone.create({
+                data: {
+                    contractId: contract.id,
+                    title: "Trial Task",
+                    description: "",
+                    amount: 0,
+                    status: "PENDING"
+                }
+            });
+        }
 
         // 8. Attach contractId to existing conversation (use latest contract)
         if (proposal.conversation) {
@@ -227,6 +239,7 @@ export async function createFullContractFromTrial(trialContractId: string) {
                 type: 'FULL',
                 terms: "",
                 status: ContractStatus.DRAFT,
+                commissionRate: 0, // Placeholder — snapshotted from SystemConfig at FINALIZED
                 // Dates must be explicitly set by client later
                 startDate: null,
                 endDate: null
@@ -263,7 +276,6 @@ export async function updateContract(
     contractId: string,
     patchData: {
         title?: string;
-        totalBudget?: number;
         terms?: string;
         startDate?: Date;
         endDate?: Date;
@@ -305,16 +317,16 @@ export async function updateContract(
             return { success: false, error: "Contract can only be edited in DRAFT status." };
         }
 
-        // 5. Update Contract
+        // 5. Build update payload (totalBudget is NOT editable — controlled by milestones)
+        const updateData: Record<string, unknown> = {};
+        if (patchData.title) updateData.title = patchData.title;
+        if (patchData.terms) updateData.terms = patchData.terms;
+        if (patchData.startDate) updateData.startDate = patchData.startDate;
+        if (patchData.endDate) updateData.endDate = patchData.endDate;
+
         await db.contract.update({
             where: { id: contractId },
-            data: {
-                ...(patchData.title && { title: patchData.title }),
-                ...(patchData.totalBudget && { totalBudget: patchData.totalBudget }),
-                ...(patchData.terms && { terms: patchData.terms }),
-                ...(patchData.startDate && { startDate: patchData.startDate }),
-                ...(patchData.endDate && { endDate: patchData.endDate })
-            }
+            data: updateData,
         });
 
         // Lifecycle Event: CONTRACT_EDITED
@@ -422,14 +434,13 @@ export async function sendForReview(contractId: string) {
 
     try {
         const contract = await db.contract.findUnique({
-            where: { id: contractId }
+            where: { id: contractId },
+            include: { milestones: true }
         });
 
         if (!contract) return { success: false, error: "Contract not found." };
 
         // Auth check (Client ownership)
-        // We'll perform a quick check via DB query above or simple check here if we trust ID access pattern, 
-        // but better to check ownership.
         const clientProfile = await db.clientProfile.findUnique({ where: { userId: session.user.id } });
         if (!clientProfile || contract.clientId !== clientProfile.id) {
             return { success: false, error: "Unauthorized." };
@@ -437,6 +448,20 @@ export async function sendForReview(contractId: string) {
 
         if (contract.status !== ContractStatus.DRAFT) {
             return { success: false, error: "Contract must be DRAFT to send for review." };
+        }
+
+        // Hardening: Validation before Review
+        if (contract.type === 'TRIAL') {
+            const validationError = validateTrialContract(contract, contract.milestones);
+            if (validationError) return { success: false, error: validationError };
+        } else {
+            // FULL Contract Validation
+            if (contract.milestones.length === 0) {
+                return { success: false, error: "Contract must have at least one milestone." };
+            }
+            if (contract.totalBudget <= 0) {
+                return { success: false, error: "Contract budget must be greater than zero." };
+            }
         }
 
         await db.contract.update({
@@ -516,6 +541,9 @@ export async function requestChanges(contractId: string) {
 /**
  * Client finalizes contract.
  * ACCEPTED -> FINALIZED
+ *
+ * Commission rate is snapshotted from SystemConfig inside a transaction.
+ * After this point, commissionRate is immutable.
  */
 export async function finalizeContract(contractId: string) {
     const session = await auth();
@@ -540,12 +568,39 @@ export async function finalizeContract(contractId: string) {
             return { success: false, error: "Contract must be ACCEPTED to finalize." };
         }
 
-        await db.contract.update({
-            where: { id: contractId },
-            data: {
-                status: ContractStatus.FINALIZED,
-                finalizedAt: new Date()
+        // Re-validate Trial invariants before finalizing
+        if (contract.type === 'TRIAL') {
+            const milestones = await db.milestone.findMany({ where: { contractId } });
+            const validationError = validateTrialContract(contract, milestones);
+            if (validationError) return { success: false, error: validationError };
+        }
+
+        // Atomic: snapshot commission rate + finalize status
+        await db.$transaction(async (tx) => {
+            // Fetch platform commission rate from SystemConfig
+            const configRow = await tx.systemConfig.findUnique({
+                where: { key: 'platformCommissionRate' },
+            });
+
+            if (!configRow) {
+                throw new Error('SYSTEM_CONFIG_MISSING: platformCommissionRate not found in SystemConfig');
             }
+
+            const commissionRate = new Prisma.Decimal(configRow.value);
+
+            // Validate rate is within sane bounds (0 <= rate < 1)
+            if (commissionRate.isNegative() || commissionRate.greaterThanOrEqualTo(1)) {
+                throw new Error(`INVALID_COMMISSION_RATE: ${commissionRate.toFixed(4)} is out of range [0, 1)`);
+            }
+
+            await tx.contract.update({
+                where: { id: contractId },
+                data: {
+                    status: ContractStatus.FINALIZED,
+                    finalizedAt: new Date(),
+                    commissionRate,
+                },
+            });
         });
 
         // Lifecycle Event: CONTRACT_FINALIZED
@@ -563,7 +618,89 @@ export async function finalizeContract(contractId: string) {
         return { success: true };
 
     } catch (error) {
-        return { success: false, error: "Failed to finalize contract." };
+        const message = error instanceof Error ? error.message : 'Failed to finalize contract.';
+        console.error('[finalizeContract] Error:', error);
+        return { success: false, error: message };
+    }
+}
+
+/**
+ * Freelancer starts a FUNDED contract.
+ * FUNDED → ACTIVE. This is an explicit action, not automatic.
+ */
+export async function startContract(contractId: string) {
+    const session = await auth();
+
+    if (!session || !session.user || session.user.role !== "FREELANCER") {
+        return { success: false, error: "Unauthorized. Only freelancers can start contracts." };
+    }
+
+    try {
+        const freelancerProfile = await db.freelancerProfile.findUnique({
+            where: { userId: session.user.id }
+        });
+
+        if (!freelancerProfile) {
+            return { success: false, error: "Freelancer profile not found." };
+        }
+
+        const contract = await db.contract.findUnique({
+            where: { id: contractId }
+        });
+
+        if (!contract) {
+            return { success: false, error: "Contract not found." };
+        }
+
+        if (contract.freelancerId !== freelancerProfile.id) {
+            return { success: false, error: "Unauthorized. You are not the freelancer on this contract." };
+        }
+
+        if (contract.status !== ContractStatus.FUNDED) {
+            return { success: false, error: `Cannot start contract. Current status: ${contract.status}, must be FUNDED.` };
+        }
+
+        await db.contract.update({
+            where: { id: contractId, status: ContractStatus.FUNDED },
+            data: { status: ContractStatus.ACTIVE }
+        });
+
+        // Lifecycle Event: CONTRACT_STARTED
+        recordLifecycleEvent({
+            contractId,
+            eventType: 'CONTRACT_STARTED',
+            devState: 'ACTIVE',
+            userMessage: 'Freelancer started work on the contract',
+            actorId: session.user.id,
+            actorRole: 'FREELANCER',
+        });
+
+        // Audit Log
+        db.auditLog
+            .create({
+                data: {
+                    userId: session.user.id!,
+                    actorRole: 'FREELANCER',
+                    action: 'CONTRACT_STARTED',
+                    entityType: 'CONTRACT',
+                    entityId: contractId,
+                    details: { previousStatus: 'FUNDED' },
+                },
+            })
+            .catch((err: unknown) => {
+                console.error('[AuditLog] Failed to log CONTRACT_STARTED:', err);
+            });
+
+        revalidatePath(`/client/contracts/${contractId}`);
+        revalidatePath(`/freelancer/contracts/${contractId}`);
+        revalidatePath('/client/contracts');
+        revalidatePath('/freelancer/contracts');
+
+        return { success: true };
+
+    } catch (error) {
+        console.error("Start contract error:", error);
+        return { success: false, error: "Failed to start contract." };
     }
 }
 
@@ -684,6 +821,46 @@ export async function getContractDetails(contractId: string) {
         console.error("Get contract error:", error);
         return { success: false, error: "Failed to fetch contract." };
     }
+}
+
+/**
+ * Validates invariants for a TRIAL contract.
+ * Returns an error string if invalid, or null if valid.
+ */
+function validateTrialContract(contract: any, milestones: any[]): string | null {
+    if (contract.type !== 'TRIAL') return null;
+
+    // 1. Single milestone exists
+    if (!milestones || milestones.length !== 1) {
+        return "Trial contract must have exactly one milestone.";
+    }
+
+    const milestone = milestones[0];
+    const errors: string[] = [];
+
+    // 2. Milestone.title is non-empty
+    if (!milestone.title?.trim()) errors.push("Milestone Title");
+
+    // 3. Milestone.description is non-empty
+    if (!milestone.description?.trim()) errors.push("Milestone Description");
+
+    // 4. Milestone.amount > 0
+    if (!milestone.amount || milestone.amount <= 0) errors.push("Milestone Amount");
+
+    // 5. Milestone.dueDate is set
+    if (!milestone.dueDate) errors.push("Milestone Due Date");
+
+    // 6. contract.startDate is set
+    if (!contract.startDate) errors.push("Contract Start Date");
+
+    // 7. contract.endDate is set
+    if (!contract.endDate) errors.push("Contract End Date");
+
+    if (errors.length > 0) {
+        return `Trial contract details missing: ${errors.join(', ')}.`;
+    }
+
+    return null;
 }
 
 /**

@@ -23,6 +23,38 @@ enum ContractStatus {
   DISPUTED
 }
 
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+  PAID
+  DISPUTED
+}
+
+enum EscrowStatus {
+  PENDING
+  FUNDED
+  DISPUTED
+  CLOSED
+}
+
+enum WalletTransactionType {
+  DEPOSIT
+  ESCROW_LOCK
+  ESCROW_RELEASE
+  REFUND
+  WITHDRAWAL
+  PLATFORM_FEE
+  ADJUSTMENT
+}
+
+enum ChangeRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -31,6 +63,7 @@ model User {
   image         String?
   password      String?
   role          String    @default("FREELANCER") // Was UserRole
+  isSystem      Boolean   @default(false)
   
   // Custom fields
   phone         String?   @unique
@@ -48,7 +81,7 @@ model User {
   clientProfile     ClientProfile?
   sentMessages      Message[]
   notifications     Notification[]
-  wallets           WalletLedger[]
+  wallet            Wallet?
   auditLogs         AuditLog[]
   deviceFingerprints DeviceFingerprint[]
   strikes           Strike[]
@@ -58,7 +91,7 @@ model User {
   
   // New Backend Relations
   paymentMethods    PaymentMethod[]
-  withdrawals       Withdrawal[]
+  withdrawalRequests WithdrawalRequest[]
   callParticipation CallParticipant[]
 }
 
@@ -114,6 +147,7 @@ model FreelancerProfile {
   services      ServiceListing[]
   contracts     Contract[]
   invoices      Invoice[]
+  changeRequests MilestoneChangeRequest[]
 }
 
 model ClientProfile {
@@ -285,6 +319,7 @@ model Contract {
   title         String
   totalBudget   Float
   status        ContractStatus @default(DRAFT)
+  commissionRate Decimal       @db.Decimal(5, 4) // Snapshotted immutably at FINALIZED — non-nullable after backfill
   finalizedAt   DateTime?
   acceptedAt    DateTime?
   terms         String
@@ -292,16 +327,10 @@ model Contract {
   startDate     DateTime?
   endDate       DateTime?
 
-  // Trial Fields
-  escrowStatus  String?
-  trialAmount   Float?
-  
   // Standard Contract linked to a Trial
   sourceTrialId String?   @unique
   sourceTrial   Contract? @relation("SourceTrial", fields: [sourceTrialId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   derivedStandard Contract? @relation("SourceTrial")
-
-  mockTransactions MockEscrowTransaction[]
 
   milestones    Milestone[]
   escrowAccount EscrowAccount?
@@ -311,25 +340,21 @@ model Contract {
   @@unique([proposalId, type])
 }
 
-model MockEscrowTransaction {
-  id          String   @id @default(cuid())
-  contractId  String
-  contract    Contract @relation(fields: [contractId], references: [id])
-  amount      Float
-  status      String   // FUNDED, RELEASED
-  createdAt   DateTime @default(now())
-}
-
 model Milestone {
-  id          String   @id @default(cuid())
+  id          String          @id @default(cuid())
   contractId  String
-  contract    Contract @relation(fields: [contractId], references: [id])
+  contract    Contract        @relation(fields: [contractId], references: [id])
+  title       String
   description String
-  amount      Float
+  amount      Decimal         @db.Decimal(18, 2)
   dueDate     DateTime?
-  status      String   @default("PENDING")
-  
-  deliverables Deliverable[]
+  status      MilestoneStatus @default(PENDING)
+  submittedAt DateTime?
+  approvedAt  DateTime?
+
+  deliverables       Deliverable[]
+  escrowLocks        EscrowLock[]
+  changeRequests     MilestoneChangeRequest[]
 }
 
 model Deliverable {
@@ -342,35 +367,60 @@ model Deliverable {
 }
 
 model EscrowAccount {
-  id            String   @id @default(cuid())
-  contractId    String   @unique
-  contract      Contract @relation(fields: [contractId], references: [id])
-  totalDeposited Float   @default(0)
-  totalReleased  Float   @default(0)
-  balance        Float   @default(0)
-  
-  transactions  EscrowTransaction[]
+  id         String       @id @default(cuid())
+  contractId String       @unique
+  contract   Contract     @relation(fields: [contractId], references: [id])
+  status     EscrowStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+  locks      EscrowLock[]
 }
 
-model EscrowTransaction {
-  id          String   @id @default(cuid())
+model EscrowLock {
+  id          String        @id @default(cuid())
   escrowId    String
   escrow      EscrowAccount @relation(fields: [escrowId], references: [id])
-  amount      Float
-  type        String
-  createdAt   DateTime @default(now())
+  milestoneId String
+  milestone   Milestone     @relation(fields: [milestoneId], references: [id])
+  amount      Decimal       @db.Decimal(18, 2)
+  released    Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+
+  @@unique([escrowId, milestoneId])
+}
+
+model Wallet {
+  id        String         @id @default(cuid())
+  userId    String         @unique
+  user      User           @relation(fields: [userId], references: [id])
+  createdAt DateTime       @default(now())
+  ledger    WalletLedger[]
 }
 
 model WalletLedger {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  amount    Float
-  type      String
-  reason    String
-  balanceAfter Float
-  contractId String?
-  createdAt DateTime @default(now())
+  id          String                @id @default(cuid())
+  walletId    String
+  wallet      Wallet                @relation(fields: [walletId], references: [id])
+  amount      Decimal               @db.Decimal(18, 2)
+  type        WalletTransactionType
+  contractId  String?
+  milestoneId String?
+  createdAt   DateTime              @default(now())
+}
+
+model MilestoneChangeRequest {
+  id                  String              @id @default(cuid())
+  milestoneId         String
+  milestone           Milestone           @relation(fields: [milestoneId], references: [id])
+  freelancerId        String
+  freelancer          FreelancerProfile   @relation(fields: [freelancerId], references: [id])
+  proposedTitle       String?
+  proposedDescription String?
+  proposedAmount      Float?
+  proposedDueDate     DateTime?
+  reason              String
+  status              ChangeRequestStatus @default(PENDING)
+  createdAt           DateTime            @default(now())
+  resolvedAt          DateTime?
 }
 
 model Conversation {
@@ -558,20 +608,21 @@ model InvoiceLineItem {
   total       Float
 }
 
-model Withdrawal {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id])
-  amount        Float
-  fee           Float
-  netAmount     Float
-  status        String   // REQUESTED, PROCESSING, COMPLETED
-  
-  paymentMethodId String? 
-  methodSnapshot  String? // JSON
-  
-  createdAt     DateTime @default(now())
-  processedAt   DateTime?
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model WithdrawalRequest {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  amount    Decimal          @db.Decimal(18, 2)
+  status    WithdrawalStatus @default(PENDING)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 }
 
 // Audit Log Model
@@ -627,4 +678,23 @@ model LifecycleEvent {
 
   @@index([contractId])
   @@index([jobId])
+}
+
+// ============================================================================
+// Idempotency Key — Prevents duplicate financial action execution
+// ============================================================================
+model IdempotencyKey {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  action    String
+  createdAt DateTime @default(now())
+}
+
+// ============================================================================
+// System Config — Key-Value Platform Settings
+// ============================================================================
+model SystemConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }

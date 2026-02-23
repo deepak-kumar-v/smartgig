@@ -124,7 +124,7 @@ export function ProposalDetailView({ proposal }: ProposalDetailViewProps) {
 
     const handleMessage = () => {
         if (proposal.conversationId) {
-            router.push(`/messages?conversation=${proposal.conversationId}`);
+            router.push(`/client/messages?conversation=${proposal.conversationId}`);
         } else {
             toast.error("No conversation available yet");
         }

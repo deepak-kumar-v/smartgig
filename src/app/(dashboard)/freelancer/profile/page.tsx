@@ -47,7 +47,7 @@ export default async function FreelancerProfilePage() {
                     reviews: true,
                 }
             },
-            wallets: true, // For earnings (if needed later)
+            wallet: true, // For earnings (if needed later)
         }
     });
 

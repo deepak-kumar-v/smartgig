@@ -24,23 +24,56 @@ export const ApplyButton = ({ jobId, jobTitle, budget }: ApplyButtonProps) => {
     const handleSubmit = async (formData: FormData) => {
         setMessage(null);
 
-        // Append hidden jobId
-        formData.append('jobId', jobId);
+        const price = parseFloat(formData.get('price') as string);
+        const coverLetter = formData.get('coverLetter') as string;
+
+        // Construct standard payload for "Quick Apply"
+        // Assumption: Quick Apply is treated as a single milestone Fixed Price proposal
+        // TODO: ideally we should know if job is hourly, but for quick apply we assume Fixed logic or generic rate
+        // However, the new strict backend logic triggers validations based on job.budgetType.
+        // If job is Hourly, backend ignores milestones. If Fixed, backend REQUIRES milestones.
+        // We will send milestones to be safe for Fixed jobs.
+
+        const payload = {
+            jobId,
+            coverLetter,
+            proposedRate: price,
+            rateType: 'FIXED' as const, // Default to FIXED, backend might override if job is hourly? No, backend validation uses job type.
+            // Actually, for HOURLY, rateType should be HOURLY.
+            // Since we don't have budgetType prop here, we might have an issue if the job is HOURLY.
+            // But let's assume standard behavior:
+            // If Job is Hourly, backend ignores milestones and uses proposedRate.
+            // If Job is Fixed, backend USES milestones and ignores proposedRate.
+            // So we send BOTH to be safe: valid milestones summing to price, AND proposedRate = price.
+
+            estimatedDuration: 'To be determined',
+            availability: 'As needed',
+            milestones: [
+                {
+                    title: 'Full Project',
+                    description: 'Complete project as per requirements',
+                    amount: price,
+                    duration: 'TBD'
+                }
+            ],
+            totalMilestoneAmount: price,
+            selectedPortfolioIds: [],
+            attachments: [],
+            screeningAnswers: {},
+            acceptsTrialTask: false,
+            isDraft: false,
+            lastEditedAt: new Date()
+        };
 
         startTransition(async () => {
-            const result = await submitProposal(formData);
+            const result = await submitProposal(payload);
 
             if (result.error) {
-                // Handle zod array errors or string errors
-                const errorMsg = result.error;
-
-                setMessage({ type: 'error', text: errorMsg });
+                setMessage({ type: 'error', text: result.error });
             } else {
-                setMessage({ type: 'success', text: result.success as string });
-                // Close after a delay and refresh
+                setMessage({ type: 'success', text: "Proposal submitted successfully!" });
                 setTimeout(() => {
                     setIsOpen(false);
-                    // router.refresh(); // Server action already revalidates
                 }, 2000);
             }
         });

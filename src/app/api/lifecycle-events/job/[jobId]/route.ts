@@ -115,24 +115,29 @@ export async function GET(
             orderBy: { createdAt: 'asc' },
         });
 
-        // 5. Fetch financial data from escrow (additive — no schema changes)
+        // 5. Fetch financial data from escrow locks (lock-derived)
         let financialData = null;
         if (contractIds.length > 0) {
-            const escrow = await db.escrowAccount.findFirst({
+            const escrowAccounts = await db.escrowAccount.findMany({
                 where: { contractId: { in: contractIds } },
-                orderBy: { totalDeposited: 'desc' },
-                select: {
-                    totalDeposited: true,
-                    totalReleased: true,
-                    balance: true,
-                },
+                include: { locks: true },
             });
+            const allLocks = escrowAccounts.flatMap(e => e.locks);
+            const lockAmount = (l: { amount: unknown }): number => {
+                const a = l.amount;
+                return typeof a === 'object' && a !== null && 'toNumber' in a
+                    ? (a as { toNumber(): number }).toNumber()
+                    : Number(a);
+            };
+            const totalLocked = allLocks.reduce((sum, l) => sum + lockAmount(l), 0);
+            const totalReleased = allLocks.filter(l => l.released).reduce((sum, l) => sum + lockAmount(l), 0);
+            const remainingLocked = totalLocked - totalReleased;
             const primaryBudget = contracts.reduce((sum, c) => sum + (c.totalBudget || 0), 0);
             financialData = {
                 totalBudget: primaryBudget,
-                totalDeposited: escrow?.totalDeposited || 0,
-                totalReleased: escrow?.totalReleased || 0,
-                balance: escrow?.balance || 0,
+                totalDeposited: totalLocked,
+                totalReleased,
+                balance: remainingLocked,
             };
         }
 
