@@ -87,6 +87,7 @@ export async function getAdminFinancialOverview(): Promise<PlatformFinancialOver
                     createdAt: true,
                 },
                 orderBy: { createdAt: 'desc' },
+                take: 1000,
             }),
             // Active escrow accounts
             db.escrowAccount.count({

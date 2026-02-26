@@ -24,7 +24,6 @@ export default async function WithdrawPage() {
             available={walletData.availableBalance}
             locked={walletData.lockedBalance}
             pendingWithdrawals={walletData.pendingWithdrawals}
-            total={walletData.totalBalance}
             requests={requests}
         />
     );

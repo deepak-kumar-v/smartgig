@@ -69,13 +69,29 @@ export async function requestWithdrawal(amount: number) {
                 },
             });
 
+            // Mutation log (append-only, inside tx)
+            await tx.financialMutationLog.create({
+                data: {
+                    action: 'REQUEST_WITHDRAWAL',
+                    userId,
+                    metadata: { amount: requestAmount.toFixed(2), requestId: request.id },
+                },
+            });
+
             return { success: true as const, requestId: request.id };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
         return result;
-    } catch (error: any) {
-        console.error('[requestWithdrawal] Error:', error);
-        return { error: error.message || 'Failed to submit withdrawal request' };
+    } catch (error) {
+        db.financialErrorLog.create({
+            data: {
+                action: 'REQUEST_WITHDRAWAL',
+                userId: undefined,
+                errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                stackTrace: error instanceof Error ? error.stack ?? null : null,
+            },
+        }).catch(() => { });
+        return { error: error instanceof Error ? error.message : 'Failed to submit withdrawal request' };
     }
 }
 
@@ -130,7 +146,14 @@ export async function approveWithdrawal(requestId: string) {
 
             const totalBalance = new Prisma.Decimal(balanceAgg._sum.amount ?? 0);
             const lockedBalance = new Prisma.Decimal(lockedAgg._sum.amount ?? 0);
-            const availableBalance = totalBalance.minus(lockedBalance);
+
+            // Subtract OTHER pending withdrawals (exclude this request being approved)
+            const otherPendingAgg = await tx.withdrawalRequest.aggregate({
+                where: { userId: request.userId, status: 'PENDING', id: { not: requestId } },
+                _sum: { amount: true },
+            });
+            const otherPending = new Prisma.Decimal(otherPendingAgg._sum.amount ?? 0);
+            const availableBalance = totalBalance.minus(lockedBalance).minus(otherPending);
 
             // 3. Pre-debit assertion
             if (request.amount.greaterThan(availableBalance)) {
@@ -164,13 +187,29 @@ export async function approveWithdrawal(requestId: string) {
                 throw new Error(`Post-debit invariant violated: available = ${postDebitAvailable.toFixed(2)}`);
             }
 
+            // Mutation log (append-only, inside tx)
+            await tx.financialMutationLog.create({
+                data: {
+                    action: 'APPROVE_WITHDRAWAL',
+                    userId: request.userId,
+                    metadata: { requestId, withdrawalAmount: request.amount.toFixed(2) },
+                },
+            });
+
             return { success: true as const };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
         return result;
-    } catch (error: any) {
-        console.error('[approveWithdrawal] Error:', error);
-        return { error: error.message || 'Failed to approve withdrawal' };
+    } catch (error) {
+        db.financialErrorLog.create({
+            data: {
+                action: 'APPROVE_WITHDRAWAL',
+                userId: undefined,
+                errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                stackTrace: error instanceof Error ? error.stack ?? null : null,
+            },
+        }).catch(() => { });
+        return { error: error instanceof Error ? error.message : 'Failed to approve withdrawal' };
     }
 }
 
@@ -187,25 +226,42 @@ export async function rejectWithdrawal(requestId: string) {
             return { error: 'Admin only' };
         }
 
-        // Guard: only reject PENDING requests
-        const request = await db.withdrawalRequest.findUnique({
-            where: { id: requestId },
-        });
+        await db.$transaction(async (tx) => {
+            const request = await tx.withdrawalRequest.findUnique({
+                where: { id: requestId },
+            });
 
-        if (!request) return { error: 'Request not found' };
-        if (request.status !== 'PENDING') {
-            return { error: `Cannot reject: request is already ${request.status}` };
-        }
+            if (!request) throw new Error('Withdrawal request not found');
+            if (request.status !== 'PENDING') {
+                throw new Error(`Cannot reject: request is already ${request.status}`);
+            }
 
-        await db.withdrawalRequest.update({
-            where: { id: requestId },
-            data: { status: 'REJECTED' },
-        });
+            await tx.withdrawalRequest.update({
+                where: { id: requestId },
+                data: { status: 'REJECTED' },
+            });
+
+            // Mutation log (append-only, inside tx)
+            await tx.financialMutationLog.create({
+                data: {
+                    action: 'REJECT_WITHDRAWAL',
+                    userId: request.userId,
+                    metadata: { requestId },
+                },
+            });
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
         return { success: true };
     } catch (error) {
-        console.error('[rejectWithdrawal] Error:', error);
-        return { error: 'Failed to reject withdrawal' };
+        db.financialErrorLog.create({
+            data: {
+                action: 'REJECT_WITHDRAWAL',
+                userId: undefined,
+                errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                stackTrace: error instanceof Error ? error.stack ?? null : null,
+            },
+        }).catch(() => { });
+        return { error: error instanceof Error ? error.message : 'Failed to reject withdrawal' };
     }
 }
 

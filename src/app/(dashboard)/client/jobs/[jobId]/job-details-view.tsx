@@ -188,55 +188,58 @@ export function JobDetailsView({ job, proposals = [] }: JobDetailsViewProps) {
                         ) : (
                             <div className="space-y-4">
                                 {proposals.map((proposal) => (
-                                    <GlassCard key={proposal.id} className="p-5 hover:border-zinc-700 transition-colors">
-                                        <div className="flex items-start justify-between gap-4">
-                                            <div className="flex items-start gap-4 flex-1">
-                                                {/* Avatar */}
-                                                <div className="w-12 h-12 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center overflow-hidden">
-                                                    {proposal.freelancerImage ? (
-                                                        <img src={proposal.freelancerImage} alt="" className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <User className="w-6 h-6 text-zinc-500" />
-                                                    )}
+                                    <a
+                                        key={proposal.id}
+                                        href={`/client/proposals/${proposal.id}`}
+                                        className="block group"
+                                    >
+                                        <GlassCard className="p-5 hover:border-zinc-600 transition-all cursor-pointer group-hover:bg-zinc-800/30">
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div className="flex items-center gap-4 flex-1 min-w-0">
+                                                    {/* Avatar */}
+                                                    <div className="w-12 h-12 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
+                                                        {proposal.freelancerImage ? (
+                                                            <img src={proposal.freelancerImage} alt="" className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <User className="w-6 h-6 text-zinc-500" />
+                                                        )}
+                                                    </div>
+                                                    {/* Info */}
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                            <h4 className="font-medium text-white truncate">{proposal.freelancerName}</h4>
+                                                            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                                                                {proposal.freelancerTrustScore.toFixed(0)} Trust
+                                                            </span>
+                                                            <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${proposal.status === 'SUBMITTED' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                                                                proposal.status === 'ACCEPTED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                                                    proposal.status === 'REJECTED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+                                                                        'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20'
+                                                                }`}>
+                                                                {proposal.status}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm text-zinc-400 truncate">{proposal.freelancerTitle}</p>
+                                                        <p className="text-sm text-zinc-500 line-clamp-1 mt-1">{proposal.coverLetterPreview}</p>
+                                                        <div className="flex items-center gap-4 mt-2 text-xs text-zinc-500">
+                                                            <span className="flex items-center gap-1">
+                                                                <DollarSign className="w-3.5 h-3.5" />
+                                                                ${proposal.proposedRate} {proposal.rateType === 'HOURLY' ? '/hr' : ' fixed'}
+                                                            </span>
+                                                            <span className="flex items-center gap-1">
+                                                                <Clock className="w-3.5 h-3.5" />
+                                                                {proposal.availability}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                {/* Info */}
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <h4 className="font-medium text-white truncate">{proposal.freelancerName}</h4>
-                                                        <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                                            {proposal.freelancerTrustScore.toFixed(0)} Trust
-                                                        </span>
-                                                        <span className={`text-xs px-2 py-0.5 rounded-full ${proposal.status === 'SUBMITTED' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
-                                                            proposal.status === 'ACCEPTED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                                                                proposal.status === 'REJECTED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
-                                                                    'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20'
-                                                            }`}>
-                                                            {proposal.status}
-                                                        </span>
-                                                    </div>
-                                                    <p className="text-sm text-zinc-400 mb-2">{proposal.freelancerTitle}</p>
-                                                    <p className="text-sm text-zinc-500 line-clamp-2">{proposal.coverLetterPreview}</p>
-                                                    <div className="flex items-center gap-4 mt-3 text-xs text-zinc-500">
-                                                        <span className="flex items-center gap-1">
-                                                            <DollarSign className="w-3.5 h-3.5" />
-                                                            ${proposal.proposedRate} {proposal.rateType === 'HOURLY' ? '/hr' : ' fixed'}
-                                                        </span>
-                                                        <span className="flex items-center gap-1">
-                                                            <Clock className="w-3.5 h-3.5" />
-                                                            {proposal.availability}
-                                                        </span>
-                                                    </div>
+                                                {/* Always-visible View Proposal */}
+                                                <div className="flex items-center gap-1 text-sm text-zinc-400 group-hover:text-white transition-colors shrink-0 whitespace-nowrap">
+                                                    View Proposal <ChevronRight className="w-4 h-4" />
                                                 </div>
                                             </div>
-                                            {/* Action */}
-                                            <a
-                                                href={`/client/proposals/${proposal.id}`}
-                                                className="flex items-center gap-1 text-sm text-zinc-400 hover:text-white transition-colors"
-                                            >
-                                                View <ChevronRight className="w-4 h-4" />
-                                            </a>
-                                        </div>
-                                    </GlassCard>
+                                        </GlassCard>
+                                    </a>
                                 ))}
                             </div>
                         )}

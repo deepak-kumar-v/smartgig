@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { useState, useTransition, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -15,12 +15,24 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import {
     updateContract, acceptContract, rejectContract, deleteContract,
-    sendForReview, requestChanges, finalizeContract, startContract
+    sendForReview, requestChanges, finalizeContract, startContract, cancelContract
 } from '@/actions/contract-actions';
 import { approveTrialWork, rejectTrialWork, raiseDispute, upgradeToStandard } from '@/actions/trial-actions';
-import { createMilestone, updateMilestone, deleteMilestone } from '@/actions/milestone-actions';
+import { createMilestone, updateMilestone, deleteMilestone, startMilestone, submitMilestone, approveMilestone, reorderMilestones, openDispute } from '@/actions/milestone-actions';
+import { fundMilestone, refundMilestone } from '@/actions/escrow-actions';
+import { releaseMilestoneFunds } from '@/actions/escrow-release-actions';
+import { createDeliverable } from '@/actions/deliverable-actions';
 import EscrowPanel from '@/components/contract/escrow-panel';
 import { ContractFinancialTimeline } from '@/components/contract/contract-financial-timeline';
+import {
+    DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+    type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+    arrayMove, SortableContext, verticalListSortingStrategy,
+    useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // Decimal fields from Prisma may arrive as Decimal objects or numbers
 type DecimalLike = number | { toNumber(): number };
@@ -29,13 +41,30 @@ function toNum(val: DecimalLike): number {
     return typeof val === 'object' ? val.toNumber() : val;
 }
 
+// ── Sortable Milestone Card component for DnD ──
+function SortableMilestoneCard({ id, disabled, children }: { id: string; disabled: boolean; children: React.ReactNode }) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+    };
+    return (
+        <div ref={setNodeRef} style={style} {...attributes} {...(disabled ? {} : listeners)} className="p-4 bg-zinc-800/50 rounded-lg border border-zinc-700">
+            {children}
+        </div>
+    );
+}
+
 interface Milestone {
     id: string;
+    sequence: number;
     title: string;
     description: string;
     amount: DecimalLike;
-    dueDate?: string | null; // ISO string from DB
+    dueDate?: string | null;
     status: string;
+    deliverables?: { id: string; fileUrl: string; comment: string | null; createdAt: string }[];
 }
 
 interface ContractDetailData {
@@ -116,13 +145,11 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
     // Action Visibilities
     const showSendForReview = isClient && isDraft;
     const showClientFinalize = isClient && contract.status === 'ACCEPTED';
-    const showClientFund = isClient && contract.status === 'FINALIZED';
-    const showFreelancerStart = isFreelancer && contract.status === 'FUNDED';
+
+    const showFreelancerStart = isFreelancer && (contract.status === 'FUNDED' || contract.status === 'FINALIZED');
     const showFreelancerDecision = isFreelancer && contract.status === 'PENDING_REVIEW';
 
-    // Trial Actions
-    const canFundEscrow = isClient && contract.status === 'FINALIZED';
-    const canApproveTrial = isClient && isTrial && contract.status === 'ACTIVE';
+
     const canUpgradeTrial = isClient && isTrial && contract.status === 'COMPLETED';
     const canDisputeTrial = isFreelancer && isTrial && contract.status === 'REJECTED';
 
@@ -210,6 +237,67 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
         });
     };
 
+    // ── Inline Edit Milestone ──
+    const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
+    const [editMilestoneData, setEditMilestoneData] = useState({ title: '', description: '', amount: '', dueDate: '' });
+
+    const startEditMilestone = (m: Milestone) => {
+        setEditingMilestoneId(m.id);
+        setEditMilestoneData({
+            title: m.title,
+            description: m.description,
+            amount: toNum(m.amount).toString(),
+            dueDate: m.dueDate ? new Date(m.dueDate).toISOString().split('T')[0] : '',
+        });
+    };
+
+    const handleSaveMilestoneEdit = () => {
+        if (!editingMilestoneId) return;
+        startTransition(async () => {
+            const result = await updateMilestone(editingMilestoneId, {
+                title: editMilestoneData.title,
+                description: editMilestoneData.description,
+                amount: parseFloat(editMilestoneData.amount),
+                dueDate: editMilestoneData.dueDate ? new Date(editMilestoneData.dueDate) : null,
+            });
+            if (result.success) {
+                toast.success("Milestone updated");
+                setEditingMilestoneId(null);
+                router.refresh();
+            } else {
+                toast.error(result.error || "Failed to update milestone");
+            }
+        });
+    };
+
+    // ── Drag & Drop Reorder (DRAFT only) ──
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(KeyboardSensor)
+    );
+
+    const handleDragEnd = useCallback((event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+
+        const oldIndex = contract.milestones.findIndex(m => m.id === active.id);
+        const newIndex = contract.milestones.findIndex(m => m.id === over.id);
+        if (oldIndex === -1 || newIndex === -1) return;
+
+        const reordered = arrayMove(contract.milestones, oldIndex, newIndex);
+        const orderedIds = reordered.map(m => m.id);
+
+        startTransition(async () => {
+            const result = await reorderMilestones(contract.id, orderedIds);
+            if (result.success) {
+                toast.success("Milestones reordered");
+                router.refresh();
+            } else {
+                toast.error(result.error || "Failed to reorder");
+            }
+        });
+    }, [contract.milestones, contract.id, router]);
+
     const handleSendForReview = () => {
         startTransition(async () => {
             const result = await sendForReview(contract.id);
@@ -266,8 +354,8 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                         <button
                             onClick={() => setActiveTab('details')}
                             className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'details'
-                                    ? 'bg-white/10 text-white shadow-sm'
-                                    : 'text-zinc-400 hover:text-zinc-200'
+                                ? 'bg-white/10 text-white shadow-sm'
+                                : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                         >
                             Details
@@ -275,8 +363,8 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                         <button
                             onClick={() => setActiveTab('timeline')}
                             className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'timeline'
-                                    ? 'bg-white/10 text-white shadow-sm'
-                                    : 'text-zinc-400 hover:text-zinc-200'
+                                ? 'bg-white/10 text-white shadow-sm'
+                                : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                         >
                             Timeline
@@ -355,17 +443,26 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                         </div>
 
                         {/* Action Banners */}
-                        {canApproveTrial && (
-                            <GlassCard className="p-6 bg-indigo-500/10 border-indigo-500/20">
+
+
+                        {canUpgradeTrial && (
+                            <GlassCard className="p-6 bg-purple-500/10 border-purple-500/20">
                                 <div className="flex justify-between items-center">
                                     <div>
-                                        <h3 className="text-white font-medium">Review Trial Work</h3>
-                                        <p className="text-zinc-400 text-sm">Review submitted work before approving funds release.</p>
+                                        <h3 className="text-white font-medium">Trial Completed</h3>
+                                        <p className="text-zinc-400 text-sm">Upgrade this trial to a full standard contract.</p>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <GlassButton variant="ghost" className="text-red-400" onClick={() => wrapAction(() => rejectTrialWork(contract.id), "Trial Rejected", "Reject trial work?")}>Reject</GlassButton>
-                                        <GlassButton variant="primary" onClick={() => wrapAction(() => approveTrialWork(contract.id), "Trial Approved", "Approve trial and release funds?")}>Approve & Release</GlassButton>
-                                    </div>
+                                    <GlassButton
+                                        variant="primary"
+                                        onClick={() => wrapAction(
+                                            () => upgradeToStandard(contract.id),
+                                            "Upgraded to Standard Contract",
+                                            "Upgrade this trial to a full contract?"
+                                        )}
+                                        disabled={isPending}
+                                    >
+                                        Upgrade to Standard Contract <ArrowRight className="w-4 h-4 ml-2" />
+                                    </GlassButton>
                                 </div>
                             </GlassCard>
                         )}
@@ -411,175 +508,403 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                 <div className="flex justify-between items-center">
                                     <div>
                                         <h4 className="text-white font-medium">Ready to Start?</h4>
-                                        <p className="text-sm text-zinc-400">Escrow funded. Click Start Work to begin the milestone.</p>
+                                        <p className="text-sm text-zinc-400">
+                                            {contract.status === 'FUNDED'
+                                                ? 'Escrow funded. Click Start Work to begin.'
+                                                : 'Contract finalized. Click Start Work to activate the contract.'}
+                                        </p>
                                     </div>
                                     <GlassButton variant="primary" onClick={handleStartWork}>Start Work <Clock className="w-4 h-4 ml-2" /></GlassButton>
                                 </div>
                             </GlassCard>
                         )}
 
-                        {/* Trial Milestone Section (TRIAL ONLY) */}
-                        {isTrial && (
-                            <GlassCard className="p-6">
-                                <h2 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
-                                    <FileText className="w-5 h-5 text-indigo-400" />
-                                    Trial Milestone
-                                </h2>
-
-                                {/* Trial is always single milestone. If draft/client, show editor. Else show details. */}
-                                {canEdit ? (
-                                    <div className="space-y-4">
-                                        <div>
-                                            <label className="block text-xs font-medium text-zinc-400 mb-1">Task Title</label>
-                                            <input
-                                                type="text"
-                                                value={trialEdit.title}
-                                                onChange={e => setTrialEdit({ ...trialEdit, title: e.target.value })}
-                                                className="w-full bg-zinc-800 border border-zinc-700 rounded p-2 text-white"
-                                                placeholder="e.g., Design Initial Mockup"
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-xs font-medium text-zinc-400 mb-1">Amount</label>
-                                                <div className="relative">
-                                                    <span className="absolute left-3 top-2 text-zinc-500">$</span>
-                                                    <input
-                                                        type="number"
-                                                        value={trialEdit.amount}
-                                                        onChange={e => setTrialEdit({ ...trialEdit, amount: e.target.value })}
-                                                        className="w-full bg-zinc-800 border border-zinc-700 rounded p-2 pl-7 text-white text-right"
-                                                        placeholder="0.00"
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-medium text-zinc-400 mb-1">
-                                                    Milestone Due Date <span className="text-zinc-600 font-normal ml-1">(Deadline for submitting work)</span>
-                                                </label>
-                                                <input
-                                                    type="date"
-                                                    value={trialEdit.dueDate}
-                                                    onChange={e => handleTrialDueChange(e.target.value)}
-                                                    className="w-full bg-zinc-800 border border-zinc-700 rounded p-2 text-white"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-medium text-zinc-400 mb-1">Detailed Description</label>
-                                            <textarea
-                                                value={trialEdit.description}
-                                                onChange={e => setTrialEdit({ ...trialEdit, description: e.target.value })}
-                                                className="w-full h-32 bg-zinc-800 border border-zinc-700 rounded p-2 text-white"
-                                                placeholder="Describe the specific deliverables and requirements for this trial..."
-                                            />
-                                        </div>
-                                        <div className="flex justify-end">
-                                            <GlassButton variant="primary" size="sm" onClick={handleSaveTrialMilestone} disabled={isPending}>Save Trial Milestone</GlassButton>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-4">
-                                        <div className="flex justify-between items-start">
-                                            <h3 className="text-xl font-medium text-white">{trialMilestone?.title || "Untitled Task"}</h3>
-                                            <div className="text-right">
-                                                <div className="text-lg font-bold text-emerald-400">${trialMilestone?.amount?.toLocaleString() ?? '0.00'}</div>
-                                                <div className="text-xs text-zinc-500">Milestone Due: {trialMilestone?.dueDate ? new Date(trialMilestone.dueDate).toLocaleDateString() : 'Not set'}</div>
-                                            </div>
-                                        </div>
-                                        <div className="p-4 bg-zinc-800/30 rounded-lg border border-zinc-800 text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                                            {trialMilestone?.description || <span className="text-zinc-500 italic">No description provided.</span>}
-                                        </div>
-                                    </div>
-                                )}
-                            </GlassCard>
-                        )}
-
-                        {/* Milestones Section (FULL ONLY) */}
-                        {!isTrial && contract.rateType === 'FIXED' && (
+                        {/* Milestones Section (Unified — Trial + Standard) */}
+                        {contract.rateType === 'FIXED' && (
                             <GlassCard className="p-6">
                                 <div className="flex justify-between items-center mb-6">
                                     <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                                         <Layers className="w-5 h-5 text-indigo-400" />
-                                        Milestones
+                                        {isTrial ? 'Milestone' : 'Milestones'}
                                     </h2>
-                                    {canEdit && !isAddingMilestone && (
+                                    {canEdit && !isAddingMilestone && !isTrial && (
                                         <GlassButton variant="secondary" size="sm" onClick={() => setIsAddingMilestone(true)}>
                                             <Plus className="w-4 h-4 mr-2" /> Add Milestone
                                         </GlassButton>
                                     )}
                                 </div>
 
-                                <div className="space-y-4">
-                                    {/* List */}
-                                    {contract.milestones.map((m, i) => (
-                                        <div key={m.id} className="p-4 bg-zinc-800/50 rounded-lg border border-zinc-700 flex justify-between items-start">
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs font-mono text-zinc-500">#{i + 1}</span>
-                                                    <h4 className="font-medium text-white">{m.title}</h4>
-                                                </div>
-                                                <p className="text-sm text-zinc-400 mt-1">{m.description}</p>
-                                                <div className="text-xs text-zinc-500 mt-2">Milestone Due: {m.dueDate ? new Date(m.dueDate).toLocaleDateString() : 'Unset'}</div>
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="font-bold text-emerald-400 text-lg">${m.amount.toLocaleString()}</div>
-                                                {canDelete && (
-                                                    <button onClick={() => handleDeleteMilestone(m.id)} className="text-red-400 hover:text-red-300 text-xs mt-2 flex items-center ml-auto">
-                                                        <Trash2 className="w-3 h-3 mr-1" /> Remove
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
+                                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={canEdit ? handleDragEnd : undefined}>
+                                    <SortableContext items={contract.milestones.map(m => m.id)} strategy={verticalListSortingStrategy}>
+                                        <div className="space-y-4">
+                                            {contract.milestones.map((m, i) => {
+                                                // Determine milestone funding state from escrow locks
+                                                const lock = contract.escrowAccount?.locks.find(l => l.milestoneId === m.id);
+                                                const isFunded = !!lock && !lock.released;
+                                                const isReleased = !!lock && lock.released;
+                                                const isPaid = m.status === 'PAID';
 
-                                    {/* Add Form */}
-                                    {isAddingMilestone && (
-                                        <div className="p-4 bg-zinc-800 rounded-lg border border-indigo-500/50 space-y-3">
-                                            <h4 className="text-sm font-medium text-white">New Milestone</h4>
+                                                // Sequential check: all previous milestones must be PAID to fund this one
+                                                const allPreviousPaid = contract.milestones.slice(0, i).every(prev => prev.status === 'PAID');
+                                                const isNextFundable = !isFunded && !isReleased && !isPaid && m.status === 'PENDING' && allPreviousPaid;
+                                                const isBlockedBySequence = !isFunded && !isReleased && !isPaid && m.status === 'PENDING' && !allPreviousPaid;
+
+                                                // ── CLIENT ACTION CONDITIONS ──
+                                                const canFundThis = isClient && contract.status === 'ACTIVE' && isNextFundable;
+                                                const canApproveRelease = isClient && contract.status === 'ACTIVE' && m.status === 'SUBMITTED';
+
+                                                // ── FREELANCER ACTION CONDITIONS ──
+                                                const canStartMs = isFreelancer && contract.status === 'ACTIVE' && m.status === 'PENDING' && isFunded;
+                                                const canSubmitWork = isFreelancer && contract.status === 'ACTIVE' && m.status === 'IN_PROGRESS';
+                                                const deliverableCount = m.deliverables?.length ?? 0;
+
+                                                const isEditingThis = editingMilestoneId === m.id;
+
+                                                return (
+                                                    <SortableMilestoneCard key={m.id} id={m.id} disabled={!canEdit}>
+                                                        <div className="flex justify-between items-start">
+                                                            <div>
+                                                                <div className="flex items-center gap-2">
+                                                                    {canEdit && <span className="cursor-grab text-zinc-600 hover:text-zinc-400">⠿</span>}
+                                                                    <span className="text-xs font-mono text-zinc-500">#{m.sequence}</span>
+                                                                    <h4 className="font-medium text-white">{m.title}</h4>
+                                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-medium ${isPaid ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                                                        m.status === 'SUBMITTED' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                                                            m.status === 'APPROVED' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                                                                                m.status === 'IN_PROGRESS' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' :
+                                                                                    m.status === 'DISPUTED' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                                                                                        'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20'
+                                                                        }`}>{m.status}</span>
+                                                                </div>
+                                                                <p className="text-sm text-zinc-400 mt-1">{m.description}</p>
+                                                                <div className="text-xs text-zinc-500 mt-2">Milestone Due: {m.dueDate ? new Date(m.dueDate).toLocaleDateString() : 'Unset'}</div>
+
+                                                                {/* Status badges (ACTIVE + FULL only) */}
+                                                                {contract.status === 'ACTIVE' && (
+                                                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                                                        {isFunded && m.status !== 'SUBMITTED' && m.status !== 'APPROVED' && (
+                                                                            <span className="text-[11px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Funded — In Escrow</span>
+                                                                        )}
+                                                                        {isPaid && (
+                                                                            <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Completed</span>
+                                                                        )}
+                                                                        {isFreelancer && !isFunded && !isReleased && !isPaid && m.status === 'PENDING' && (
+                                                                            <span className="text-[11px] px-2 py-0.5 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">Waiting for Client Funding</span>
+                                                                        )}
+                                                                        {isFreelancer && m.status === 'SUBMITTED' && (
+                                                                            <span className="text-[11px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Waiting for Client Approval</span>
+                                                                        )}
+                                                                        {isClient && isBlockedBySequence && (
+                                                                            <span className="text-[11px] text-zinc-500">Previous milestone must be completed first</span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-right flex flex-col items-end gap-2">
+                                                                <div className="font-bold text-emerald-400 text-lg">${m.amount.toLocaleString()}</div>
+
+                                                                {/* ── CLIENT: Fund Milestone ── */}
+                                                                {canFundThis && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (!confirm(`Fund milestone "${m.title}" for $${toNum(m.amount).toLocaleString()}? This will debit your wallet.`)) return;
+                                                                            startTransition(async () => {
+                                                                                const result = await fundMilestone(m.id);
+                                                                                if (result.success) { toast.success(`Milestone "${m.title}" funded`); router.refresh(); }
+                                                                                else { toast.error(result.error || 'Failed to fund milestone'); }
+                                                                            });
+                                                                        }}
+                                                                        disabled={isPending}
+                                                                        className="text-[12px] px-3 py-1.5 rounded border font-medium transition-colors disabled:opacity-40"
+                                                                        style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', backgroundColor: 'rgba(52,211,153,0.08)' }}
+                                                                    >
+                                                                        Fund Milestone
+                                                                    </button>
+                                                                )}
+
+                                                                {/* ── CLIENT: Refund Milestone (PENDING + FUNDED only) ── */}
+                                                                {isClient && (contract.status === 'ACTIVE' || contract.status === 'FUNDED') && m.status === 'PENDING' && isFunded && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (!confirm(`Refund milestone "${m.title}"? $${toNum(m.amount).toLocaleString()} will be returned to your wallet. This cannot be undone.`)) return;
+                                                                            startTransition(async () => {
+                                                                                const result = await refundMilestone(m.id);
+                                                                                if (result.success) { toast.success(`Milestone "${m.title}" refunded`); router.refresh(); }
+                                                                                else { toast.error(result.error || 'Failed to refund milestone'); }
+                                                                            });
+                                                                        }}
+                                                                        disabled={isPending}
+                                                                        className="text-[12px] px-3 py-1.5 rounded border font-medium transition-colors disabled:opacity-40"
+                                                                        style={{ color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', backgroundColor: 'rgba(248,113,113,0.08)' }}
+                                                                    >
+                                                                        Refund Milestone
+                                                                    </button>
+                                                                )}
+
+                                                                {/* ── CLIENT: Approve & Release ── */}
+                                                                {canApproveRelease && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (!confirm(`Approve milestone "${m.title}" and release funds?`)) return;
+                                                                            startTransition(async () => {
+                                                                                const approveResult = await approveMilestone(m.id);
+                                                                                if (!approveResult.success) { toast.error(approveResult.error || 'Failed to approve'); return; }
+                                                                                const releaseResult = await releaseMilestoneFunds(m.id);
+                                                                                if (releaseResult.success) { toast.success(`Milestone "${m.title}" approved & funds released`); router.refresh(); }
+                                                                                else { toast.error(releaseResult.error || 'Approved but release failed'); router.refresh(); }
+                                                                            });
+                                                                        }}
+                                                                        disabled={isPending}
+                                                                        className="text-[12px] px-3 py-1.5 rounded border font-medium transition-colors disabled:opacity-40"
+                                                                        style={{ color: '#60a5fa', borderColor: 'rgba(96,165,250,0.3)', backgroundColor: 'rgba(96,165,250,0.08)' }}
+                                                                    >
+                                                                        Approve &amp; Release
+                                                                    </button>
+                                                                )}
+
+                                                                {/* ── CLIENT: Open Dispute (SUBMITTED only) ── */}
+                                                                {isClient && contract.status === 'ACTIVE' && m.status === 'SUBMITTED' && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (!confirm(`Open a dispute for milestone "${m.title}"? This will freeze escrow funds until resolved.`)) return;
+                                                                            startTransition(async () => {
+                                                                                const result = await openDispute(m.id);
+                                                                                if (result.success) { toast.success(`Dispute opened for "${m.title}"`); router.refresh(); }
+                                                                                else { toast.error(result.error || 'Failed to open dispute'); }
+                                                                            });
+                                                                        }}
+                                                                        disabled={isPending}
+                                                                        className="text-[12px] px-3 py-1.5 rounded border font-medium transition-colors disabled:opacity-40"
+                                                                        style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', backgroundColor: 'rgba(251,146,60,0.08)' }}
+                                                                    >
+                                                                        Open Dispute
+                                                                    </button>
+                                                                )}
+
+                                                                {/* ── DISPUTED: Frozen badge ── */}
+                                                                {m.status === 'DISPUTED' && (
+                                                                    <span className="text-[11px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Dispute Pending — Escrow Frozen</span>
+                                                                )}
+
+                                                                {/* ── FREELANCER: Start Milestone ── */}
+                                                                {canStartMs && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (!confirm(`Start working on "${m.title}"?`)) return;
+                                                                            startTransition(async () => {
+                                                                                const result = await startMilestone(m.id);
+                                                                                if (result.success) { toast.success(`Milestone "${m.title}" started`); router.refresh(); }
+                                                                                else { toast.error(result.error || 'Failed to start milestone'); }
+                                                                            });
+                                                                        }}
+                                                                        disabled={isPending}
+                                                                        className="text-[12px] px-3 py-1.5 rounded border font-medium transition-colors disabled:opacity-40"
+                                                                        style={{ color: '#22d3ee', borderColor: 'rgba(34,211,238,0.3)', backgroundColor: 'rgba(34,211,238,0.08)' }}
+                                                                    >
+                                                                        Start Milestone
+                                                                    </button>
+                                                                )}
+
+                                                                {/* ── FREELANCER: Submit Work ── */}
+                                                                {canSubmitWork && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (!confirm(`Submit work for "${m.title}"?`)) return;
+                                                                            startTransition(async () => {
+                                                                                const result = await submitMilestone(m.id);
+                                                                                if (result.success) { toast.success(`Milestone "${m.title}" submitted`); router.refresh(); }
+                                                                                else { toast.error(result.error || 'Failed to submit milestone'); }
+                                                                            });
+                                                                        }}
+                                                                        disabled={isPending || deliverableCount === 0}
+                                                                        className="text-[12px] px-3 py-1.5 rounded border font-medium transition-colors disabled:opacity-40"
+                                                                        style={{ color: '#fbbf24', borderColor: 'rgba(251,191,36,0.3)', backgroundColor: 'rgba(251,191,36,0.08)' }}
+                                                                    >
+                                                                        Submit Work
+                                                                    </button>
+                                                                )}
+
+                                                                {canDelete && (
+                                                                    <>
+                                                                        <button
+                                                                            onClick={() => startEditMilestone(m)}
+                                                                            className="text-blue-400 hover:text-blue-300 text-xs flex items-center"
+                                                                        >
+                                                                            <Edit className="w-3 h-3 mr-1" /> Edit
+                                                                        </button>
+                                                                        <button onClick={() => handleDeleteMilestone(m.id)} className="text-red-400 hover:text-red-300 text-xs flex items-center">
+                                                                            <Trash2 className="w-3 h-3 mr-1" /> Remove
+                                                                        </button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Inline edit form (DRAFT only) */}
+                                                        {isEditingThis && (
+                                                            <div className="mt-3 p-3 bg-zinc-900/50 rounded-lg border border-zinc-600 space-y-2">
+                                                                <input
+                                                                    className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
+                                                                    placeholder="Title"
+                                                                    value={editMilestoneData.title}
+                                                                    onChange={e => setEditMilestoneData({ ...editMilestoneData, title: e.target.value })}
+                                                                />
+                                                                <textarea
+                                                                    className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm h-16"
+                                                                    placeholder="Description"
+                                                                    value={editMilestoneData.description}
+                                                                    onChange={e => setEditMilestoneData({ ...editMilestoneData, description: e.target.value })}
+                                                                />
+                                                                <div className="flex gap-2">
+                                                                    <input
+                                                                        className="w-1/2 bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
+                                                                        type="number" step="0.01" placeholder="Amount"
+                                                                        value={editMilestoneData.amount}
+                                                                        onChange={e => setEditMilestoneData({ ...editMilestoneData, amount: e.target.value })}
+                                                                    />
+                                                                    <input
+                                                                        className="w-1/2 bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
+                                                                        type="date"
+                                                                        value={editMilestoneData.dueDate}
+                                                                        onChange={e => setEditMilestoneData({ ...editMilestoneData, dueDate: e.target.value })}
+                                                                    />
+                                                                </div>
+                                                                <div className="flex justify-end gap-2">
+                                                                    <GlassButton variant="ghost" size="sm" onClick={() => setEditingMilestoneId(null)}>Cancel</GlassButton>
+                                                                    <GlassButton variant="primary" size="sm" onClick={handleSaveMilestoneEdit} disabled={isPending}>Save</GlassButton>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Deliverables section (IN_PROGRESS milestones) */}
+                                                        {m.status === 'IN_PROGRESS' && isFreelancer && (
+                                                            <div className="mt-3 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <span className="text-xs font-medium text-zinc-400">Deliverables ({deliverableCount})</span>
+                                                                </div>
+                                                                {deliverableCount === 0 && (
+                                                                    <p className="text-xs text-amber-400 mb-2">Upload at least one deliverable before submitting work.</p>
+                                                                )}
+                                                                {(m.deliverables ?? []).map(d => (
+                                                                    <div key={d.id} className="text-xs text-zinc-300 flex items-center gap-2 py-1">
+                                                                        <FileText className="w-3 h-3 text-zinc-500" />
+                                                                        <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white underline">{d.fileUrl.split('/').pop()}</a>
+                                                                        {d.comment && <span className="text-zinc-500">— {d.comment}</span>}
+                                                                    </div>
+                                                                ))}
+                                                                {/* Upload form */}
+                                                                <form
+                                                                    className="mt-3 flex flex-col gap-2"
+                                                                    onSubmit={(e) => {
+                                                                        e.preventDefault();
+                                                                        const form = e.currentTarget;
+                                                                        const fd = new FormData(form);
+                                                                        fd.set('milestoneId', m.id);
+                                                                        startTransition(async () => {
+                                                                            const result = await createDeliverable(fd);
+                                                                            if (result.success) {
+                                                                                toast.success('Deliverable uploaded');
+                                                                                form.reset();
+                                                                                router.refresh();
+                                                                            } else {
+                                                                                toast.error(result.error || 'Upload failed');
+                                                                            }
+                                                                        });
+                                                                    }}
+                                                                >
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input
+                                                                            type="file"
+                                                                            name="file"
+                                                                            required
+                                                                            className="text-xs text-zinc-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-zinc-700 file:text-zinc-300 hover:file:bg-zinc-600"
+                                                                        />
+                                                                        <input
+                                                                            type="text"
+                                                                            name="comment"
+                                                                            placeholder="Optional comment"
+                                                                            className="flex-1 text-xs bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-white placeholder-zinc-500"
+                                                                        />
+                                                                        <button
+                                                                            type="submit"
+                                                                            disabled={isPending}
+                                                                            className="text-[11px] px-2.5 py-1 rounded border font-medium disabled:opacity-40"
+                                                                            style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', backgroundColor: 'rgba(52,211,153,0.08)' }}
+                                                                        >
+                                                                            Upload
+                                                                        </button>
+                                                                    </div>
+                                                                </form>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Deliverables review (SUBMITTED — client can review before approving) */}
+                                                        {m.status === 'SUBMITTED' && isClient && (m.deliverables ?? []).length > 0 && (
+                                                            <div className="mt-3 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                                                                <span className="text-xs font-medium text-zinc-400 block mb-2">Deliverables ({(m.deliverables ?? []).length})</span>
+                                                                {(m.deliverables ?? []).map(d => (
+                                                                    <div key={d.id} className="text-xs text-zinc-300 flex items-center gap-2 py-1">
+                                                                        <FileText className="w-3 h-3 text-zinc-500" />
+                                                                        <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white underline">{d.fileUrl.split('/').pop()}</a>
+                                                                        {d.comment && <span className="text-zinc-500">— {d.comment}</span>}
+                                                                        {d.createdAt && <span className="text-zinc-600 ml-auto">{new Date(d.createdAt).toLocaleDateString()}</span>}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </SortableMilestoneCard>
+                                                );
+                                            })}
+                                        </div>
+                                    </SortableContext>
+                                </DndContext>
+
+                                {/* Add Form */}
+                                {isAddingMilestone && (
+                                    <div className="p-4 bg-zinc-800 rounded-lg border border-indigo-500/50 space-y-3">
+                                        <h4 className="text-sm font-medium text-white">New Milestone</h4>
+                                        <input
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
+                                            placeholder="Title"
+                                            value={newMilestone.title}
+                                            onChange={e => setNewMilestone({ ...newMilestone, title: e.target.value })}
+                                        />
+                                        <div className="flex gap-2">
                                             <input
-                                                className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
-                                                placeholder="Title"
-                                                value={newMilestone.title}
-                                                onChange={e => setNewMilestone({ ...newMilestone, title: e.target.value })}
+                                                className="w-1/2 bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
+                                                type="number"
+                                                placeholder="Amount"
+                                                value={newMilestone.amount}
+                                                onChange={e => setNewMilestone({ ...newMilestone, amount: e.target.value })}
                                             />
-                                            <div className="flex gap-2">
+                                            <div className="w-1/2">
                                                 <input
-                                                    className="w-1/2 bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
-                                                    type="number"
-                                                    placeholder="Amount"
-                                                    value={newMilestone.amount}
-                                                    onChange={e => setNewMilestone({ ...newMilestone, amount: e.target.value })}
+                                                    className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
+                                                    type="date"
+                                                    value={newMilestone.dueDate}
+                                                    onChange={e => setNewMilestone({ ...newMilestone, dueDate: e.target.value })}
                                                 />
-                                                <div className="w-1/2">
-                                                    <input
-                                                        className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
-                                                        type="date"
-                                                        value={newMilestone.dueDate}
-                                                        onChange={e => setNewMilestone({ ...newMilestone, dueDate: e.target.value })}
-                                                    />
-                                                    <div className="text-[10px] text-zinc-500 mt-1">Milestone Due Date</div>
-                                                </div>
-                                            </div>
-                                            <textarea
-                                                className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm h-20"
-                                                placeholder="Description"
-                                                value={newMilestone.description}
-                                                onChange={e => setNewMilestone({ ...newMilestone, description: e.target.value })}
-                                            />
-                                            <div className="flex justify-end gap-2">
-                                                <GlassButton variant="ghost" size="sm" onClick={() => setIsAddingMilestone(false)}>Cancel</GlassButton>
-                                                <GlassButton variant="primary" size="sm" onClick={handleAddMilestone} disabled={isPending}>Add Milestone</GlassButton>
+                                                <div className="text-[10px] text-zinc-500 mt-1">Milestone Due Date</div>
                                             </div>
                                         </div>
-                                    )}
+                                        <textarea
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm h-20"
+                                            placeholder="Description"
+                                            value={newMilestone.description}
+                                            onChange={e => setNewMilestone({ ...newMilestone, description: e.target.value })}
+                                        />
+                                        <div className="flex justify-end gap-2">
+                                            <GlassButton variant="ghost" size="sm" onClick={() => setIsAddingMilestone(false)}>Cancel</GlassButton>
+                                            <GlassButton variant="primary" size="sm" onClick={handleAddMilestone} disabled={isPending}>Add Milestone</GlassButton>
+                                        </div>
+                                    </div>
+                                )}
 
-                                    {contract.milestones.length === 0 && !isAddingMilestone && (
-                                        <div className="text-center py-8 text-zinc-500 border border-dashed border-zinc-700 rounded-lg">
-                                            No milestones added yet.
-                                        </div>
-                                    )}
-                                </div>
+                                {contract.milestones.length === 0 && !isAddingMilestone && (
+                                    <div className="text-center py-8 text-zinc-500 border border-dashed border-zinc-700 rounded-lg">
+                                        No milestones added yet.
+                                    </div>
+                                )}
                             </GlassCard>
                         )}
 
@@ -623,7 +948,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                         {/* Budget info is integrated into the EscrowPanel sidebar */}
 
                         {/* Terms (Classic Full Contract Only) */}
-                        {!isTrial && (
+                        {(
                             <GlassCard className="p-6">
                                 <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                                     <FileText className="w-5 h-5 text-zinc-400" />
@@ -663,19 +988,59 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                 <GlassButton variant="primary" onClick={handleSaveContract} disabled={isPending}>Save Changes</GlassButton>
                             </div>
                         )}
-                    </>) /* end Details tab */}
-                </div>
+
+                        {/* Cancel Contract (FINALIZED/ACTIVE/FUNDED, hidden when milestones have active/disputed work) */}
+                        {isClient && (contract.status === 'FINALIZED' || contract.status === 'ACTIVE' || contract.status === 'FUNDED') && !contract.milestones.some((m: { status: string }) => ['IN_PROGRESS', 'SUBMITTED', 'APPROVED', 'DISPUTED'].includes(m.status)) && (() => {
+                            const hasFundedPending = contract.milestones.some((m: { id: string; status: string }) => {
+                                if (m.status !== 'PENDING') return false;
+                                return contract.escrowAccount?.locks.some((l: { milestoneId: string | null; released: boolean }) => l.milestoneId === m.id && !l.released);
+                            });
+                            const confirmMsg = hasFundedPending
+                                ? 'This contract has funded milestones.\nThey will be automatically refunded before cancellation.\n\nDo you want to continue?'
+                                : 'Cancel this contract? This action cannot be undone.';
+                            return (
+                                <div className="flex justify-end mt-4">
+                                    <GlassButton
+                                        variant="ghost"
+                                        onClick={() => {
+                                            if (!confirm(confirmMsg)) return;
+                                            startTransition(async () => {
+                                                const result = await cancelContract(contract.id);
+                                                if (result.success) {
+                                                    const msg = result.refundedCount && result.refundedCount > 0
+                                                        ? `Contract cancelled. ${result.refundedCount} milestone(s) auto-refunded.`
+                                                        : 'Contract cancelled';
+                                                    toast.success(msg);
+                                                    router.refresh();
+                                                } else {
+                                                    toast.error(result.error || 'Failed to cancel contract');
+                                                }
+                                            });
+                                        }}
+                                        disabled={isPending}
+                                        className="text-red-400 hover:text-red-300"
+                                    >
+                                        <XCircle className="w-4 h-4 mr-2" /> Cancel Contract
+                                    </GlassButton>
+                                </div>
+                            );
+                        })()}
+
+                    </>) /* end Details tab */
+                    }
+                </div >
 
                 {/* RIGHT COLUMN — 35% Sticky Financial Panel */}
-                <div className="lg:sticky lg:top-6 lg:self-start">
+                < div className="lg:sticky lg:top-6 lg:self-start" >
                     <EscrowPanel
                         contractId={contract.id}
                         contractStatus={contract.status}
+                        contractType={contract.type}
                         role={role}
                     />
-                </div>
+                </div >
 
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }

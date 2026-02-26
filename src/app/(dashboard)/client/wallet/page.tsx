@@ -1,24 +1,14 @@
 import React from 'react';
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
-import { getWalletDashboardData, WalletDashboardData } from '@/actions/wallet-actions';
+import { getWalletDashboardData } from '@/actions/wallet-actions';
 import WalletDashboard from '@/components/wallet/wallet-dashboard';
-
-async function loadMoreEntries(offset: number) {
-    'use server';
-    const result = await getWalletDashboardData(offset, 50);
-    if ('error' in result) return result;
-    return {
-        ledgerEntries: result.ledgerEntries,
-        hasMore: result.hasMore,
-    };
-}
 
 export default async function ClientWalletPage() {
     const session = await auth();
     if (!session?.user?.id) redirect('/login');
 
-    const data = await getWalletDashboardData(0, 50);
+    const data = await getWalletDashboardData();
 
     if ('error' in data) {
         return (
@@ -28,5 +18,5 @@ export default async function ClientWalletPage() {
         );
     }
 
-    return <WalletDashboard data={data} role="CLIENT" loadMore={loadMoreEntries} />;
+    return <WalletDashboard data={data} role="CLIENT" />;
 }

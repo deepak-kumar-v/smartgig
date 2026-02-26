@@ -125,7 +125,7 @@ export async function assertEscrowIntegrity(
         .minus(refundedFromLedger);
 
     // Tolerance: 0.001 (sub-cent, covers any Decimal rounding edge)
-    if (unreleasedTotal.minus(expectedUnreleased).abs().greaterThan('0.001')) {
+    if (!unreleasedTotal.equals(expectedUnreleased)) {
         throw new Error(
             `ESCROW_INTEGRITY_VIOLATION: lock total=${unreleasedTotal}, ` +
             `ledger expected=${expectedUnreleased} (locked=${lockedFromLedger}, ` +

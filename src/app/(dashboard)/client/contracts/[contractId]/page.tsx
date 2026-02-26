@@ -48,7 +48,7 @@ export default async function ClientContractDetailPage({ params }: PageProps) {
                 }
             },
             conversation: { select: { id: true } },
-            milestones: true,
+            milestones: { orderBy: { sequence: 'asc' }, include: { deliverables: { orderBy: { createdAt: 'asc' } } } },
             escrowAccount: {
                 include: {
                     locks: {
@@ -92,7 +92,11 @@ export default async function ClientContractDetailPage({ params }: PageProps) {
         rateType: contract.proposal?.rateType || 'FIXED',
         milestones: contract.milestones.map(m => ({
             ...m,
-            dueDate: m.dueDate ? m.dueDate.toISOString() : null
+            dueDate: m.dueDate ? m.dueDate.toISOString() : null,
+            deliverables: (m as any).deliverables?.map((d: any) => ({
+                ...d,
+                createdAt: d.createdAt?.toISOString?.() ?? d.createdAt,
+            })) ?? [],
         })),
         escrowAccount: contract.escrowAccount,
         hourlyWorkPlan: [] // Contracts start empty, do not show proposal plan

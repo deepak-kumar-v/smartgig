@@ -5,39 +5,41 @@ import { db } from '@/lib/db';
 import { Prisma, WalletTransactionType } from '@prisma/client';
 
 // ============================================================================
-// Escrow Data Actions — Ledger-Derived Contract-Level Financial Breakdown
+// Escrow Data Actions — Ledger-Derived, Role-Aware Contract Financial Data
 // ============================================================================
 
 export type MilestoneFinancialState = 'NOT_FUNDED' | 'FUNDED' | 'RELEASED' | 'REFUNDED';
 
-export interface MilestoneLockData {
+export interface MilestoneFinancialData {
     milestoneId: string;
     milestoneTitle: string;
     milestoneStatus: string;
-    lockAmount: string;
-    platformFee: string;
-    freelancerReceives: string;
-    released: boolean;
     financialState: MilestoneFinancialState;
+    lockAmount: string;
+    freelancerReceived: string;
+    platformFee: string;
+    refundedAmount: string;
 }
 
 export interface ContractEscrowData {
     escrowStatus: string;
+    contractValue: string;
+    commissionRate: string;
+    // Ledger-derived aggregates (all milestoneId-scoped)
     totalFunded: string;
     currentlyLocked: string;
     totalReleased: string;
+    releasedToFreelancer: string;
+    platformFeesPaid: string;
     totalRefunded: string;
-    remaining: string;
-    platformRevenue: string;
-    freelancerNetReceived: string;
-    commissionRate: string; // e.g. "0.1000" for 10%
-    milestoneLocks: MilestoneLockData[];
+    // Milestones
+    milestones: MilestoneFinancialData[];
 }
 
 /**
  * Returns per-contract escrow breakdown.
  * All values derived from EscrowLock + WalletLedger aggregation.
- * Commission breakdown computed server-side using Decimal math.
+ * All ledger queries are milestoneId-scoped — no contractId-only aggregations.
  */
 export async function getContractEscrowData(
     contractId: string
@@ -60,13 +62,12 @@ export async function getContractEscrowData(
                         },
                     },
                 },
-                milestones: { select: { id: true, title: true, status: true } },
+                milestones: { select: { id: true, title: true, status: true, amount: true }, orderBy: { sequence: 'asc' } },
             },
         });
 
         if (!contract) return { error: 'Contract not found' };
 
-        // Auth: must be client, freelancer, or admin on this contract
         const isClient = contract.client.userId === session.user.id;
         const isFreelancer = contract.freelancer.userId === session.user.id;
         const isAdmin = (session.user as { role?: string }).role === 'ADMIN';
@@ -74,37 +75,38 @@ export async function getContractEscrowData(
             return { error: 'Unauthorized' };
         }
 
-        // Read commission rate from contract (immutable, non-nullable after FINALIZED)
         const commissionRate = new Prisma.Decimal(contract.commissionRate);
-        const commissionRateStr = commissionRate.toFixed(4);
+        const contractValue = new Prisma.Decimal(contract.totalBudget).toFixed(2);
+
+        const milestoneIds = contract.milestones.map(m => m.id);
 
         if (!contract.escrowAccount) {
             return {
                 escrowStatus: 'PENDING',
+                contractValue,
+                commissionRate: commissionRate.toFixed(4),
                 totalFunded: '0.00',
                 currentlyLocked: '0.00',
                 totalReleased: '0.00',
+                releasedToFreelancer: '0.00',
+                platformFeesPaid: '0.00',
                 totalRefunded: '0.00',
-                remaining: '0.00',
-                platformRevenue: '0.00',
-                freelancerNetReceived: '0.00',
-                commissionRate: commissionRateStr,
-                milestoneLocks: contract.milestones.map(m => ({
+                milestones: contract.milestones.map(m => ({
                     milestoneId: m.id,
                     milestoneTitle: m.title,
                     milestoneStatus: m.status,
-                    lockAmount: '0.00',
-                    platformFee: '0.00',
-                    freelancerReceives: '0.00',
-                    released: false,
                     financialState: 'NOT_FUNDED' as const,
+                    lockAmount: '0.00',
+                    freelancerReceived: '0.00',
+                    platformFee: '0.00',
+                    refundedAmount: '0.00',
                 })),
             };
         }
 
         const locks = contract.escrowAccount.locks;
-        const milestoneIds = contract.milestones.map(m => m.id);
 
+        // ── Contract-level aggregates from EscrowLock ──
         const totalFunded = locks.reduce(
             (sum, l) => sum.plus(new Prisma.Decimal(l.amount)),
             new Prisma.Decimal(0)
@@ -112,43 +114,10 @@ export async function getContractEscrowData(
         const currentlyLocked = locks
             .filter(l => !l.released)
             .reduce((sum, l) => sum.plus(new Prisma.Decimal(l.amount)), new Prisma.Decimal(0));
-        const totalReleased = locks
-            .filter(l => l.released)
-            .reduce((sum, l) => sum.plus(new Prisma.Decimal(l.amount)), new Prisma.Decimal(0));
 
-        // Refund ledger — milestoneId-scoped (no contractId-only aggregation)
-        const refundEntries = milestoneIds.length > 0
-            ? await db.walletLedger.findMany({
-                where: {
-                    milestoneId: { in: milestoneIds },
-                    type: WalletTransactionType.REFUND,
-                },
-                select: { milestoneId: true, amount: true },
-            })
-            : [];
-
-        // Build per-milestone refund lookup
-        const refundByMilestone = new Map<string, boolean>();
-        let totalRefunded = new Prisma.Decimal(0);
-        for (const entry of refundEntries) {
-            if (entry.milestoneId) {
-                refundByMilestone.set(entry.milestoneId, true);
-                totalRefunded = totalRefunded.plus(new Prisma.Decimal(entry.amount));
-            }
-        }
-
-        const remaining = currentlyLocked;
-
-        // Commission breakdown from ledger — milestoneId-scoped
-        const [platformFeeEntries, escrowReleaseEntries] = milestoneIds.length > 0
+        // ── All ledger queries: milestoneId-scoped ──
+        const [releaseAgg, feeAgg, refundEntries] = milestoneIds.length > 0
             ? await Promise.all([
-                db.walletLedger.aggregate({
-                    where: {
-                        milestoneId: { in: milestoneIds },
-                        type: WalletTransactionType.PLATFORM_FEE,
-                    },
-                    _sum: { amount: true },
-                }),
                 db.walletLedger.aggregate({
                     where: {
                         milestoneId: { in: milestoneIds },
@@ -156,24 +125,82 @@ export async function getContractEscrowData(
                     },
                     _sum: { amount: true },
                 }),
+                db.walletLedger.aggregate({
+                    where: {
+                        milestoneId: { in: milestoneIds },
+                        type: WalletTransactionType.PLATFORM_FEE,
+                    },
+                    _sum: { amount: true },
+                }),
+                db.walletLedger.findMany({
+                    where: {
+                        milestoneId: { in: milestoneIds },
+                        type: WalletTransactionType.REFUND,
+                    },
+                    select: { milestoneId: true, amount: true },
+                }),
             ])
-            : [{ _sum: { amount: null } }, { _sum: { amount: null } }];
+            : [
+                { _sum: { amount: null } },
+                { _sum: { amount: null } },
+                [] as { milestoneId: string | null; amount: Prisma.Decimal }[],
+            ];
 
-        const platformRevenue = new Prisma.Decimal(platformFeeEntries._sum.amount ?? 0);
-        const freelancerNetReceived = new Prisma.Decimal(escrowReleaseEntries._sum.amount ?? 0);
+        const releasedToFreelancer = new Prisma.Decimal(releaseAgg._sum.amount ?? 0);
+        const platformFeesPaid = new Prisma.Decimal(feeAgg._sum.amount ?? 0);
 
-        // Derive financial state per milestone
-        const milestoneLocks: MilestoneLockData[] = contract.milestones.map(m => {
+        // Build per-milestone refund lookup
+        const refundByMilestone = new Map<string, Prisma.Decimal>();
+        let totalRefunded = new Prisma.Decimal(0);
+        for (const entry of refundEntries) {
+            if (entry.milestoneId) {
+                const prev = refundByMilestone.get(entry.milestoneId) ?? new Prisma.Decimal(0);
+                refundByMilestone.set(entry.milestoneId, prev.plus(new Prisma.Decimal(entry.amount)));
+                totalRefunded = totalRefunded.plus(new Prisma.Decimal(entry.amount));
+            }
+        }
+
+        // ── Per-milestone ledger queries (milestoneId-scoped) ──
+        const perMilestoneRelease = milestoneIds.length > 0
+            ? await db.walletLedger.groupBy({
+                by: ['milestoneId'],
+                where: {
+                    milestoneId: { in: milestoneIds },
+                    type: WalletTransactionType.ESCROW_RELEASE,
+                },
+                _sum: { amount: true },
+            })
+            : [];
+
+        const perMilestoneFee = milestoneIds.length > 0
+            ? await db.walletLedger.groupBy({
+                by: ['milestoneId'],
+                where: {
+                    milestoneId: { in: milestoneIds },
+                    type: WalletTransactionType.PLATFORM_FEE,
+                },
+                _sum: { amount: true },
+            })
+            : [];
+
+        const releaseByMs = new Map<string, Prisma.Decimal>();
+        for (const row of perMilestoneRelease) {
+            if (row.milestoneId) releaseByMs.set(row.milestoneId, new Prisma.Decimal(row._sum.amount ?? 0));
+        }
+        const feeByMs = new Map<string, Prisma.Decimal>();
+        for (const row of perMilestoneFee) {
+            if (row.milestoneId) feeByMs.set(row.milestoneId, new Prisma.Decimal(row._sum.amount ?? 0));
+        }
+
+        // ── Derive per-milestone financial data ──
+        const milestones: MilestoneFinancialData[] = contract.milestones.map(m => {
             const lock = locks.find(l => l.milestoneId === m.id);
             const lockAmt = lock ? new Prisma.Decimal(lock.amount) : new Prisma.Decimal(0);
-            const fee = lockAmt.mul(commissionRate);
-            const payout = lockAmt.minus(fee);
+            const msRelease = releaseByMs.get(m.id) ?? new Prisma.Decimal(0);
+            const msFee = feeByMs.get(m.id) ?? new Prisma.Decimal(0);
+            const msRefund = refundByMilestone.get(m.id) ?? new Prisma.Decimal(0);
 
-            // Deterministic financial state derivation:
-            // No EscrowLock → NOT_FUNDED
-            // lock.released === false → FUNDED
-            // lock.released === true + refund ledger entry → REFUNDED
-            // lock.released === true otherwise → RELEASED
+            // Deterministic financial state derivation
             let financialState: MilestoneFinancialState;
             if (!lock) {
                 financialState = 'NOT_FUNDED';
@@ -189,25 +216,25 @@ export async function getContractEscrowData(
                 milestoneId: m.id,
                 milestoneTitle: m.title,
                 milestoneStatus: m.status,
-                lockAmount: lockAmt.toFixed(2),
-                platformFee: fee.toFixed(2),
-                freelancerReceives: payout.toFixed(2),
-                released: lock?.released ?? false,
                 financialState,
+                lockAmount: lockAmt.toFixed(2),
+                freelancerReceived: msRelease.toFixed(2),
+                platformFee: msFee.toFixed(2),
+                refundedAmount: msRefund.toFixed(2),
             };
         });
 
         return {
             escrowStatus: contract.escrowAccount.status,
+            contractValue,
+            commissionRate: commissionRate.toFixed(4),
             totalFunded: totalFunded.toFixed(2),
             currentlyLocked: currentlyLocked.toFixed(2),
-            totalReleased: totalReleased.toFixed(2),
+            totalReleased: releasedToFreelancer.plus(platformFeesPaid).toFixed(2),
+            releasedToFreelancer: releasedToFreelancer.toFixed(2),
+            platformFeesPaid: platformFeesPaid.toFixed(2),
             totalRefunded: totalRefunded.toFixed(2),
-            remaining: remaining.toFixed(2),
-            platformRevenue: platformRevenue.toFixed(2),
-            freelancerNetReceived: freelancerNetReceived.toFixed(2),
-            commissionRate: commissionRateStr,
-            milestoneLocks,
+            milestones,
         };
     } catch (error) {
         console.error('[getContractEscrowData] Error:', error);

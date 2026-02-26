@@ -6,6 +6,13 @@ import { Providers } from '@/providers/providers';
 import { Toaster } from 'sonner';
 import { OAuthBanner } from '@/components/auth/oauth-banner';
 import { auth } from '@/lib/auth';
+import { SystemIntelligenceProvider } from '@/components/system-intelligence/system-intelligence-provider';
+import { assertSystemIntelligenceIntegrity } from '@/system/intelligence-registry';
+
+// Governance Lockdown — crash immediately if version drift in production
+if (process.env.NODE_ENV === 'production') {
+    assertSystemIntelligenceIntegrity();
+}
 
 const manrope = Manrope({ subsets: ['latin'], variable: '--font-manrope' })
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
@@ -27,9 +34,11 @@ export default async function RootLayout({
             <body className={`${manrope.variable} ${inter.variable} font-sans bg-background text-foreground overflow-x-hidden selection:bg-indigo-500/30`}>
                 <Providers session={session}>
                     <SecurityProvider>
-                        <OAuthBanner />
-                        {children}
-                        <Toaster position="top-center" richColors theme="dark" />
+                        <SystemIntelligenceProvider>
+                            <OAuthBanner />
+                            {children}
+                            <Toaster position="top-center" richColors theme="dark" />
+                        </SystemIntelligenceProvider>
                     </SecurityProvider>
                 </Providers>
             </body>

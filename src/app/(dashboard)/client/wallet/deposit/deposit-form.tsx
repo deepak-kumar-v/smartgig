@@ -6,10 +6,12 @@ import { depositToWallet } from '@/actions/wallet-actions';
 
 export default function DepositForm({
     available,
-    total,
+    locked,
+    pendingWithdrawals,
 }: {
     available: string;
-    total: string;
+    locked: string;
+    pendingWithdrawals: string;
 }) {
     const [amount, setAmount] = useState('');
     const [isPending, startTransition] = useTransition();
@@ -64,10 +66,19 @@ export default function DepositForm({
                 <div className="w-px h-8" style={{ backgroundColor: '#1E2328' }} />
                 <div>
                     <span className="text-[11px] uppercase tracking-widest block" style={{ color: '#71717a' }}>
-                        Total Balance
+                        Locked in Escrow
                     </span>
-                    <span className="text-[20px] font-semibold tabular-nums" style={{ color: '#ffffff' }}>
-                        ${total}
+                    <span className="text-[20px] font-semibold tabular-nums" style={{ color: '#fbbf24' }}>
+                        ${locked}
+                    </span>
+                </div>
+                <div className="w-px h-8" style={{ backgroundColor: '#1E2328' }} />
+                <div>
+                    <span className="text-[11px] uppercase tracking-widest block" style={{ color: '#71717a' }}>
+                        Pending Withdrawals
+                    </span>
+                    <span className="text-[20px] font-semibold tabular-nums" style={{ color: '#fb923c' }}>
+                        ${pendingWithdrawals}
                     </span>
                 </div>
             </div>

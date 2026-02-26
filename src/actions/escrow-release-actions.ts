@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 import { assertEscrowIntegrity } from '@/lib/escrow-integrity';
+import { assertDecimalNonNegative } from '@/lib/financial-assertions';
 import { getPlatformWallet } from '@/lib/platform-wallet';
 import {
     ContractStatus,
@@ -180,6 +181,8 @@ export async function releaseMilestoneFunds(milestoneId: string, idempotencyKey?
             if (freelancerPayout.isNegative()) {
                 throw new Error(`COMMISSION_EXCEEDS_LOCK: commission=${commissionAmount}, lock=${lockAmount}`);
             }
+            assertDecimalNonNegative(commissionAmount, 'commissionAmount');
+            assertDecimalNonNegative(freelancerPayout, 'freelancerPayout');
 
             // J. WalletLedger credit for freelancer (payout after commission)
             await tx.walletLedger.create({
@@ -218,19 +221,24 @@ export async function releaseMilestoneFunds(milestoneId: string, idempotencyKey?
                 data: { status: MilestoneStatus.PAID },
             });
 
-            // N. Check if all locks are released and no milestones are disputed
-            const allLocks = await tx.escrowLock.findMany({
-                where: { escrowId: escrow.id },
-                select: { released: true },
+            // N. Check if ALL milestones for this contract are PAID
+            //    Only then mark contract as COMPLETED.
+            //    Previous bug: checked only escrow locks (unfunded milestones have no lock,
+            //    causing premature COMPLETED after first milestone paid).
+            const remainingUnpaid = await tx.milestone.findFirst({
+                where: {
+                    contractId: contract.id,
+                    status: { not: MilestoneStatus.PAID },
+                },
+                select: { id: true },
             });
-            const allReleased = allLocks.every(l => l.released === true);
 
             const disputedMilestones = await tx.milestone.findMany({
                 where: { contractId: contract.id, status: MilestoneStatus.DISPUTED },
                 select: { id: true },
             });
 
-            if (allReleased && disputedMilestones.length === 0) {
+            if (!remainingUnpaid && disputedMilestones.length === 0) {
                 await tx.contract.update({
                     where: { id: contract.id },
                     data: { status: ContractStatus.COMPLETED },
@@ -280,6 +288,21 @@ export async function releaseMilestoneFunds(milestoneId: string, idempotencyKey?
                 }
             }
 
+            // R. Mutation log (append-only, inside tx)
+            await tx.financialMutationLog.create({
+                data: {
+                    action: 'RELEASE_MILESTONE_FUNDS',
+                    userId: session.user.id,
+                    contractId: contract.id,
+                    milestoneId,
+                    metadata: {
+                        lockAmount: releaseAmount.toFixed(2),
+                        commission: commissionAmount.toFixed(2),
+                        payout: freelancerPayout.toFixed(2),
+                    },
+                },
+            });
+
         }, { isolationLevel: 'Serializable' });
 
         // ── Post-transaction logging ──
@@ -326,8 +349,16 @@ export async function releaseMilestoneFunds(milestoneId: string, idempotencyKey?
 
         return { success: true };
     } catch (error) {
+        db.financialErrorLog.create({
+            data: {
+                action: 'RELEASE_MILESTONE_FUNDS',
+                userId: undefined,
+                milestoneId,
+                errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                stackTrace: error instanceof Error ? error.stack ?? null : null,
+            },
+        }).catch(() => { });
         const message = error instanceof Error ? error.message : 'Failed to release milestone funds';
-        console.error('[releaseMilestoneFunds] Error:', error);
         return { error: message };
     }
 }

@@ -88,8 +88,17 @@ export interface WalletSnapshot {
 }
 
 export async function getWalletSnapshot(userId: string): Promise<WalletSnapshot> {
-    const [totalBalance, lockedBalance, pendingAgg] = await Promise.all([
-        getWalletBalance(userId),
+    const [ledgerTotal, lockedBalance, pendingAgg] = await Promise.all([
+        // Source of truth: SUM of ALL ledger entries (deposits positive, locks negative)
+        (async () => {
+            const wallet = await db.wallet.findUnique({ where: { userId } });
+            if (!wallet) return new Prisma.Decimal(0);
+            const result = await db.walletLedger.aggregate({
+                where: { walletId: wallet.id },
+                _sum: { amount: true },
+            });
+            return new Prisma.Decimal(result._sum.amount ?? 0);
+        })(),
         getLockedBalance(userId),
         db.withdrawalRequest.aggregate({
             where: { userId, status: 'PENDING' },
@@ -98,10 +107,21 @@ export async function getWalletSnapshot(userId: string): Promise<WalletSnapshot>
     ]);
 
     const pendingWithdrawals = new Prisma.Decimal(pendingAgg._sum.amount ?? 0);
-    const availableBalance = totalBalance.minus(lockedBalance).minus(pendingWithdrawals);
+    // Available = ledger total - pending withdrawals
+    // Ledger already contains ESCROW_LOCK debits as negative entries.
+    const rawAvailable = ledgerTotal.minus(pendingWithdrawals);
+
+    // Financial integrity guard
+    if (rawAvailable.isNegative()) {
+        console.error(`[FINANCIAL INTEGRITY] Negative available balance for user ${userId}: ledgerTotal=${ledgerTotal}, locked=${lockedBalance}, pending=${pendingWithdrawals}, raw=${rawAvailable}`);
+    }
+
+    const availableBalance = rawAvailable.isNegative() ? new Prisma.Decimal(0) : rawAvailable;
+
+    console.log(`[Wallet Audit] userId=${userId} | ledgerTotal=${ledgerTotal.toFixed(2)} | locked=${lockedBalance.toFixed(2)} | pending=${pendingWithdrawals.toFixed(2)} | available=${availableBalance.toFixed(2)}`);
 
     return {
-        totalBalance,
+        totalBalance: ledgerTotal,
         lockedBalance,
         pendingWithdrawals,
         availableBalance,
@@ -167,6 +187,15 @@ export async function depositToWallet(
                     type: WalletTransactionType.DEPOSIT,
                 },
             });
+
+            // Mutation log (append-only, inside tx)
+            await tx.financialMutationLog.create({
+                data: {
+                    action: 'DEPOSIT_TO_WALLET',
+                    userId,
+                    metadata: { amount: depositAmount.toFixed(2) },
+                },
+            });
         }, { isolationLevel: 'Serializable' });
 
         // Compute new balance after deposit
@@ -174,8 +203,15 @@ export async function depositToWallet(
 
         return { success: true, balance: newBalance.toFixed(2) };
     } catch (error) {
-        console.error('[depositToWallet] Error:', error);
-        return { error: 'Failed to deposit to wallet' };
+        db.financialErrorLog.create({
+            data: {
+                action: 'DEPOSIT_TO_WALLET',
+                userId: undefined,
+                errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                stackTrace: error instanceof Error ? error.stack ?? null : null,
+            },
+        }).catch(() => { });
+        return { error: error instanceof Error ? error.message : 'Financial operation failed' };
     }
 }
 
@@ -184,7 +220,6 @@ export async function depositToWallet(
 // ============================================================================
 
 export interface WalletDashboardData {
-    totalBalance: string;
     lockedBalance: string;
     pendingWithdrawals: string;
     availableBalance: string;
@@ -192,23 +227,21 @@ export interface WalletDashboardData {
         id: string;
         type: string;
         amount: string;
+        runningBalance: string;
         contractId: string | null;
         milestoneId: string | null;
         contractTitle: string | null;
         milestoneTitle: string | null;
         createdAt: string;
     }[];
-    hasMore: boolean;
 }
 
 /**
  * Returns all wallet dashboard data in one server call.
- * All balances are ledger-derived. No stored balance fields.
+ * ALL ledger entries fetched — no pagination, no truncation.
+ * Running balance reconstructed from zero (ASC), then reversed for display (top=latest).
  */
-export async function getWalletDashboardData(
-    offset: number = 0,
-    limit: number = 50
-): Promise<WalletDashboardData | { error: string }> {
+export async function getWalletDashboardData(): Promise<WalletDashboardData | { error: string }> {
     try {
         const session = await auth();
         if (!session?.user?.id) return { error: 'Unauthorized' };
@@ -219,17 +252,16 @@ export async function getWalletDashboardData(
 
         if (!wallet) {
             return {
-                totalBalance: '0.00',
                 lockedBalance: '0.00',
                 pendingWithdrawals: '0.00',
                 availableBalance: '0.00',
                 ledgerEntries: [],
-                hasMore: false,
             };
         }
 
-        // Parallel: balances + ledger entries + pending withdrawals
-        const [balanceAgg, lockedAgg, pendingAgg, entries] = await Promise.all([
+        // ── Parallel: source-of-truth aggregates + ALL ledger entries (ASC) ──
+        const [ledgerTotalAgg, lockedAgg, pendingAgg, allEntries] = await Promise.all([
+            // SUM of ALL ledger entries — the single source of truth for wallet total
             db.walletLedger.aggregate({
                 where: { walletId: wallet.id },
                 _sum: { amount: true },
@@ -249,25 +281,47 @@ export async function getWalletDashboardData(
                 where: { userId, status: 'PENDING' },
                 _sum: { amount: true },
             }),
+            // ALL entries, ASC order — mandatory for balance reconstruction
             db.walletLedger.findMany({
                 where: { walletId: wallet.id },
-                orderBy: { createdAt: 'desc' },
-                take: limit + 1,
-                skip: offset,
+                orderBy: { createdAt: 'asc' },
             }),
         ]);
 
-        const totalBalance = new Prisma.Decimal(balanceAgg._sum.amount ?? 0);
+        const ledgerTotal = new Prisma.Decimal(ledgerTotalAgg._sum.amount ?? 0);
         const lockedBalance = new Prisma.Decimal(lockedAgg._sum.amount ?? 0);
         const pendingWithdrawals = new Prisma.Decimal(pendingAgg._sum.amount ?? 0);
-        const availableBalance = totalBalance.minus(lockedBalance).minus(pendingWithdrawals);
 
-        const hasMore = entries.length > limit;
-        const sliced = entries.slice(0, limit);
+        // Available = ledger total - pending withdrawals
+        // Ledger already contains ESCROW_LOCK debits as negative entries.
+        // Do NOT subtract lockedBalance — that would double-count.
+        const rawAvailable = ledgerTotal.minus(pendingWithdrawals);
+        if (rawAvailable.isNegative()) {
+            console.error(`[FINANCIAL INTEGRITY] Negative available balance: ledgerTotal=${ledgerTotal}, locked=${lockedBalance}, pending=${pendingWithdrawals}, raw=${rawAvailable}`);
+        }
+        const availableBalance = rawAvailable.isNegative() ? new Prisma.Decimal(0) : rawAvailable;
 
-        // Bulk lookup contract + milestone titles
-        const contractIds = [...new Set(sliced.map(e => e.contractId).filter(Boolean))] as string[];
-        const milestoneIds = [...new Set(sliced.map(e => e.milestoneId).filter(Boolean))] as string[];
+        // ── Reconstruct running balance from zero (ASC order) ──
+        let running = new Prisma.Decimal(0);
+        const computedEntries = allEntries.map(e => {
+            running = running.plus(e.amount);
+            return { ...e, runningBalance: running };
+        });
+
+        // ── Financial invariant check ──
+        // Running balance after last entry must equal the aggregate ledger total
+        const totalFromLedger = running;
+        if (!totalFromLedger.equals(ledgerTotal)) {
+            console.error(`[FINANCIAL INTEGRITY ERROR] Ledger running sum (${totalFromLedger.toFixed(2)}) != aggregate (${ledgerTotal.toFixed(2)})`);
+        }
+        console.log(`[Wallet Audit] userId=${userId} | ledgerTotal=${ledgerTotal.toFixed(2)} | locked=${lockedBalance.toFixed(2)} | pending=${pendingWithdrawals.toFixed(2)} | available=${availableBalance.toFixed(2)}`);
+
+        // ── Reverse for display: top = latest ──
+        const displayEntries = [...computedEntries].reverse();
+
+        // ── Bulk lookup contract + milestone titles ──
+        const contractIds = [...new Set(displayEntries.map(e => e.contractId).filter(Boolean))] as string[];
+        const milestoneIds = [...new Set(displayEntries.map(e => e.milestoneId).filter(Boolean))] as string[];
 
         const [contracts, milestones] = await Promise.all([
             contractIds.length > 0
@@ -281,10 +335,11 @@ export async function getWalletDashboardData(
         const contractMap = new Map(contracts.map(c => [c.id, c.title]));
         const milestoneMap = new Map(milestones.map(m => [m.id, m.title]));
 
-        const ledgerEntries = sliced.map(e => ({
+        const ledgerEntries = displayEntries.map(e => ({
             id: e.id,
             type: e.type,
             amount: new Prisma.Decimal(e.amount).toFixed(2),
+            runningBalance: e.runningBalance.toFixed(2),
             contractId: e.contractId,
             milestoneId: e.milestoneId,
             contractTitle: e.contractId ? contractMap.get(e.contractId) ?? null : null,
@@ -293,16 +348,13 @@ export async function getWalletDashboardData(
         }));
 
         return {
-            totalBalance: totalBalance.toFixed(2),
             lockedBalance: lockedBalance.toFixed(2),
             pendingWithdrawals: pendingWithdrawals.toFixed(2),
             availableBalance: availableBalance.toFixed(2),
             ledgerEntries,
-            hasMore,
         };
     } catch (error) {
         console.error('[getWalletDashboardData] Error:', error);
         return { error: 'Failed to load wallet data' };
     }
 }
-

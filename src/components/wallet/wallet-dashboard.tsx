@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useTransition } from 'react';
+import React from 'react';
 import { format } from 'date-fns';
 import Link from 'next/link';
 
@@ -12,6 +12,7 @@ interface LedgerEntry {
     id: string;
     type: string;
     amount: string;
+    runningBalance: string;
     contractId: string | null;
     milestoneId: string | null;
     contractTitle: string | null;
@@ -20,21 +21,15 @@ interface LedgerEntry {
 }
 
 interface WalletData {
-    totalBalance: string;
     lockedBalance: string;
     pendingWithdrawals: string;
     availableBalance: string;
     ledgerEntries: LedgerEntry[];
-    hasMore: boolean;
 }
 
 interface WalletDashboardProps {
     data: WalletData;
     role: 'CLIENT' | 'FREELANCER';
-    loadMore: (offset: number) => Promise<{
-        ledgerEntries: LedgerEntry[];
-        hasMore: boolean;
-    } | { error: string }>;
 }
 
 // ============================================================================
@@ -64,32 +59,7 @@ function typeLabel(type: string): string {
 // Wallet Dashboard Component
 // ============================================================================
 
-export default function WalletDashboard({ data, role, loadMore }: WalletDashboardProps) {
-    const [entries, setEntries] = useState<LedgerEntry[]>(data.ledgerEntries);
-    const [hasMore, setHasMore] = useState(data.hasMore);
-    const [isPending, startTransition] = useTransition();
-
-    // Running balance computation (from top = most recent)
-    const runningBalances = React.useMemo(() => {
-        const total = parseFloat(data.totalBalance);
-        const result: number[] = [];
-        let running = total;
-        for (const entry of entries) {
-            result.push(running);
-            running -= parseFloat(entry.amount);
-        }
-        return result;
-    }, [entries, data.totalBalance]);
-
-    const handleLoadMore = useCallback(() => {
-        startTransition(async () => {
-            const result = await loadMore(entries.length);
-            if ('error' in result) return;
-            setEntries(prev => [...prev, ...result.ledgerEntries]);
-            setHasMore(result.hasMore);
-        });
-    }, [entries.length, loadMore]);
-
+export default function WalletDashboard({ data, role }: WalletDashboardProps) {
     return (
         <div className="min-h-screen" style={{ backgroundColor: '#0B0F14' }}>
             <div className="w-full px-6 md:px-8 xl:px-16 py-8">
@@ -119,27 +89,24 @@ export default function WalletDashboard({ data, role, loadMore }: WalletDashboar
                         <div className="mb-1">
                             <span className="text-[12px] text-zinc-500 uppercase tracking-widest font-medium">Available Balance</span>
                         </div>
-                        <div className="text-[32px] font-bold text-emerald-400 tracking-tight mb-6">
+                        <div className="text-[32px] font-bold text-emerald-400 tracking-tight mb-1">
                             ${parseFloat(data.availableBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </div>
-                        <div className="grid grid-cols-3 gap-6">
-                            <div>
-                                <span className="text-[12px] text-zinc-500 uppercase tracking-widest font-medium block mb-1">Total Balance</span>
-                                <span className="text-[20px] font-semibold text-white">
-                                    ${parseFloat(data.totalBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                </span>
-                            </div>
+                        <p className="text-[11px] text-zinc-600 mb-6">Funds you can use to fund contracts or request withdrawal.</p>
+                        <div className="grid grid-cols-2 gap-6">
                             <div>
                                 <span className="text-[12px] text-zinc-500 uppercase tracking-widest font-medium block mb-1">Locked in Escrow</span>
                                 <span className="text-[20px] font-semibold text-amber-400">
                                     ${parseFloat(data.lockedBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                 </span>
+                                <p className="text-[10px] text-zinc-600 mt-0.5">Reserved for active milestones.</p>
                             </div>
                             <div>
                                 <span className="text-[12px] text-zinc-500 uppercase tracking-widest font-medium block mb-1">Pending Withdrawals</span>
                                 <span className="text-[20px] font-semibold text-orange-400">
                                     ${parseFloat(data.pendingWithdrawals).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                 </span>
+                                <p className="text-[10px] text-zinc-600 mt-0.5">Being processed. Temporarily unavailable.</p>
                             </div>
                         </div>
                     </div>
@@ -186,16 +153,15 @@ export default function WalletDashboard({ data, role, loadMore }: WalletDashboar
                         <div className="text-right">Balance</div>
                     </div>
 
-                    {/* Table Body */}
-                    {entries.length === 0 ? (
+                    {/* Table Body — All entries, top=latest, running balance from backend */}
+                    {data.ledgerEntries.length === 0 ? (
                         <div className="px-6 py-16 text-center text-zinc-600 text-[14px]">
                             No transactions yet
                         </div>
                     ) : (
                         <div>
-                            {entries.map((entry, i) => {
+                            {data.ledgerEntries.map((entry) => {
                                 const { text: amtText, color: amtColor } = formatAmount(entry.amount);
-                                const bal = runningBalances[i];
                                 return (
                                     <Link key={entry.id}
                                         href={role === 'CLIENT'
@@ -220,25 +186,11 @@ export default function WalletDashboard({ data, role, loadMore }: WalletDashboar
                                             {amtText}
                                         </div>
                                         <div className="text-right tabular-nums text-zinc-400">
-                                            ${bal !== undefined ? bal.toFixed(2) : '—'}
+                                            ${parseFloat(entry.runningBalance).toFixed(2)}
                                         </div>
                                     </Link>
                                 );
                             })}
-                        </div>
-                    )}
-
-                    {/* Load More */}
-                    {hasMore && (
-                        <div className="px-6 py-4 text-center border-t" style={{ borderColor: '#1E2328' }}>
-                            <button
-                                onClick={handleLoadMore}
-                                disabled={isPending}
-                                className="text-[14px] font-medium px-6 py-2 rounded border transition-colors disabled:opacity-40"
-                                style={{ color: '#94a3b8', borderColor: '#2A2E34', backgroundColor: 'transparent' }}
-                            >
-                                {isPending ? 'Loading...' : 'Load More'}
-                            </button>
                         </div>
                     )}
                 </div>

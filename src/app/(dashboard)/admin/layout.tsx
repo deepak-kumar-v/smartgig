@@ -12,6 +12,7 @@ const adminNavItems: NavItem[] = [
     { name: 'Disputes', href: '/admin/disputes', icon: 'alert' },
     { name: 'Financial Overview', href: '/admin/financial-overview', icon: 'wallet' },
     { name: 'Withdrawals', href: '/admin/withdrawals', icon: 'wallet' },
+    { name: 'Diagnostics', href: '/admin/financial-diagnostics', icon: 'shield' },
     { name: 'Trust & Safety', href: '/admin/trust', icon: 'shield' },
 ];
 

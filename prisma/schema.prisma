@@ -343,6 +343,7 @@ model Contract {
 model Milestone {
   id          String          @id @default(cuid())
   contractId  String
+  sequence    Int
   contract    Contract        @relation(fields: [contractId], references: [id])
   title       String
   description String
@@ -355,6 +356,8 @@ model Milestone {
   deliverables       Deliverable[]
   escrowLocks        EscrowLock[]
   changeRequests     MilestoneChangeRequest[]
+
+  @@unique([contractId, sequence])
 }
 
 model Deliverable {
@@ -386,6 +389,8 @@ model EscrowLock {
   createdAt   DateTime      @default(now())
 
   @@unique([escrowId, milestoneId])
+  @@index([escrowId, released])
+  @@index([milestoneId])
 }
 
 model Wallet {
@@ -405,6 +410,11 @@ model WalletLedger {
   contractId  String?
   milestoneId String?
   createdAt   DateTime              @default(now())
+
+  @@index([walletId, createdAt(sort: Desc)])
+  @@index([milestoneId, type])
+  @@index([contractId, type])
+  @@index([type, createdAt(sort: Desc)])
 }
 
 model MilestoneChangeRequest {
@@ -623,6 +633,9 @@ model WithdrawalRequest {
   status    WithdrawalStatus @default(PENDING)
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
+
+  @@index([userId, status])
+  @@index([status, createdAt])
 }
 
 // Audit Log Model
@@ -697,4 +710,37 @@ model SystemConfig {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// Financial Mutation Log — Append-Only, Immutable
+// ============================================================================
+model FinancialMutationLog {
+  id          String   @id @default(cuid())
+  action      String
+  userId      String?
+  contractId  String?
+  milestoneId String?
+  metadata    Json
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([action])
+}
+
+// ============================================================================
+// Financial Error Log — Append-Only, Immutable
+// ============================================================================
+model FinancialErrorLog {
+  id           String   @id @default(cuid())
+  action       String
+  userId       String?
+  contractId   String?
+  milestoneId  String?
+  errorMessage String
+  stackTrace   String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([action])
 }

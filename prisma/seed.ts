@@ -59,7 +59,19 @@ async function main() {
         }
     })
 
-    console.log('✅ Demo users created successfully')
+    // -----------------------------
+    // System Config (required for contract finalization)
+    // -----------------------------
+    await prisma.systemConfig.upsert({
+        where: { key: 'platformCommissionRate' },
+        update: {},
+        create: {
+            key: 'platformCommissionRate',
+            value: '0.10',
+        },
+    })
+
+    console.log('✅ Demo users and system config created successfully')
 }
 
 main()

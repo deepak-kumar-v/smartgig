@@ -125,6 +125,7 @@ export async function createContractFromProposal(
             await db.milestone.create({
                 data: {
                     contractId: contract.id,
+                    sequence: 1,
                     title: "Trial Task",
                     description: "",
                     amount: 0,
@@ -578,12 +579,16 @@ export async function finalizeContract(contractId: string) {
         // Atomic: snapshot commission rate + finalize status
         await db.$transaction(async (tx) => {
             // Fetch platform commission rate from SystemConfig
-            const configRow = await tx.systemConfig.findUnique({
+            let configRow = await tx.systemConfig.findUnique({
                 where: { key: 'platformCommissionRate' },
             });
 
+            // Defensive: auto-create default if missing (e.g. after DB reset without seed)
             if (!configRow) {
-                throw new Error('SYSTEM_CONFIG_MISSING: platformCommissionRate not found in SystemConfig');
+                console.warn('[finalizeContract] platformCommissionRate missing from SystemConfig — creating default 0.10 (10%)');
+                configRow = await tx.systemConfig.create({
+                    data: { key: 'platformCommissionRate', value: '0.10' },
+                });
             }
 
             const commissionRate = new Prisma.Decimal(configRow.value);
@@ -656,13 +661,15 @@ export async function startContract(contractId: string) {
             return { success: false, error: "Unauthorized. You are not the freelancer on this contract." };
         }
 
-        if (contract.status !== ContractStatus.FUNDED) {
-            return { success: false, error: `Cannot start contract. Current status: ${contract.status}, must be FUNDED.` };
+        if (contract.status !== ContractStatus.FUNDED && contract.status !== ContractStatus.FINALIZED) {
+            return { success: false, error: `Cannot start contract. Current status: ${contract.status}, must be FUNDED or FINALIZED.` };
         }
 
+        const previousStatus = contract.status;
+
         await db.contract.update({
-            where: { id: contractId, status: ContractStatus.FUNDED },
-            data: { status: ContractStatus.ACTIVE }
+            where: { id: contractId },
+            data: { status: ContractStatus.ACTIVE, startDate: new Date() }
         });
 
         // Lifecycle Event: CONTRACT_STARTED
@@ -684,7 +691,7 @@ export async function startContract(contractId: string) {
                     action: 'CONTRACT_STARTED',
                     entityType: 'CONTRACT',
                     entityId: contractId,
-                    details: { previousStatus: 'FUNDED' },
+                    details: { previousStatus },
                 },
             })
             .catch((err: unknown) => {
@@ -916,3 +923,115 @@ export async function deleteContract(contractId: string) {
         return { success: false, error: "Failed to delete contract." };
     }
 }
+
+// ============================================================================
+// cancelContract — Explicit contract cancellation (CLIENT only)
+// Separate from refund. Does NOT touch escrow — only sets status.
+// ============================================================================
+
+export async function cancelContract(contractId: string): Promise<{ success?: boolean; error?: string; refundedCount?: number }> {
+    try {
+        const session = await auth();
+        if (!session?.user?.id || session.user.role !== 'CLIENT') {
+            return { error: 'Unauthorized. Only clients can cancel contracts.' };
+        }
+
+        const contract = await db.contract.findUnique({
+            where: { id: contractId },
+            include: {
+                client: true,
+                freelancer: { include: { user: true } },
+                milestones: { select: { id: true, status: true, title: true } },
+                escrowAccount: { include: { locks: true } },
+            },
+        });
+
+        if (!contract) return { error: 'Contract not found.' };
+
+        // Ownership check
+        const clientProfile = await db.clientProfile.findUnique({
+            where: { userId: session.user.id },
+        });
+        if (!clientProfile || contract.clientId !== clientProfile.id) {
+            return { error: 'Unauthorized. You do not own this contract.' };
+        }
+
+        // Status guard: FINALIZED, ACTIVE, or FUNDED only
+        if (contract.status !== ContractStatus.FINALIZED && contract.status !== ContractStatus.ACTIVE && contract.status !== ContractStatus.FUNDED) {
+            return { error: `Cannot cancel contract. Status is ${contract.status}, must be FINALIZED, ACTIVE, or FUNDED.` };
+        }
+
+        // Block if any milestone is IN_PROGRESS, SUBMITTED, APPROVED, or DISPUTED
+        const blockedStatuses = ['IN_PROGRESS', 'SUBMITTED', 'APPROVED', 'DISPUTED'];
+        const blockedMilestones = contract.milestones.filter((m: { status: string }) =>
+            blockedStatuses.includes(m.status)
+        );
+        if (blockedMilestones.length > 0) {
+            const details = blockedMilestones.map((m: { title: string; status: string }) => `"${m.title}" (${m.status})`).join(', ');
+            return { error: `Cannot cancel: ${blockedMilestones.length} milestone(s) have active/disputed work — ${details}. Resolve them first.` };
+        }
+
+        // ── Hybrid: Auto-refund funded PENDING milestones ──
+        const { refundMilestone } = await import('@/actions/escrow-actions');
+
+        const fundedPendingMilestones = contract.milestones.filter((m: { id: string; status: string }) => {
+            if (m.status !== 'PENDING') return false;
+            const lock = contract.escrowAccount?.locks.find(
+                (l: { milestoneId: string | null; released: boolean }) => l.milestoneId === m.id && !l.released
+            );
+            return !!lock;
+        });
+
+        let refundedCount = 0;
+        for (const m of fundedPendingMilestones) {
+            const refundResult = await refundMilestone(m.id);
+            if (refundResult.success) {
+                refundedCount++;
+            } else {
+                console.error(`[cancelContract] Auto-refund failed for milestone ${m.id}: ${refundResult.error}`);
+                return { error: `Auto-refund failed for milestone "${m.title}": ${refundResult.error}. Contract was NOT cancelled.` };
+            }
+        }
+
+        // ── Set contract to CANCELLED ──
+        await db.contract.update({
+            where: { id: contractId },
+            data: { status: ContractStatus.CANCELLED },
+        });
+
+        // Lifecycle event
+        recordLifecycleEvent({
+            contractId,
+            eventType: 'CONTRACT_CANCELLED',
+            devState: 'CANCELLED',
+            userMessage: refundedCount > 0
+                ? `Client cancelled the contract. ${refundedCount} milestone(s) auto-refunded.`
+                : 'Client cancelled the contract',
+            actorId: session.user.id,
+            actorRole: 'CLIENT',
+            metadata: { refundedCount },
+        });
+
+        // Notify freelancer
+        db.notification.create({
+            data: {
+                userId: contract.freelancer.userId,
+                title: 'Contract Cancelled',
+                message: refundedCount > 0
+                    ? `The contract "${contract.title}" has been cancelled. ${refundedCount} funded milestone(s) were automatically refunded.`
+                    : `The contract "${contract.title}" has been cancelled by the client.`,
+                type: 'CONTRACT_CANCELLED',
+            },
+        }).catch((err: unknown) => console.error('[Notification] Failed to notify freelancer about cancellation:', err));
+
+        revalidatePath('/client/contracts');
+        revalidatePath(`/client/contracts/${contractId}`);
+        revalidatePath(`/freelancer/contracts/${contractId}`);
+
+        return { success: true, refundedCount };
+    } catch (error) {
+        console.error('[cancelContract] Error:', error);
+        return { error: error instanceof Error ? error.message : 'Failed to cancel contract.' };
+    }
+}
+

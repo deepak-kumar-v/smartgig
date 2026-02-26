@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 import { assertEscrowIntegrity } from '@/lib/escrow-integrity';
+import { assertDecimalNonNegative } from '@/lib/financial-assertions';
 import { getPlatformWallet } from '@/lib/platform-wallet';
 import {
     ContractStatus,
@@ -88,7 +89,19 @@ export async function approveTrialWork(contractId: string) {
             }
             const commissionRate = new Prisma.Decimal(freshContract.commissionRate);
 
-            // D. Re-fetch the EscrowLock inside tx
+            // D. Re-fetch milestone status inside tx (mirrors releaseMilestoneFunds)
+            const freshMilestone = await tx.milestone.findUnique({
+                where: { id: milestone.id },
+                select: { status: true },
+            });
+            if (!freshMilestone) {
+                throw new Error('MILESTONE_NOT_FOUND_IN_TX: trial milestone missing');
+            }
+            if (freshMilestone.status !== 'SUBMITTED' && freshMilestone.status !== 'IN_PROGRESS' && freshMilestone.status !== 'APPROVED') {
+                throw new Error(`MILESTONE_STATUS_INVALID: status=${freshMilestone.status}, not eligible for trial approval`);
+            }
+
+            // E. Re-fetch the EscrowLock inside tx
             const lock = await tx.escrowLock.findFirst({
                 where: { milestoneId: milestone.id, escrowId: escrow.id },
             });
@@ -120,6 +133,8 @@ export async function approveTrialWork(contractId: string) {
             if (freelancerPayout.isNegative()) {
                 throw new Error(`COMMISSION_EXCEEDS_LOCK: commission=${commissionAmount}, lock=${lockAmount}`);
             }
+            assertDecimalNonNegative(commissionAmount, 'commissionAmount');
+            assertDecimalNonNegative(freelancerPayout, 'freelancerPayout');
 
             // J. Credit freelancer wallet (payout after commission)
             await tx.walletLedger.create({
@@ -184,7 +199,22 @@ export async function approveTrialWork(contractId: string) {
                     `WALLET_NEGATIVE_AVAILABLE_ERROR: freelancer available=${freelancerAvailable} after trial approval`
                 );
             }
-        });
+
+            // Mutation log (append-only, inside tx)
+            await tx.financialMutationLog.create({
+                data: {
+                    action: 'APPROVE_TRIAL_WORK',
+                    userId: session.user.id,
+                    contractId,
+                    milestoneId: milestone.id,
+                    metadata: {
+                        lockAmount: releaseAmount.toFixed(2),
+                        commission: commissionAmount.toFixed(2),
+                        payout: freelancerPayout.toFixed(2),
+                    },
+                },
+            });
+        }, { isolationLevel: 'Serializable' });
 
         revalidatePath('/client/contracts');
         revalidatePath(`/client/contracts/${contractId}`);
@@ -216,7 +246,15 @@ export async function approveTrialWork(contractId: string) {
 
         return { success: true };
     } catch (error) {
-        console.error('Approve Trial Error:', error);
+        db.financialErrorLog.create({
+            data: {
+                action: 'APPROVE_TRIAL_WORK',
+                userId: undefined,
+                contractId,
+                errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                stackTrace: error instanceof Error ? error.stack ?? null : null,
+            },
+        }).catch(() => { });
         const message = error instanceof Error ? error.message : 'Failed to approve trial work';
         return { error: message };
     }
@@ -301,12 +339,21 @@ export async function raiseDispute(contractId: string) {
 /**
  * CLIENT: Upgrades a completed TRIAL contract to a FULL contract.
  * Creates in DRAFT status with totalBudget: 0 (must add milestones).
+ *
+ * STRICT GATING — upgrade is allowed ONLY when:
+ *  1. contract.type === "TRIAL"
+ *  2. contract.status === COMPLETED
+ *  3. Current user is the CLIENT of the contract
+ *  4. No FULL contract already exists for the same proposal
  */
 export async function upgradeToStandard(trialContractId: string) {
+    console.log('[upgradeToStandard] ENTRY — trialContractId:', trialContractId);
+
     try {
         const session = await auth();
         if (!session?.user?.id) return { error: 'Unauthorized' };
 
+        // 1. Fetch contract
         const trialContract = await db.contract.findUnique({
             where: { id: trialContractId },
             include: {
@@ -318,10 +365,36 @@ export async function upgradeToStandard(trialContractId: string) {
             }
         });
 
+        console.log('[upgradeToStandard] VALIDATION — contract found:', !!trialContract,
+            '| type:', trialContract?.type,
+            '| status:', trialContract?.status);
+
+        // 2. Contract must exist
         if (!trialContract) return { error: 'Trial contract not found' };
-        if (trialContract.client.userId !== session.user.id) return { error: 'Unauthorized Access' };
+
+        // 3. Must be a TRIAL type — no exceptions
         if (trialContract.type !== 'TRIAL') return { error: 'Source must be a trial contract' };
-        if (trialContract.status !== ContractStatus.COMPLETED) return { error: 'Trial must be completed first' };
+
+        // 4. Must be COMPLETED — no other status allowed
+        if (trialContract.status !== ContractStatus.COMPLETED) {
+            return { error: 'Trial must be COMPLETED before upgrading.' };
+        }
+
+        // 5. Only the owning CLIENT can upgrade
+        if (trialContract.client.userId !== session.user.id) return { error: 'Unauthorized Access' };
+
+        // 6. Prevent duplicate FULL contract for the same proposal
+        const existingFull = await db.contract.findFirst({
+            where: { proposalId: trialContract.proposalId, type: 'FULL' }
+        });
+        if (existingFull) {
+            console.log('[upgradeToStandard] BLOCKED — FULL contract already exists:', existingFull.id);
+            return { error: 'A full contract already exists for this proposal.' };
+        }
+
+        // ALL validations passed — create FULL contract
+        console.log('[upgradeToStandard] CREATING FULL contract from trial:', trialContractId,
+            '| proposalId:', trialContract.proposalId);
 
         const newContract = await db.contract.create({
             data: {
@@ -329,16 +402,18 @@ export async function upgradeToStandard(trialContractId: string) {
                 clientId: trialContract.clientId,
                 freelancerId: trialContract.freelancerId,
                 title: trialContract.proposal.job.title,
-                totalBudget: 0, // Must add milestones to set budget
+                totalBudget: trialContract.totalBudget,
                 status: ContractStatus.DRAFT,
-                terms: '',
+                terms: trialContract.terms,
                 type: 'FULL',
                 sourceTrialId: trialContractId,
-                commissionRate: 0, // Placeholder — snapshotted from SystemConfig at FINALIZED
+                commissionRate: trialContract.commissionRate,
                 startDate: null,
                 endDate: null,
             }
         });
+
+        console.log('[upgradeToStandard] SUCCESS — new FULL contract created:', newContract.id);
 
         // Update Conversation to point to new contract
         if (trialContract.conversation) {
@@ -362,7 +437,7 @@ export async function upgradeToStandard(trialContractId: string) {
         revalidatePath('/messages');
         return { success: true, newContractId: newContract.id };
     } catch (error) {
-        console.error('Upgrade Contract Error:', error);
+        console.error('[upgradeToStandard] ERROR:', error);
         return { error: 'Failed to upgrade contract' };
     }
 }

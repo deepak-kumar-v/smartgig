@@ -23,13 +23,11 @@ export default function WithdrawView({
     available,
     locked,
     pendingWithdrawals,
-    total,
     requests,
 }: {
     available: string;
     locked: string;
     pendingWithdrawals: string;
-    total: string;
     requests: WithdrawalRequestRow[];
 }) {
     const [amount, setAmount] = useState('');
@@ -94,11 +92,6 @@ export default function WithdrawView({
                         <div>
                             <span className="text-[11px] uppercase tracking-widest block" style={{ color: '#71717a' }}>Pending Withdrawals</span>
                             <span className="text-[20px] font-semibold tabular-nums" style={{ color: '#fb923c' }}>${pendingWithdrawals}</span>
-                        </div>
-                        <div className="w-px h-8" style={{ backgroundColor: '#1E2328' }} />
-                        <div>
-                            <span className="text-[11px] uppercase tracking-widest block" style={{ color: '#71717a' }}>Total</span>
-                            <span className="text-[20px] font-semibold tabular-nums" style={{ color: '#ffffff' }}>${total}</span>
                         </div>
                     </div>
 
