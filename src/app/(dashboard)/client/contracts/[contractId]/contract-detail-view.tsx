@@ -34,6 +34,20 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+// ── Custom KeyboardSensor: skip activation inside form elements ──
+// Without this, @dnd-kit's default KeyboardSensor intercepts Space/Enter
+// in inputs/textareas, blocking normal typing.
+class SmartKeyboardSensor extends KeyboardSensor {
+    static shouldHandleEvent(event: KeyboardEvent) {
+        const target = event.target as HTMLElement | null;
+        if (!target) return true;
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
+        if (target.isContentEditable) return false;
+        return true;
+    }
+}
+
 // Decimal fields from Prisma may arrive as Decimal objects or numbers
 type DecimalLike = number | { toNumber(): number };
 
@@ -42,15 +56,25 @@ function toNum(val: DecimalLike): number {
 }
 
 // ── Sortable Milestone Card component for DnD ──
-function SortableMilestoneCard({ id, disabled, children }: { id: string; disabled: boolean; children: React.ReactNode }) {
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
+function SortableMilestoneCard({ id, disabled, isEditing, children }: { id: string; disabled: boolean; isEditing?: boolean; children: React.ReactNode }) {
+    const effectiveDisabled = disabled || !!isEditing;
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: effectiveDisabled });
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
     };
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...(disabled ? {} : listeners)} className="p-4 bg-zinc-800/50 rounded-lg border border-zinc-700">
+        <div
+            ref={setNodeRef}
+            style={style}
+            {...attributes}
+            {...(effectiveDisabled ? {} : listeners)}
+            className={`p-5 rounded-xl border transition-colors ${isEditing
+                    ? 'bg-zinc-800/80 border-indigo-500/30'
+                    : 'bg-zinc-800/50 border-zinc-700'
+                }`}
+        >
             {children}
         </div>
     );
@@ -273,7 +297,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
     // ── Drag & Drop Reorder (DRAFT only) ──
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-        useSensor(KeyboardSensor)
+        useSensor(SmartKeyboardSensor)
     );
 
     const handleDragEnd = useCallback((event: DragEndEvent) => {
@@ -561,11 +585,11 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                 const isEditingThis = editingMilestoneId === m.id;
 
                                                 return (
-                                                    <SortableMilestoneCard key={m.id} id={m.id} disabled={!canEdit}>
+                                                    <SortableMilestoneCard key={m.id} id={m.id} disabled={!canEdit || isAddingMilestone} isEditing={isEditingThis}>
                                                         <div className="flex justify-between items-start">
                                                             <div>
                                                                 <div className="flex items-center gap-2">
-                                                                    {canEdit && <span className="cursor-grab text-zinc-600 hover:text-zinc-400">⠿</span>}
+                                                                    {canEdit && !isEditingThis && !isAddingMilestone && <span className="cursor-grab text-zinc-600 hover:text-zinc-400">⠿</span>}
                                                                     <span className="text-xs font-mono text-zinc-500">#{m.sequence}</span>
                                                                     <h4 className="font-medium text-white">{m.title}</h4>
                                                                     <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-medium ${isPaid ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
@@ -742,36 +766,53 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
 
                                                         {/* Inline edit form (DRAFT only) */}
                                                         {isEditingThis && (
-                                                            <div className="mt-3 p-3 bg-zinc-900/50 rounded-lg border border-zinc-600 space-y-2">
-                                                                <input
-                                                                    className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
-                                                                    placeholder="Title"
-                                                                    value={editMilestoneData.title}
-                                                                    onChange={e => setEditMilestoneData({ ...editMilestoneData, title: e.target.value })}
-                                                                />
-                                                                <textarea
-                                                                    className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm h-16"
-                                                                    placeholder="Description"
-                                                                    value={editMilestoneData.description}
-                                                                    onChange={e => setEditMilestoneData({ ...editMilestoneData, description: e.target.value })}
-                                                                />
-                                                                <div className="flex gap-2">
+                                                            <div className="mt-4 p-6 bg-zinc-900/60 rounded-xl border border-indigo-500/20 space-y-5">
+                                                                {/* Title */}
+                                                                <div>
+                                                                    <label className="block text-xs font-medium text-zinc-400 mb-1.5">Milestone Title</label>
                                                                     <input
-                                                                        className="w-1/2 bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
-                                                                        type="number" step="0.01" placeholder="Amount"
-                                                                        value={editMilestoneData.amount}
-                                                                        onChange={e => setEditMilestoneData({ ...editMilestoneData, amount: e.target.value })}
-                                                                    />
-                                                                    <input
-                                                                        className="w-1/2 bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
-                                                                        type="date"
-                                                                        value={editMilestoneData.dueDate}
-                                                                        onChange={e => setEditMilestoneData({ ...editMilestoneData, dueDate: e.target.value })}
+                                                                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors"
+                                                                        placeholder="Enter milestone title"
+                                                                        value={editMilestoneData.title}
+                                                                        onChange={e => setEditMilestoneData({ ...editMilestoneData, title: e.target.value })}
                                                                     />
                                                                 </div>
-                                                                <div className="flex justify-end gap-2">
+                                                                {/* Description */}
+                                                                <div>
+                                                                    <label className="block text-xs font-medium text-zinc-400 mb-1.5">Description</label>
+                                                                    <textarea
+                                                                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors resize-y"
+                                                                        style={{ minHeight: '100px' }}
+                                                                        placeholder="Describe what this milestone covers"
+                                                                        value={editMilestoneData.description}
+                                                                        onChange={e => setEditMilestoneData({ ...editMilestoneData, description: e.target.value })}
+                                                                    />
+                                                                </div>
+                                                                {/* Amount + Due Date side by side */}
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                                    <div>
+                                                                        <label className="block text-xs font-medium text-zinc-400 mb-1.5">Amount ($)</label>
+                                                                        <input
+                                                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors"
+                                                                            type="number" step="0.01" placeholder="0.00"
+                                                                            value={editMilestoneData.amount}
+                                                                            onChange={e => setEditMilestoneData({ ...editMilestoneData, amount: e.target.value })}
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="block text-xs font-medium text-zinc-400 mb-1.5">Due Date</label>
+                                                                        <input
+                                                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors"
+                                                                            type="date"
+                                                                            value={editMilestoneData.dueDate}
+                                                                            onChange={e => setEditMilestoneData({ ...editMilestoneData, dueDate: e.target.value })}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                                {/* Actions */}
+                                                                <div className="flex justify-end gap-3 pt-1">
                                                                     <GlassButton variant="ghost" size="sm" onClick={() => setEditingMilestoneId(null)}>Cancel</GlassButton>
-                                                                    <GlassButton variant="primary" size="sm" onClick={handleSaveMilestoneEdit} disabled={isPending}>Save</GlassButton>
+                                                                    <GlassButton variant="primary" size="sm" onClick={handleSaveMilestoneEdit} disabled={isPending}>Save Changes</GlassButton>
                                                                 </div>
                                                             </div>
                                                         )}
@@ -861,39 +902,52 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
 
                                 {/* Add Form */}
                                 {isAddingMilestone && (
-                                    <div className="p-4 bg-zinc-800 rounded-lg border border-indigo-500/50 space-y-3">
-                                        <h4 className="text-sm font-medium text-white">New Milestone</h4>
-                                        <input
-                                            className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
-                                            placeholder="Title"
-                                            value={newMilestone.title}
-                                            onChange={e => setNewMilestone({ ...newMilestone, title: e.target.value })}
-                                        />
-                                        <div className="flex gap-2">
+                                    <div className="p-6 bg-zinc-800/80 rounded-xl border border-indigo-500/30 space-y-5 mt-2">
+                                        <h4 className="text-sm font-semibold text-white">New Milestone</h4>
+                                        {/* Title */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Milestone Title</label>
                                             <input
-                                                className="w-1/2 bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
-                                                type="number"
-                                                placeholder="Amount"
-                                                value={newMilestone.amount}
-                                                onChange={e => setNewMilestone({ ...newMilestone, amount: e.target.value })}
+                                                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors"
+                                                placeholder="Enter milestone title"
+                                                value={newMilestone.title}
+                                                onChange={e => setNewMilestone({ ...newMilestone, title: e.target.value })}
                                             />
-                                            <div className="w-1/2">
+                                        </div>
+                                        {/* Description */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Description</label>
+                                            <textarea
+                                                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors resize-y"
+                                                style={{ minHeight: '100px' }}
+                                                placeholder="Describe what this milestone covers"
+                                                value={newMilestone.description}
+                                                onChange={e => setNewMilestone({ ...newMilestone, description: e.target.value })}
+                                            />
+                                        </div>
+                                        {/* Amount + Due Date side by side */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-medium text-zinc-400 mb-1.5">Amount ($)</label>
                                                 <input
-                                                    className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm"
+                                                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors"
+                                                    type="number" step="0.01" placeholder="0.00"
+                                                    value={newMilestone.amount}
+                                                    onChange={e => setNewMilestone({ ...newMilestone, amount: e.target.value })}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-zinc-400 mb-1.5">Due Date</label>
+                                                <input
+                                                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors"
                                                     type="date"
                                                     value={newMilestone.dueDate}
                                                     onChange={e => setNewMilestone({ ...newMilestone, dueDate: e.target.value })}
                                                 />
-                                                <div className="text-[10px] text-zinc-500 mt-1">Milestone Due Date</div>
                                             </div>
                                         </div>
-                                        <textarea
-                                            className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-sm h-20"
-                                            placeholder="Description"
-                                            value={newMilestone.description}
-                                            onChange={e => setNewMilestone({ ...newMilestone, description: e.target.value })}
-                                        />
-                                        <div className="flex justify-end gap-2">
+                                        {/* Actions */}
+                                        <div className="flex justify-end gap-3 pt-1">
                                             <GlassButton variant="ghost" size="sm" onClick={() => setIsAddingMilestone(false)}>Cancel</GlassButton>
                                             <GlassButton variant="primary" size="sm" onClick={handleAddMilestone} disabled={isPending}>Add Milestone</GlassButton>
                                         </div>
