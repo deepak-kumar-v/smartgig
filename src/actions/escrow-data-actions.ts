@@ -201,11 +201,16 @@ export async function getContractEscrowData(
             const msRefund = refundByMilestone.get(m.id) ?? new Prisma.Decimal(0);
 
             // Deterministic financial state derivation
+            // Order matters: RELEASED must be checked before REFUNDED because
+            // a milestone that was refunded, then re-funded and released, will
+            // have both REFUND and ESCROW_RELEASE ledger entries.
             let financialState: MilestoneFinancialState;
             if (!lock) {
                 financialState = 'NOT_FUNDED';
             } else if (!lock.released) {
                 financialState = 'FUNDED';
+            } else if (releaseByMs.has(m.id)) {
+                financialState = 'RELEASED';
             } else if (refundByMilestone.has(m.id)) {
                 financialState = 'REFUNDED';
             } else {

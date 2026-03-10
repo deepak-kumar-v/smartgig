@@ -129,6 +129,8 @@ interface ContractDetailViewProps {
 export function ContractDetailView({ contract, role }: ContractDetailViewProps) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
+    const [panelRefreshKey, setPanelRefreshKey] = useState(0);
+    const refreshAll = useCallback(() => { router.refresh(); setPanelRefreshKey(k => k + 1); }, [router]);
     const [isEditing, setIsEditing] = useState(false);
     const [activeTab, setActiveTab] = useState<'details' | 'timeline'>('details');
 
@@ -202,7 +204,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
             if (result.success) {
                 toast.success("Contract updated");
                 setIsEditing(false);
-                router.refresh();
+                refreshAll();
             } else {
                 toast.error(result.error || "Failed to update contract");
             }
@@ -221,7 +223,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
 
             if (result.success) {
                 toast.success("Trial milestone updated");
-                router.refresh();
+                refreshAll();
             } else {
                 toast.error(result.error || "Failed to update trial milestone");
             }
@@ -241,7 +243,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                 toast.success("Milestone added");
                 setIsAddingMilestone(false);
                 setNewMilestone({ title: '', description: '', amount: '', dueDate: '' });
-                router.refresh();
+                refreshAll();
             } else {
                 toast.error(result.error || "Failed to create milestone");
             }
@@ -254,7 +256,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
             const result = await deleteMilestone(id);
             if (result.success) {
                 toast.success("Milestone deleted");
-                router.refresh();
+                refreshAll();
             } else {
                 toast.error(result.error || "Failed to delete milestone");
             }
@@ -287,7 +289,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
             if (result.success) {
                 toast.success("Milestone updated");
                 setEditingMilestoneId(null);
-                router.refresh();
+                refreshAll();
             } else {
                 toast.error(result.error || "Failed to update milestone");
             }
@@ -315,19 +317,19 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
             const result = await reorderMilestones(contract.id, orderedIds);
             if (result.success) {
                 toast.success("Milestones reordered");
-                router.refresh();
+                refreshAll();
             } else {
                 toast.error(result.error || "Failed to reorder");
             }
         });
-    }, [contract.milestones, contract.id, router]);
+    }, [contract.milestones, contract.id, refreshAll]);
 
     const handleSendForReview = () => {
         startTransition(async () => {
             const result = await sendForReview(contract.id);
             if (result.success) {
                 toast.success("Sent for review!");
-                router.refresh();
+                refreshAll();
             } else {
                 toast.error(result.error || "Failed to send");
             }
@@ -352,7 +354,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
             if (result.success) {
                 toast.success(successMsg);
                 if (result.newContractId) router.push(`/client/contracts/${result.newContractId}`);
-                else router.refresh();
+                else refreshAll();
             } else {
                 toast.error(result.error || "Action failed");
             }
@@ -634,7 +636,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                                             if (!confirm(`Fund milestone "${m.title}" for $${toNum(m.amount).toLocaleString()}? This will debit your wallet.`)) return;
                                                                             startTransition(async () => {
                                                                                 const result = await fundMilestone(m.id);
-                                                                                if (result.success) { toast.success(`Milestone "${m.title}" funded`); router.refresh(); }
+                                                                                if (result.success) { toast.success(`Milestone "${m.title}" funded`); refreshAll(); }
                                                                                 else { toast.error(result.error || 'Failed to fund milestone'); }
                                                                             });
                                                                         }}
@@ -653,7 +655,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                                             if (!confirm(`Refund milestone "${m.title}"? $${toNum(m.amount).toLocaleString()} will be returned to your wallet. This cannot be undone.`)) return;
                                                                             startTransition(async () => {
                                                                                 const result = await refundMilestone(m.id);
-                                                                                if (result.success) { toast.success(`Milestone "${m.title}" refunded`); router.refresh(); }
+                                                                                if (result.success) { toast.success(`Milestone "${m.title}" refunded`); refreshAll(); }
                                                                                 else { toast.error(result.error || 'Failed to refund milestone'); }
                                                                             });
                                                                         }}
@@ -674,8 +676,8 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                                                 const approveResult = await approveMilestone(m.id);
                                                                                 if (!approveResult.success) { toast.error(approveResult.error || 'Failed to approve'); return; }
                                                                                 const releaseResult = await releaseMilestoneFunds(m.id);
-                                                                                if (releaseResult.success) { toast.success(`Milestone "${m.title}" approved & funds released`); router.refresh(); }
-                                                                                else { toast.error(releaseResult.error || 'Approved but release failed'); router.refresh(); }
+                                                                                if (releaseResult.success) { toast.success(`Milestone "${m.title}" approved & funds released`); refreshAll(); }
+                                                                                else { toast.error(releaseResult.error || 'Approved but release failed'); refreshAll(); }
                                                                             });
                                                                         }}
                                                                         disabled={isPending}
@@ -693,7 +695,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                                             if (!confirm(`Open a dispute for milestone "${m.title}"? This will freeze escrow funds until resolved.`)) return;
                                                                             startTransition(async () => {
                                                                                 const result = await openDispute(m.id);
-                                                                                if (result.success) { toast.success(`Dispute opened for "${m.title}"`); router.refresh(); }
+                                                                                if (result.success) { toast.success(`Dispute opened for "${m.title}"`); refreshAll(); }
                                                                                 else { toast.error(result.error || 'Failed to open dispute'); }
                                                                             });
                                                                         }}
@@ -717,7 +719,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                                             if (!confirm(`Start working on "${m.title}"?`)) return;
                                                                             startTransition(async () => {
                                                                                 const result = await startMilestone(m.id);
-                                                                                if (result.success) { toast.success(`Milestone "${m.title}" started`); router.refresh(); }
+                                                                                if (result.success) { toast.success(`Milestone "${m.title}" started`); refreshAll(); }
                                                                                 else { toast.error(result.error || 'Failed to start milestone'); }
                                                                             });
                                                                         }}
@@ -736,7 +738,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                                             if (!confirm(`Submit work for "${m.title}"?`)) return;
                                                                             startTransition(async () => {
                                                                                 const result = await submitMilestone(m.id);
-                                                                                if (result.success) { toast.success(`Milestone "${m.title}" submitted`); router.refresh(); }
+                                                                                if (result.success) { toast.success(`Milestone "${m.title}" submitted`); refreshAll(); }
                                                                                 else { toast.error(result.error || 'Failed to submit milestone'); }
                                                                             });
                                                                         }}
@@ -854,7 +856,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                                             if (result.success) {
                                                                                 toast.success('Deliverable uploaded');
                                                                                 form.reset();
-                                                                                router.refresh();
+                                                                                refreshAll();
                                                                             } else {
                                                                                 toast.error(result.error || 'Upload failed');
                                                                             }
@@ -1073,7 +1075,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                         ? `Contract cancelled. ${result.refundedCount} milestone(s) auto-refunded.`
                                                         : 'Contract cancelled';
                                                     toast.success(msg);
-                                                    router.refresh();
+                                                    refreshAll();
                                                 } else {
                                                     toast.error(result.error || 'Failed to cancel contract');
                                                 }
@@ -1099,6 +1101,7 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                         contractStatus={contract.status}
                         contractType={contract.type}
                         role={role}
+                        refreshSignal={panelRefreshKey}
                     />
                 </div >
 

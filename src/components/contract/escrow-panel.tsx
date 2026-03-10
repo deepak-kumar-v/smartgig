@@ -18,6 +18,7 @@ interface EscrowPanelProps {
     contractStatus: string;
     contractType?: string;
     role: 'CLIENT' | 'FREELANCER';
+    refreshSignal?: number;
 }
 
 interface WalletSnapshot {
@@ -33,12 +34,13 @@ interface WalletSnapshot {
 // FREELANCER: Sees commission breakdown. Net earnings. Wallet withdraw info.
 // ============================================================================
 
-export default function EscrowPanel({ contractId, contractStatus, contractType, role }: EscrowPanelProps) {
+export default function EscrowPanel({ contractId, contractStatus, contractType, role, refreshSignal }: EscrowPanelProps) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
     const [wallet, setWallet] = useState<WalletSnapshot | null>(null);
     const [escrow, setEscrow] = useState<ContractEscrowData | null>(null);
     const [loading, setLoading] = useState(true);
+    const [refreshKey, setRefreshKey] = useState(0);
 
     const isClient = role === 'CLIENT';
 
@@ -62,7 +64,7 @@ export default function EscrowPanel({ contractId, contractStatus, contractType, 
             setLoading(false);
         }
         load();
-    }, [contractId]);
+    }, [contractId, refreshKey, refreshSignal]);
 
     // ── Action Handlers ──
 
@@ -70,7 +72,7 @@ export default function EscrowPanel({ contractId, contractStatus, contractType, 
         if (!confirm('Fund escrow now? This will debit your wallet.')) return;
         startTransition(async () => {
             const result = await fundEscrow(contractId);
-            if (result.success) { toast.success('Escrow Funded'); router.refresh(); }
+            if (result.success) { toast.success('Escrow Funded'); setRefreshKey(k => k + 1); router.refresh(); }
             else { toast.error(result.error || 'Failed to fund escrow'); }
         });
     };
@@ -79,7 +81,7 @@ export default function EscrowPanel({ contractId, contractStatus, contractType, 
         if (!confirm('Refund unreleased escrow funds back to wallet?')) return;
         startTransition(async () => {
             const result = await refundEscrow(contractId);
-            if (result.success) { toast.success('Escrow Refunded'); router.refresh(); }
+            if (result.success) { toast.success('Escrow Refunded'); setRefreshKey(k => k + 1); router.refresh(); }
             else { toast.error(result.error || 'Failed to refund'); }
         });
     };
@@ -88,7 +90,7 @@ export default function EscrowPanel({ contractId, contractStatus, contractType, 
         if (!confirm(`Release funds for "${title}"?`)) return;
         startTransition(async () => {
             const result = await releaseMilestoneFunds(milestoneId);
-            if (result.success) { toast.success(`Funds released for "${title}"`); router.refresh(); }
+            if (result.success) { toast.success(`Funds released for "${title}"`); setRefreshKey(k => k + 1); router.refresh(); }
             else { toast.error(result.error || 'Failed to release funds'); }
         });
     };
@@ -229,14 +231,13 @@ function FreelancerPanel({
                 <Card title="Wallet Snapshot">
                     <Row label="Available to Withdraw" value={`$${fmt(wallet.available)}`} color="text-emerald-400" bold />
                     <Row label="Pending Withdrawal" value={`$${fmt(wallet.pendingWithdrawals)}`} color="text-orange-400" />
-                    <Row label="Locked in Escrow" value={`$${fmt(wallet.locked)}`} color="text-amber-400" />
                 </Card>
             )}
 
             {/* ── 2. Earnings Summary ── */}
             {escrow && (
                 <Card title="Earnings Summary" badge={<EscrowBadge status={escrow.escrowStatus} />}>
-                    <Row label="Total Milestone Value" value={`$${escrow.totalFunded}`} color="text-white" />
+                    <Row label="Total Milestone Value" value={`$${escrow.contractValue}`} color="text-white" />
                     <Row label={`Platform Commission (${commissionPct})`} value={`-$${escrow.platformFeesPaid}`} color="text-orange-400" />
                     <Divider />
                     <Row label="Net Earnings (You Received)" value={`$${escrow.releasedToFreelancer}`} color="text-emerald-400" bold />
