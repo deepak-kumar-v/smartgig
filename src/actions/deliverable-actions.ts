@@ -24,7 +24,7 @@ export async function createDeliverable(formData: FormData): Promise<{ success?:
 
         if (!milestoneId) return { error: 'Missing milestoneId' };
         if (!file || file.size === 0) return { error: 'No file provided' };
-        if (file.size > 10 * 1024 * 1024) return { error: 'File too large (max 10MB)' };
+        if (file.size > 50 * 1024 * 1024) return { error: 'File too large (max 50 MB)' };
 
         // Verify milestone ownership and status
         const milestone = await db.milestone.findUnique({

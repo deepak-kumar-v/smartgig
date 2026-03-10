@@ -195,7 +195,7 @@ function ClientPanel({
             {/* ── 4. Actions ── */}
             <Card title="Actions">
                 {contractStatus === 'FINALIZED' && contractType !== 'TRIAL' && (
-                    <ActionButton label="Fund Escrow" onClick={onFund} disabled={isPending} color="#34d399" />
+                    <div className="text-[11px] text-zinc-400 py-1">Click &quot;Start Work&quot; to activate the contract, then fund milestones individually from the contract detail page.</div>
                 )}
                 {escrow && escrow.escrowStatus === 'FUNDED' && parseFloat(escrow.currentlyLocked) > 0 && (
                     <div className="text-[11px] text-zinc-500 py-1">Use per-milestone refund on the contract detail page.</div>

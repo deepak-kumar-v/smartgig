@@ -815,19 +815,14 @@ export async function refundEscrow(contractId: string, idempotencyKey?: string):
             await assertEscrowIntegrity(tx, escrowId, contractId);
 
             // H. Client wallet consistency — available balance must be >= 0
+            // The ledger already contains ESCROW_LOCK debits as negative entries
+            // and REFUND entries as positive. Do NOT subtract EscrowLock amounts
+            // again — that double-counts the locked funds.
             const clientLedgerSum = await tx.walletLedger.aggregate({
                 where: { walletId: clientWallet.id },
                 _sum: { amount: true },
             });
-            const clientLockedSum = await tx.escrowLock.aggregate({
-                where: {
-                    released: false,
-                    escrow: { contract: { clientId: freshContract.clientId } },
-                },
-                _sum: { amount: true },
-            });
-            const clientAvailable = new Prisma.Decimal(clientLedgerSum._sum.amount ?? 0)
-                .minus(new Prisma.Decimal(clientLockedSum._sum.amount ?? 0));
+            const clientAvailable = new Prisma.Decimal(clientLedgerSum._sum.amount ?? 0);
 
             if (clientAvailable.isNegative()) {
                 throw new Error(
@@ -1045,19 +1040,14 @@ export async function refundMilestone(
             await assertEscrowIntegrity(tx, escrowId, contractId);
 
             // G. Client wallet consistency
+            // The ledger already contains ESCROW_LOCK debits as negative entries
+            // and REFUND entries as positive. Do NOT subtract EscrowLock amounts
+            // again — that double-counts the locked funds.
             const clientLedgerSum = await tx.walletLedger.aggregate({
                 where: { walletId: clientWallet.id },
                 _sum: { amount: true },
             });
-            const clientLockedSum = await tx.escrowLock.aggregate({
-                where: {
-                    released: false,
-                    escrow: { contract: { clientId: contract.clientId } },
-                },
-                _sum: { amount: true },
-            });
-            const clientAvailable = new Prisma.Decimal(clientLedgerSum._sum.amount ?? 0)
-                .minus(new Prisma.Decimal(clientLockedSum._sum.amount ?? 0));
+            const clientAvailable = new Prisma.Decimal(clientLedgerSum._sum.amount ?? 0);
             if (clientAvailable.isNegative()) {
                 throw new Error(`WALLET_NEGATIVE_AVAILABLE_ERROR: client available=${clientAvailable} after milestone refund`);
             }

@@ -8,7 +8,7 @@ import { format } from 'date-fns';
 import {
     User, Calendar, DollarSign, FileText, CheckCircle, XCircle,
     ArrowLeft, MessageSquare, FileSignature, Edit, Lock, Trash2, Clock,
-    AlertTriangle, ShieldAlert, ArrowRight, ShieldCheck, Layers, Plus
+    AlertTriangle, ShieldAlert, ArrowRight, ShieldCheck, Layers, Plus, Info
 } from 'lucide-react';
 
 import { GlassCard } from '@/components/ui/glass-card';
@@ -71,8 +71,8 @@ function SortableMilestoneCard({ id, disabled, isEditing, children }: { id: stri
             {...attributes}
             {...(effectiveDisabled ? {} : listeners)}
             className={`p-5 rounded-xl border transition-colors ${isEditing
-                    ? 'bg-zinc-800/80 border-indigo-500/30'
-                    : 'bg-zinc-800/50 border-zinc-700'
+                ? 'bg-zinc-800/80 border-indigo-500/30'
+                : 'bg-zinc-800/50 border-zinc-700'
                 }`}
         >
             {children}
@@ -821,7 +821,15 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                         {m.status === 'IN_PROGRESS' && isFreelancer && (
                                                             <div className="mt-3 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
                                                                 <div className="flex items-center justify-between mb-2">
-                                                                    <span className="text-xs font-medium text-zinc-400">Deliverables ({deliverableCount})</span>
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <span className="text-xs font-medium text-zinc-400">Deliverables ({deliverableCount})</span>
+                                                                        <span className="relative group">
+                                                                            <Info className="w-3.5 h-3.5 text-zinc-500 cursor-help" />
+                                                                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 hidden group-hover:flex whitespace-nowrap bg-zinc-900 text-zinc-300 text-[11px] px-2.5 py-1.5 rounded-md border border-zinc-700 shadow-lg z-50">
+                                                                                Max file size: 50 MB · All file types accepted
+                                                                            </span>
+                                                                        </span>
+                                                                    </div>
                                                                 </div>
                                                                 {deliverableCount === 0 && (
                                                                     <p className="text-xs text-amber-400 mb-2">Upload at least one deliverable before submitting work.</p>
