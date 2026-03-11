@@ -1,327 +1,364 @@
 'use client';
 
-import React, { useState, use } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { GlassCard } from '@/components/ui/glass-card';
-import { GlassButton } from '@/components/ui/glass-button';
-import { GlassTextarea } from '@/components/ui/glass-textarea';
-import { GlassModal } from '@/components/ui/glass-modal';
-import { NotFoundState } from '@/components/ui/not-found-state';
-import { AccessDeniedState } from '@/components/ui/access-denied-state';
-import Link from 'next/link';
 import {
-    ArrowLeft, Flag, Scale, Clock, CheckCircle, AlertTriangle,
-    Upload, MessageSquare, FileText, Download, User, Calendar,
-    DollarSign, ChevronRight, Send
+    Scale, Clock, MessageSquare, FileText, Upload, Send,
+    AlertTriangle, Shield, CheckCircle, ArrowLeft, ChevronUp
 } from 'lucide-react';
-
-// Mock dispute data
-const dispute = {
-    id: 'dispute-1',
-    title: 'Quality of deliverables not meeting requirements',
-    reason: 'QUALITY_ISSUES',
-    description: 'The API documentation provided does not match the actual implementation. Several endpoints are missing and the response schemas are incorrect.',
-    desiredResolution: 'I would like a full refund of the milestone payment or completion of the remaining work as specified.',
-    status: 'UNDER_REVIEW',
-    disputedAmount: 3500,
-    contract: {
-        id: 'contract-1',
-        title: 'Backend API Development',
-        totalAmount: 6500,
-    },
-    initiator: {
-        id: 'client-1',
-        name: 'Sarah Chen',
-        role: 'CLIENT',
-    },
-    respondent: {
-        id: 'freelancer-1',
-        name: 'David Kim',
-        role: 'FREELANCER',
-    },
-    evidence: [
-        { id: 'ev-1', title: 'Original Requirements Document', type: 'PDF', uploadedBy: 'Sarah Chen', uploadedAt: '2025-01-18 10:30 AM' },
-        { id: 'ev-2', title: 'API Documentation Screenshot', type: 'PNG', uploadedBy: 'Sarah Chen', uploadedAt: '2025-01-18 10:32 AM' },
-        { id: 'ev-3', title: 'Delivered API Spec', type: 'PDF', uploadedBy: 'David Kim', uploadedAt: '2025-01-19 02:15 PM' },
-    ],
-    timeline: [
-        { id: 't-1', action: 'Dispute Opened', description: 'Sarah Chen opened a dispute for quality issues', timestamp: '2025-01-18 10:30 AM', isSystem: false },
-        { id: 't-2', action: 'Evidence Submitted', description: 'Sarah Chen uploaded 2 files as evidence', timestamp: '2025-01-18 10:32 AM', isSystem: false },
-        { id: 't-3', action: 'Respondent Notified', description: 'David Kim has been notified and has 24 hours to respond', timestamp: '2025-01-18 10:33 AM', isSystem: true },
-        { id: 't-4', action: 'Response Received', description: 'David Kim responded to the dispute', timestamp: '2025-01-19 02:15 PM', isSystem: false },
-        { id: 't-5', action: 'Under Admin Review', description: 'Dispute has been escalated to admin for review', timestamp: '2025-01-19 03:00 PM', isSystem: true },
-    ],
-    createdAt: '2025-01-18',
-    nextDeadline: '2025-01-21',
-};
+import {
+    getDispute, submitDisputeMessage, uploadDisputeEvidence,
+    submitProposal, escalateToAdmin, requestPhaseTransition
+} from '@/actions/dispute-actions';
+import { toast } from 'sonner';
 
 const statusConfig: Record<string, { color: string; bg: string; label: string }> = {
     OPEN: { color: 'text-amber-400', bg: 'bg-amber-500/20', label: 'Open' },
-    UNDER_REVIEW: { color: 'text-blue-400', bg: 'bg-blue-500/20', label: 'Under Review' },
-    EVIDENCE_REQUESTED: { color: 'text-violet-400', bg: 'bg-violet-500/20', label: 'Evidence Requested' },
+    DISCUSSION: { color: 'text-blue-400', bg: 'bg-blue-500/20', label: 'Discussion Phase' },
+    PROPOSAL: { color: 'text-violet-400', bg: 'bg-violet-500/20', label: 'Proposal Phase' },
+    ADMIN_REVIEW: { color: 'text-orange-400', bg: 'bg-orange-500/20', label: 'Admin Review' },
     RESOLVED: { color: 'text-emerald-400', bg: 'bg-emerald-500/20', label: 'Resolved' },
-    ESCALATED: { color: 'text-rose-400', bg: 'bg-rose-500/20', label: 'Escalated' },
+    CLOSED: { color: 'text-zinc-400', bg: 'bg-zinc-500/20', label: 'Closed' },
 };
 
-export default function DisputeDetailPage({ params }: { params: Promise<{ id: string }> }) {
-    const { id } = use(params);
+const reasonLabels: Record<string, string> = {
+    QUALITY_ISSUES: 'Quality Issues', NON_DELIVERY: 'Non-Delivery', SCOPE_CREEP: 'Scope Creep',
+    MISSED_DEADLINE: 'Missed Deadline', COMMUNICATION: 'Communication', PAYMENT_DISPUTE: 'Payment Dispute', OTHER: 'Other',
+};
 
-    // Valid dispute IDs for this mock (simulate DB lookup)
-    const validDisputeIds = ['dispute-1', 'dispute-2', 'dispute-3'];
-    const isValidId = validDisputeIds.includes(id);
-
-    const [showEvidenceModal, setShowEvidenceModal] = useState(false);
-    const [showMessageModal, setShowMessageModal] = useState(false);
+export default function FreelancerDisputeDetailPage() {
+    const params = useParams();
+    const router = useRouter();
+    const disputeId = params.id as string;
+    const [isPending, startTransition] = useTransition();
+    const [data, setData] = useState<Awaited<ReturnType<typeof getDispute>> | null>(null);
+    const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const [proposalPercent, setProposalPercent] = useState(50);
+    const [proposalReason, setProposalReason] = useState('');
+    const [showProposal, setShowProposal] = useState(false);
 
-    // Not found check
-    if (!isValidId) {
+    const loadData = async () => {
+        const result = await getDispute(disputeId);
+        setData(result);
+        setLoading(false);
+    };
+
+    useEffect(() => { loadData(); }, [disputeId]);
+
+    if (loading) {
         return (
-            <NotFoundState
-                title="Dispute Not Found"
-                message="This dispute does not exist or has been resolved."
-                backHref="/disputes"
-                backLabel="View Disputes"
-            />
-        );
-    }
-
-    // Simulate permission check (Mock: only dispute-1 and dispute-2 are accessible to this user)
-    // In real app, check if session.user.id === initiator.id || session.user.id === respondent.id
-    const hasPermission = id !== 'dispute-3';
-
-    if (!hasPermission) {
-        return (
-            <AccessDeniedState
-                title="Access Denied"
-                message="You are not a party to this dispute and cannot view its details."
-                backHref="/disputes"
-            />
-        );
-    }
-
-    const status = statusConfig[dispute.status];
-
-    return (
-        <>
-            <div className="max-w-5xl mx-auto space-y-6">
-                {/* Header */}
-                <div>
-                    <Link href="/disputes" className="text-zinc-500 hover:text-white text-sm inline-flex items-center gap-1 mb-2">
-                        <ArrowLeft className="w-4 h-4" /> Back to Disputes
-                    </Link>
-                    <div className="flex items-start justify-between">
-                        <div>
-                            <div className="flex items-center gap-3 mb-2">
-                                <h1 className="text-2xl font-bold text-white">Dispute Details</h1>
-                                <span className={`px-3 py-1 rounded-full text-sm ${status.bg} ${status.color}`}>
-                                    {status.label}
-                                </span>
-                            </div>
-                            <p className="text-zinc-400">{dispute.title}</p>
-                        </div>
-                        <div className="flex gap-2">
-                            <GlassButton variant="secondary" onClick={() => setShowMessageModal(true)}>
-                                <MessageSquare className="w-4 h-4 mr-2" /> Send Message
-                            </GlassButton>
-                            <GlassButton variant="primary" onClick={() => setShowEvidenceModal(true)}>
-                                <Upload className="w-4 h-4 mr-2" /> Add Evidence
-                            </GlassButton>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Main Content */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Dispute Details */}
-                        <GlassCard className="p-6">
-                            <h2 className="text-lg font-semibold text-white mb-4">Dispute Information</h2>
-                            <div className="space-y-4">
-                                <div>
-                                    <p className="text-zinc-500 text-sm mb-1">Description</p>
-                                    <p className="text-white">{dispute.description}</p>
-                                </div>
-                                <div>
-                                    <p className="text-zinc-500 text-sm mb-1">Desired Resolution</p>
-                                    <p className="text-white">{dispute.desiredResolution}</p>
-                                </div>
-                            </div>
-                        </GlassCard>
-
-                        {/* Evidence */}
-                        <GlassCard className="p-6">
-                            <div className="flex items-center justify-between mb-4">
-                                <h2 className="text-lg font-semibold text-white">Evidence</h2>
-                                <GlassButton variant="ghost" size="sm" onClick={() => setShowEvidenceModal(true)}>
-                                    <Upload className="w-4 h-4 mr-1" /> Add
-                                </GlassButton>
-                            </div>
-                            <div className="space-y-3">
-                                {dispute.evidence.map((ev) => (
-                                    <div key={ev.id} className="flex items-center justify-between p-4 bg-zinc-800/50 rounded-xl">
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2 rounded-lg bg-zinc-700">
-                                                <FileText className="w-5 h-5 text-zinc-400" />
-                                            </div>
-                                            <div>
-                                                <p className="text-white font-medium">{ev.title}</p>
-                                                <p className="text-zinc-500 text-xs">
-                                                    {ev.uploadedBy} • {ev.uploadedAt}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <GlassButton variant="ghost" size="sm">
-                                            <Download className="w-4 h-4" />
-                                        </GlassButton>
-                                    </div>
-                                ))}
-                            </div>
-                        </GlassCard>
-
-                        {/* Timeline */}
-                        <GlassCard className="p-6">
-                            <h2 className="text-lg font-semibold text-white mb-4">Timeline</h2>
-                            <div className="space-y-4">
-                                {dispute.timeline.map((entry, index) => (
-                                    <div key={entry.id} className="flex gap-4">
-                                        <div className="flex flex-col items-center">
-                                            <div className={`w-3 h-3 rounded-full ${entry.isSystem ? 'bg-zinc-500' : 'bg-indigo-500'
-                                                }`} />
-                                            {index < dispute.timeline.length - 1 && (
-                                                <div className="w-0.5 h-full bg-zinc-700 mt-2" />
-                                            )}
-                                        </div>
-                                        <div className="flex-1 pb-4">
-                                            <p className="text-white font-medium">{entry.action}</p>
-                                            <p className="text-zinc-400 text-sm">{entry.description}</p>
-                                            <p className="text-zinc-500 text-xs mt-1">{entry.timestamp}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </GlassCard>
-                    </div>
-
-                    {/* Sidebar */}
-                    <div className="space-y-6">
-                        {/* Amount */}
-                        <GlassCard className="p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <DollarSign className="w-5 h-5 text-amber-400" />
-                                <h3 className="font-semibold text-white">Disputed Amount</h3>
-                            </div>
-                            <p className="text-3xl font-bold text-white mb-2">${dispute.disputedAmount.toLocaleString()}</p>
-                            <p className="text-zinc-500 text-sm">
-                                From contract worth ${dispute.contract.totalAmount.toLocaleString()}
-                            </p>
-                        </GlassCard>
-
-                        {/* Parties */}
-                        <GlassCard className="p-6">
-                            <h3 className="font-semibold text-white mb-4">Parties Involved</h3>
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center">
-                                        <User className="w-5 h-5 text-rose-400" />
-                                    </div>
-                                    <div>
-                                        <p className="text-white font-medium">{dispute.initiator.name}</p>
-                                        <p className="text-rose-400 text-xs">Initiator ({dispute.initiator.role})</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">
-                                        <User className="w-5 h-5 text-indigo-400" />
-                                    </div>
-                                    <div>
-                                        <p className="text-white font-medium">{dispute.respondent.name}</p>
-                                        <p className="text-indigo-400 text-xs">Respondent ({dispute.respondent.role})</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </GlassCard>
-
-                        {/* Deadlines */}
-                        <GlassCard className="p-6">
-                            <h3 className="font-semibold text-white mb-4">Important Dates</h3>
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-zinc-500 text-sm">Opened</span>
-                                    <span className="text-white">{dispute.createdAt}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-zinc-500 text-sm">Next Deadline</span>
-                                    <span className="text-amber-400 font-medium">{dispute.nextDeadline}</span>
-                                </div>
-                            </div>
-                        </GlassCard>
-
-                        {/* Related Contract */}
-                        <GlassCard className="p-6">
-                            <h3 className="font-semibold text-white mb-4">Related Contract</h3>
-                            <Link href={`/contracts/${dispute.contract.id}`}>
-                                <div className="p-4 bg-zinc-800/50 rounded-xl hover:bg-zinc-800 transition-colors">
-                                    <p className="text-white font-medium">{dispute.contract.title}</p>
-                                    <div className="flex items-center justify-between mt-2">
-                                        <span className="text-zinc-500 text-sm">${dispute.contract.totalAmount.toLocaleString()}</span>
-                                        <ChevronRight className="w-4 h-4 text-zinc-500" />
-                                    </div>
-                                </div>
-                            </Link>
-                        </GlassCard>
+            <div className="max-w-6xl mx-auto p-8">
+                <div className="animate-pulse space-y-4">
+                    <div className="h-8 bg-zinc-800 rounded w-64" />
+                    <div className="grid grid-cols-3 gap-6">
+                        <div className="col-span-2 h-96 bg-zinc-800 rounded-xl" />
+                        <div className="h-96 bg-zinc-800 rounded-xl" />
                     </div>
                 </div>
             </div>
+        );
+    }
 
-            {/* Add Evidence Modal */}
-            <GlassModal
-                isOpen={showEvidenceModal}
-                onClose={() => setShowEvidenceModal(false)}
-                title="Add Evidence"
-            >
-                <div className="space-y-4">
-                    <div className="border-2 border-dashed border-zinc-700 rounded-xl p-8 text-center hover:border-indigo-500/50 transition-colors cursor-pointer">
-                        <Upload className="w-10 h-10 text-zinc-500 mx-auto mb-3" />
-                        <p className="text-white font-medium">Drop files or click to upload</p>
-                        <p className="text-zinc-500 text-sm mt-1">PDF, PNG, JPG up to 10MB</p>
-                    </div>
-                    <div className="flex gap-3 pt-4">
-                        <GlassButton variant="secondary" className="flex-1" onClick={() => setShowEvidenceModal(false)}>
-                            Cancel
-                        </GlassButton>
-                        <GlassButton variant="primary" className="flex-1">
-                            Upload
-                        </GlassButton>
-                    </div>
-                </div>
-            </GlassModal>
+    if (!data || 'error' in data) {
+        return (
+            <div className="max-w-5xl mx-auto p-8">
+                <GlassCard className="p-8 text-center">
+                    <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
+                    <p className="text-zinc-400">{(data as { error: string })?.error || 'Dispute not found'}</p>
+                    <button onClick={() => router.back()} className="mt-4 text-indigo-400 hover:text-indigo-300">
+                        ← Go back
+                    </button>
+                </GlassCard>
+            </div>
+        );
+    }
 
-            {/* Message Modal */}
-            <GlassModal
-                isOpen={showMessageModal}
-                onClose={() => setShowMessageModal(false)}
-                title="Send Message"
-            >
-                <div className="space-y-4">
-                    <p className="text-zinc-400 text-sm">
-                        Send a message to the other party regarding this dispute.
+    const { dispute, contract, milestone, lockAmount, currentUserId } = data;
+    const status = statusConfig[dispute.status] || statusConfig.OPEN;
+    const isResolved = ['RESOLVED', 'CLOSED'].includes(dispute.status);
+    const canMessage = !isResolved;
+    const canPropose = ['DISCUSSION', 'PROPOSAL'].includes(dispute.status);
+    const canEscalate = ['DISCUSSION', 'PROPOSAL'].includes(dispute.status);
+
+    const handleSendMessage = () => {
+        if (!message.trim()) return;
+        startTransition(async () => {
+            const result = await submitDisputeMessage(disputeId, message);
+            if (result.success) { setMessage(''); loadData(); }
+            else toast.error(result.error || 'Failed to send');
+        });
+    };
+
+    const handleUploadEvidence = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        startTransition(async () => {
+            const result = await uploadDisputeEvidence(disputeId, formData);
+            if (result.success) { toast.success('Evidence uploaded'); loadData(); }
+            else toast.error(result.error || 'Failed to upload');
+        });
+    };
+
+    const handleSubmitProposal = () => {
+        startTransition(async () => {
+            const result = await submitProposal(disputeId, proposalPercent, proposalReason);
+            if (result.success || result.autoSettled) {
+                toast.success(result.autoSettled ? 'Dispute auto-settled!' : 'Proposal submitted');
+                setShowProposal(false);
+                loadData();
+            } else toast.error(result.error || 'Failed to submit');
+        });
+    };
+
+    const handleEscalate = () => {
+        if (!confirm('Escalate this dispute to admin review? This cannot be undone.')) return;
+        startTransition(async () => {
+            const result = await escalateToAdmin(disputeId);
+            if (result.success) { toast.success('Escalated to admin'); loadData(); }
+            else toast.error(result.error || 'Failed to escalate');
+        });
+    };
+
+    return (
+        <div className="max-w-6xl mx-auto space-y-6">
+            {/* Header */}
+            <div className="flex items-center gap-4">
+                <button onClick={() => router.back()} className="text-zinc-400 hover:text-white transition-colors">
+                    <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div className="flex-1">
+                    <h1 className="text-xl font-bold text-white">{milestone.title}</h1>
+                    <p className="text-zinc-500 text-sm">
+                        Contract: {contract.title} • {contract.clientName} vs {contract.freelancerName}
                     </p>
-                    <GlassTextarea
-                        value={message}
-                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMessage(e.target.value)}
-                        placeholder="Type your message..."
-                        rows={4}
-                    />
-                    <div className="flex gap-3 pt-4">
-                        <GlassButton variant="secondary" className="flex-1" onClick={() => setShowMessageModal(false)}>
-                            Cancel
-                        </GlassButton>
-                        <GlassButton variant="primary" className="flex-1">
-                            <Send className="w-4 h-4 mr-2" /> Send
-                        </GlassButton>
-                    </div>
                 </div>
-            </GlassModal>
-        </>
+                <span className={`px-3 py-1 rounded-lg text-sm ${status.bg} ${status.color}`}>
+                    {status.label}
+                </span>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* LEFT — Discussion + Evidence */}
+                <div className="lg:col-span-2 space-y-6">
+                    <GlassCard className="p-5">
+                        <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
+                            <MessageSquare className="w-4 h-4" /> Discussion
+                        </h2>
+                        <div className="space-y-3 max-h-96 overflow-y-auto mb-4">
+                            {dispute.messages.map((msg: { id: string; senderId: string; content: string; isSystem: boolean; createdAt: string }) => (
+                                <div key={msg.id} className={`p-3 rounded-lg ${msg.isSystem
+                                    ? 'bg-zinc-800/50 border border-zinc-700/50'
+                                    : msg.senderId === currentUserId
+                                        ? 'bg-indigo-500/10 border border-indigo-500/20 ml-8'
+                                        : 'bg-zinc-800 border border-zinc-700 mr-8'
+                                    }`}>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className={`text-xs font-medium ${msg.isSystem ? 'text-zinc-500' : msg.senderId === currentUserId ? 'text-indigo-400' : 'text-zinc-400'}`}>
+                                            {msg.isSystem ? 'System' : msg.senderId === currentUserId ? 'You' : msg.senderId === contract.clientUserId ? contract.clientName : contract.freelancerName}
+                                        </span>
+                                        <span className="text-xs text-zinc-600">{new Date(msg.createdAt).toLocaleString()}</span>
+                                    </div>
+                                    <p className="text-sm text-zinc-300">{msg.content}</p>
+                                </div>
+                            ))}
+                        </div>
+                        {canMessage && (
+                            <>
+                                {dispute.status === 'PROPOSAL' && (
+                                    <p className="text-xs text-zinc-500 italic mb-2">Negotiation phase — discuss settlement terms and submit proposals.</p>
+                                )}
+                                <div className="flex gap-2">
+                                    <input
+                                        value={message}
+                                        onChange={e => setMessage(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                                        placeholder="Type your message..."
+                                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                                        disabled={isPending}
+                                    />
+                                    <button onClick={handleSendMessage} disabled={isPending || !message.trim()} className="px-4 py-2 bg-indigo-500/20 text-indigo-400 rounded-lg hover:bg-indigo-500/30 disabled:opacity-40 transition-colors">
+                                        <Send className="w-4 h-4" />
+                                    </button>
+                                    {dispute.status !== 'PROPOSAL' && (
+                                        <label className="px-4 py-2 bg-zinc-800 text-zinc-400 rounded-lg hover:bg-zinc-700 cursor-pointer transition-colors">
+                                            <Upload className="w-4 h-4" />
+                                            <input type="file" className="hidden" onChange={handleUploadEvidence} disabled={isPending} />
+                                        </label>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </GlassCard>
+
+                    {dispute.evidence.length > 0 && (
+                        <GlassCard className="p-5">
+                            <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
+                                <FileText className="w-4 h-4" /> Evidence ({dispute.evidence.length})
+                            </h2>
+                            <div className="space-y-2">
+                                {dispute.evidence.map((ev: { id: string; fileName: string; fileUrl: string; uploadedById: string; description: string | null; createdAt: string }) => (
+                                    <div key={ev.id} className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
+                                        <div>
+                                            <a href={ev.fileUrl} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 text-sm font-medium">{ev.fileName}</a>
+                                            {ev.description && <p className="text-zinc-500 text-xs mt-0.5">{ev.description}</p>}
+                                        </div>
+                                        <span className="text-xs text-zinc-600">{ev.uploadedById === currentUserId ? 'You' : 'Other party'} • {new Date(ev.createdAt).toLocaleDateString()}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </GlassCard>
+                    )}
+                </div>
+
+                {/* RIGHT — Status, Proposals, Actions */}
+                <div className="space-y-6">
+                    <GlassCard className="p-5">
+                        <h2 className="text-white font-semibold mb-4">Dispute Status</h2>
+                        <div className="space-y-3">
+                            <div className="flex justify-between text-sm"><span className="text-zinc-500">Reason</span><span className="text-white">{reasonLabels[dispute.reason] || dispute.reason}</span></div>
+                            <div className="flex justify-between text-sm"><span className="text-zinc-500">Amount</span><span className="text-white font-bold">${lockAmount}</span></div>
+                            <div className="flex justify-between text-sm"><span className="text-zinc-500">Opened</span><span className="text-white">{new Date(dispute.createdAt).toLocaleDateString()}</span></div>
+                            {dispute.discussionDeadline && !isResolved && (
+                                <div className="flex justify-between text-sm"><span className="text-zinc-500">Discussion Deadline</span><span className="text-amber-400 flex items-center gap-1"><Clock className="w-3 h-3" />{new Date(dispute.discussionDeadline).toLocaleDateString()}</span></div>
+                            )}
+                            {dispute.proposalDeadline && !isResolved && (
+                                <div className="flex justify-between text-sm"><span className="text-zinc-500">Proposal Deadline</span><span className="text-violet-400 flex items-center gap-1"><Clock className="w-3 h-3" />{new Date(dispute.proposalDeadline).toLocaleDateString()}</span></div>
+                            )}
+                            {dispute.resolvedAt && (
+                                <div className="flex justify-between text-sm"><span className="text-zinc-500">Resolved</span><span className="text-emerald-400">{new Date(dispute.resolvedAt).toLocaleDateString()}</span></div>
+                            )}
+                            {dispute.outcome && dispute.freelancerPercent !== null && (
+                                <div className="mt-3 pt-3 border-t border-zinc-800">
+                                    <p className="text-emerald-400 text-sm font-medium">Resolution: {dispute.freelancerPercent}% to freelancer</p>
+                                    {dispute.resolutionNote && <p className="text-zinc-500 text-xs mt-1">{dispute.resolutionNote}</p>}
+                                </div>
+                            )}
+                        </div>
+                    </GlassCard>
+
+                    {dispute.proposals.length > 0 && (
+                        <GlassCard className="p-5">
+                            <h2 className="text-white font-semibold mb-3 flex items-center gap-2"><Scale className="w-4 h-4" /> Proposals</h2>
+                            <p className="text-xs text-zinc-500 bg-zinc-800/50 rounded px-3 py-2 border border-zinc-700/50 mb-3">
+                                <span className="text-indigo-400 font-medium">Auto-settlement rule:</span> If proposals differ by ≤15%, the system automatically resolves at the midpoint.
+                            </p>
+                            <div className="space-y-2">
+                                {dispute.proposals.map((p: { id: string; proposedById: string; freelancerPercent: number; reason: string | null; createdAt: string }) => (
+                                    <div key={p.id} className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm text-zinc-400">{p.proposedById === currentUserId ? 'Your proposal' : 'Counter-proposal'}</span>
+                                            <span className="text-sm">
+                                                <span className="text-emerald-400 font-medium">Freelancer: {p.freelancerPercent}%</span>
+                                                <span className="text-zinc-600 mx-1">|</span>
+                                                <span className="text-blue-400 font-medium">Client: {100 - p.freelancerPercent}%</span>
+                                            </span>
+                                        </div>
+                                        {p.reason && <p className="text-xs text-zinc-500 mt-1">{p.reason}</p>}
+                                        <p className="text-xs text-zinc-600 mt-1">{new Date(p.createdAt).toLocaleString()}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </GlassCard>
+                    )}
+
+                    {!isResolved && (
+                        <GlassCard className="p-5">
+                            <h2 className="text-white font-semibold mb-4">Actions</h2>
+                            <div className="space-y-3">
+                                {canPropose && (
+                                    <>
+                                        {!showProposal ? (
+                                            <button onClick={() => setShowProposal(true)} className="w-full px-4 py-2 bg-violet-500/20 text-violet-400 rounded-lg hover:bg-violet-500/30 transition-colors text-sm">Submit Proposal</button>
+                                        ) : (
+                                            <div className="space-y-3 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
+                                                <div>
+                                                    <label className="text-xs text-zinc-500 block mb-1">Freelancer receives: {proposalPercent}%</label>
+                                                    <input type="range" min={0} max={100} step={1} value={proposalPercent} onChange={e => setProposalPercent(Number(e.target.value))} className="w-full accent-violet-500" />
+                                                    <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                                                        <span>100% Refund</span>
+                                                        <span>${(parseFloat(lockAmount) * proposalPercent / 100).toFixed(2)} / ${lockAmount}</span>
+                                                        <span>100% Release</span>
+                                                    </div>
+                                                </div>
+                                                <textarea value={proposalReason} onChange={e => setProposalReason(e.target.value)} placeholder="Reason (optional)..." rows={2} className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-white resize-none focus:outline-none focus:border-violet-500" />
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => setShowProposal(false)} className="flex-1 px-3 py-1.5 border border-zinc-700 text-zinc-400 rounded text-sm hover:text-white transition-colors">Cancel</button>
+                                                    <button onClick={handleSubmitProposal} disabled={isPending} className="flex-1 px-3 py-1.5 bg-violet-500/20 text-violet-400 rounded text-sm hover:bg-violet-500/30 disabled:opacity-40 transition-colors">{isPending ? 'Submitting...' : 'Submit'}</button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                                {/* Mutual fast-forward: DISCUSSION → PROPOSAL */}
+                                {dispute.status === 'DISCUSSION' && (
+                                    dispute.phaseAdvanceClient && currentUserId === contract.clientUserId ||
+                                    dispute.phaseAdvanceFreelancer && currentUserId === contract.freelancerUserId
+                                    ? (
+                                        <div className="w-full px-4 py-2 bg-emerald-500/10 text-emerald-400 rounded-lg text-sm text-center border border-emerald-500/20">
+                                            <CheckCircle className="w-4 h-4 inline mr-2" />
+                                            You requested to move forward — waiting for other party
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={() => startTransition(async () => {
+                                                const result = await requestPhaseTransition(disputeId);
+                                                if (result.success) {
+                                                    toast.success(result.transitioned ? 'Moved to Proposal phase!' : 'Request sent — waiting for other party');
+                                                    loadData();
+                                                } else toast.error(result.error || 'Failed');
+                                            })}
+                                            disabled={isPending}
+                                            className="w-full px-4 py-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-colors text-sm disabled:opacity-40"
+                                        >
+                                            <ChevronUp className="w-4 h-4 inline mr-2" />
+                                            Move to Proposal Phase
+                                        </button>
+                                    )
+                                )}
+                                {/* Mutual fast-forward: PROPOSAL → ADMIN_REVIEW */}
+                                {dispute.status === 'PROPOSAL' && (
+                                    dispute.phaseAdvanceClient && currentUserId === contract.clientUserId ||
+                                    dispute.phaseAdvanceFreelancer && currentUserId === contract.freelancerUserId
+                                    ? (
+                                        <div className="w-full px-4 py-2 bg-emerald-500/10 text-emerald-400 rounded-lg text-sm text-center border border-emerald-500/20">
+                                            <CheckCircle className="w-4 h-4 inline mr-2" />
+                                            You requested admin review — waiting for other party
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={() => startTransition(async () => {
+                                                const result = await requestPhaseTransition(disputeId);
+                                                if (result.success) {
+                                                    toast.success(result.transitioned ? 'Escalated to admin review!' : 'Request sent — waiting for other party');
+                                                    loadData();
+                                                } else toast.error(result.error || 'Failed');
+                                            })}
+                                            disabled={isPending}
+                                            className="w-full px-4 py-2 bg-orange-500/20 text-orange-400 rounded-lg hover:bg-orange-500/30 transition-colors text-sm disabled:opacity-40"
+                                        >
+                                            <Shield className="w-4 h-4 inline mr-2" />
+                                            Escalate to Admin Review
+                                        </button>
+                                    )
+                                )}
+                            </div>
+                        </GlassCard>
+                    )}
+
+                    <GlassCard className="p-5">
+                        <h2 className="text-white font-semibold mb-3 text-sm">Milestone Snapshot</h2>
+                        <p className="text-zinc-500 text-xs mb-2">Immutable record captured when dispute was opened</p>
+                        <div className="bg-zinc-800/50 rounded p-3 text-xs text-zinc-400 font-mono overflow-auto max-h-48">
+                            <pre>{JSON.stringify(dispute.snapshot, null, 2)}</pre>
+                        </div>
+                        <p className="text-zinc-600 text-xs mt-2">Hash: {dispute.snapshotHash?.slice(0, 16)}...</p>
+                    </GlassCard>
+                </div>
+            </div>
+        </div>
     );
 }

@@ -18,7 +18,8 @@ import {
     sendForReview, requestChanges, finalizeContract, startContract, cancelContract
 } from '@/actions/contract-actions';
 import { approveTrialWork, rejectTrialWork, raiseDispute, upgradeToStandard } from '@/actions/trial-actions';
-import { createMilestone, updateMilestone, deleteMilestone, startMilestone, submitMilestone, approveMilestone, reorderMilestones, openDispute } from '@/actions/milestone-actions';
+import { createMilestone, updateMilestone, deleteMilestone, startMilestone, submitMilestone, approveMilestone, reorderMilestones } from '@/actions/milestone-actions';
+import { openDispute } from '@/actions/dispute-actions';
 import { fundMilestone, refundMilestone } from '@/actions/escrow-actions';
 import { releaseMilestoneFunds } from '@/actions/escrow-release-actions';
 import { createDeliverable } from '@/actions/deliverable-actions';
@@ -138,6 +139,12 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
     const isClient = role === 'CLIENT';
     const isFreelancer = role === 'FREELANCER';
     const isDraft = contract.status === 'DRAFT';
+
+    // Dispute Dialog State
+    const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
+    const [disputeMilestoneId, setDisputeMilestoneId] = useState<string | null>(null);
+    const [disputeReason, setDisputeReason] = useState('QUALITY_ISSUES');
+    const [disputeDescription, setDisputeDescription] = useState('');
 
     // Contract Edit State
     const [editData, setEditData] = useState({
@@ -688,28 +695,31 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                                                     </button>
                                                                 )}
 
-                                                                {/* ── CLIENT: Open Dispute (SUBMITTED only) ── */}
+                                                                {/* ── CLIENT: Raise Dispute (SUBMITTED only) ── */}
                                                                 {isClient && contract.status === 'ACTIVE' && m.status === 'SUBMITTED' && (
                                                                     <button
                                                                         onClick={() => {
-                                                                            if (!confirm(`Open a dispute for milestone "${m.title}"? This will freeze escrow funds until resolved.`)) return;
-                                                                            startTransition(async () => {
-                                                                                const result = await openDispute(m.id);
-                                                                                if (result.success) { toast.success(`Dispute opened for "${m.title}"`); refreshAll(); }
-                                                                                else { toast.error(result.error || 'Failed to open dispute'); }
-                                                                            });
+                                                                            setDisputeMilestoneId(m.id);
+                                                                            setDisputeReason('QUALITY_ISSUES');
+                                                                            setDisputeDescription('');
+                                                                            setDisputeDialogOpen(true);
                                                                         }}
                                                                         disabled={isPending}
                                                                         className="text-[12px] px-3 py-1.5 rounded border font-medium transition-colors disabled:opacity-40"
                                                                         style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', backgroundColor: 'rgba(251,146,60,0.08)' }}
                                                                     >
-                                                                        Open Dispute
+                                                                        Raise Dispute
                                                                     </button>
                                                                 )}
 
-                                                                {/* ── DISPUTED: Frozen badge ── */}
+                                                                {/* ── DISPUTED: Frozen badge with link ── */}
                                                                 {m.status === 'DISPUTED' && (
-                                                                    <span className="text-[11px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Dispute Pending — Escrow Frozen</span>
+                                                                    <a
+                                                                        href={`/${role.toLowerCase()}/disputes`}
+                                                                        className="text-[11px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors cursor-pointer"
+                                                                    >
+                                                                        Dispute Pending — View Dispute
+                                                                    </a>
                                                                 )}
 
                                                                 {/* ── FREELANCER: Start Milestone ── */}
@@ -1027,7 +1037,9 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                                     />
                                 ) : (
                                     <div className="text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                                        {contract.terms || <span className="text-zinc-500 italic">No general terms defined.</span>}
+                                        {contract.terms
+                                            ? contract.terms.replace(/\\r?\\n/g, '\n')
+                                            : <span className="text-zinc-500 italic">No general terms defined.</span>}
                                     </div>
                                 )}
                             </GlassCard>
@@ -1106,6 +1118,74 @@ export function ContractDetailView({ contract, role }: ContractDetailViewProps) 
                 </div >
 
             </div >
+            \r\n        {/* ── Dispute Dialog ── */}
+            {
+                disputeDialogOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                        <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+                            <h3 className="text-lg font-semibold text-white mb-4">Raise Dispute</h3>
+                            <p className="text-zinc-400 text-sm mb-4">
+                                This will freeze escrow funds until the dispute is resolved. Both parties can submit evidence and negotiate.
+                            </p>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm text-zinc-400 mb-1">Reason</label>
+                                    <select
+                                        value={disputeReason}
+                                        onChange={e => setDisputeReason(e.target.value)}
+                                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                                    >
+                                        <option value="QUALITY_ISSUES">Quality Issues</option>
+                                        <option value="NON_DELIVERY">Non-Delivery</option>
+                                        <option value="SCOPE_CREEP">Scope Creep</option>
+                                        <option value="MISSED_DEADLINE">Missed Deadline</option>
+                                        <option value="COMMUNICATION">Communication Issues</option>
+                                        <option value="PAYMENT_DISPUTE">Payment Dispute</option>
+                                        <option value="OTHER">Other</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-zinc-400 mb-1">Description (min 10 characters)</label>
+                                    <textarea
+                                        value={disputeDescription}
+                                        onChange={e => setDisputeDescription(e.target.value)}
+                                        rows={4}
+                                        placeholder="Describe the issue in detail..."
+                                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm resize-none focus:outline-none focus:border-indigo-500"
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex gap-3 mt-6">
+                                <button
+                                    onClick={() => setDisputeDialogOpen(false)}
+                                    className="flex-1 px-4 py-2 rounded-lg border border-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (!disputeMilestoneId) return;
+                                        startTransition(async () => {
+                                            const result = await openDispute(disputeMilestoneId, disputeReason, disputeDescription);
+                                            if (result.success) {
+                                                toast.success('Dispute opened successfully');
+                                                setDisputeDialogOpen(false);
+                                                refreshAll();
+                                            } else {
+                                                toast.error(result.error || 'Failed to open dispute');
+                                            }
+                                        });
+                                    }}
+                                    disabled={isPending || disputeDescription.trim().length < 10}
+                                    className="flex-1 px-4 py-2 rounded-lg bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30 transition-colors disabled:opacity-40"
+                                >
+                                    {isPending ? 'Raising...' : 'Raise Dispute'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
         </div >
     );
 }

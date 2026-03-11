@@ -47,12 +47,29 @@ enum WalletTransactionType {
   WITHDRAWAL
   PLATFORM_FEE
   ADJUSTMENT
+  DISPUTE_RESOLUTION
 }
 
 enum ChangeRequestStatus {
   PENDING
   ACCEPTED
   REJECTED
+}
+
+enum DisputeStatus {
+  OPEN
+  DISCUSSION
+  PROPOSAL
+  ADMIN_REVIEW
+  RESOLVED
+  CLOSED
+}
+
+enum DisputeOutcome {
+  FULL_RELEASE
+  FULL_REFUND
+  PARTIAL_SPLIT
+  MUTUAL_CANCELLATION
 }
 
 model User {
@@ -356,6 +373,7 @@ model Milestone {
   deliverables       Deliverable[]
   escrowLocks        EscrowLock[]
   changeRequests     MilestoneChangeRequest[]
+  dispute            Dispute?
 
   @@unique([contractId, sequence])
 }
@@ -431,6 +449,95 @@ model MilestoneChangeRequest {
   status              ChangeRequestStatus @default(PENDING)
   createdAt           DateTime            @default(now())
   resolvedAt          DateTime?
+}
+
+// ============================================================================
+// Dispute Resolution System
+// ============================================================================
+
+model Dispute {
+  id                  String          @id @default(cuid())
+  milestoneId         String          @unique
+  milestone           Milestone       @relation(fields: [milestoneId], references: [id])
+  contractId          String
+  openedById          String
+  againstUserId       String
+  reason              String          // QUALITY_ISSUES | NON_DELIVERY | SCOPE_CREEP | MISSED_DEADLINE | COMMUNICATION | PAYMENT_DISPUTE | OTHER
+  description         String
+  status              DisputeStatus   @default(OPEN)
+  outcome             DisputeOutcome?
+
+  // Resolution
+  freelancerPercent   Int?
+  resolvedById        String?
+  resolutionNote      String?
+
+  // Immutable Snapshot
+  snapshot            Json
+  snapshotHash        String
+
+  // Deadlines
+  discussionDeadline  DateTime?
+  proposalDeadline    DateTime?
+
+  // Mutual phase fast-forward flags (reset on every phase transition)
+  phaseAdvanceClient     Boolean @default(false)
+  phaseAdvanceFreelancer Boolean @default(false)
+
+  // Timestamps
+  createdAt           DateTime        @default(now())
+  escalatedAt         DateTime?
+  resolvedAt          DateTime?
+
+  // Relations
+  messages            DisputeMessage[]
+  evidence            DisputeEvidence[]
+  proposals           DisputeProposal[]
+
+  @@index([contractId])
+  @@index([status])
+  @@index([openedById])
+}
+
+model DisputeMessage {
+  id         String   @id @default(cuid())
+  disputeId  String
+  dispute    Dispute  @relation(fields: [disputeId], references: [id])
+  senderId   String
+  content    String
+  isSystem   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([disputeId, createdAt])
+}
+
+model DisputeEvidence {
+  id            String   @id @default(cuid())
+  disputeId     String
+  dispute       Dispute  @relation(fields: [disputeId], references: [id])
+  uploadedById  String
+  fileUrl       String
+  fileName      String
+  fileType      String
+  description   String?
+  contentHash   String?
+  createdAt     DateTime @default(now())
+
+  @@index([disputeId])
+}
+
+model DisputeProposal {
+  id                String    @id @default(cuid())
+  disputeId         String
+  dispute           Dispute   @relation(fields: [disputeId], references: [id])
+  proposedById      String
+  freelancerPercent Int
+  reason            String?
+  accepted          Boolean?
+  createdAt         DateTime  @default(now())
+  respondedAt       DateTime?
+
+  @@index([disputeId])
 }
 
 model Conversation {

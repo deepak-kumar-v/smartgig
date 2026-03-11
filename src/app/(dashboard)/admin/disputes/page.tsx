@@ -1,339 +1,328 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import { GlassCard } from '@/components/ui/glass-card';
-import { GlassButton } from '@/components/ui/glass-button';
-import { GlassTextarea } from '@/components/ui/glass-textarea';
-import { GlassModal } from '@/components/ui/glass-modal';
-import Link from 'next/link';
 import {
-    Scale, Search, Filter, Clock, CheckCircle, AlertTriangle,
-    ChevronRight, DollarSign, Gavel, User, FileText, Eye
+    Scale, Clock, CheckCircle, AlertTriangle, Shield,
+    DollarSign, Search, MessageSquare, FileText, ChevronDown, ChevronUp
 } from 'lucide-react';
+import { getDisputesForUser, getDispute, resolveDisputeAdmin, submitDisputeMessage } from '@/actions/dispute-actions';
+import { toast } from 'sonner';
 
-// Mock admin disputes data
-const disputes = [
-    {
-        id: 'dispute-1',
-        title: 'Quality of deliverables not meeting requirements',
-        contract: 'Backend API Development',
-        initiator: { name: 'Sarah Chen', role: 'CLIENT' },
-        respondent: { name: 'David Kim', role: 'FREELANCER' },
-        reason: 'QUALITY_ISSUES',
-        status: 'UNDER_REVIEW',
-        disputedAmount: 3500,
-        createdAt: '2025-01-18',
-        priority: 'HIGH',
-        assignedTo: null,
-    },
-    {
-        id: 'dispute-2',
-        title: 'Missed project deadline',
-        contract: 'Mobile App Design',
-        initiator: { name: 'John Smith', role: 'CLIENT' },
-        respondent: { name: 'Emily Rose', role: 'FREELANCER' },
-        reason: 'NON_DELIVERY',
-        status: 'ESCALATED',
-        disputedAmount: 2000,
-        createdAt: '2025-01-15',
-        priority: 'CRITICAL',
-        assignedTo: 'Admin Mike',
-    },
-    {
-        id: 'dispute-3',
-        title: 'Payment not released after approval',
-        contract: 'Website Redesign',
-        initiator: { name: 'Alex Johnson', role: 'FREELANCER' },
-        respondent: { name: 'TechCorp', role: 'CLIENT' },
-        reason: 'PAYMENT_DISPUTE',
-        status: 'OPEN',
-        disputedAmount: 1500,
-        createdAt: '2025-01-19',
-        priority: 'MEDIUM',
-        assignedTo: null,
-    },
-];
-
-const statusConfig: Record<string, { color: string; bg: string }> = {
-    OPEN: { color: 'text-amber-400', bg: 'bg-amber-500/20' },
-    UNDER_REVIEW: { color: 'text-blue-400', bg: 'bg-blue-500/20' },
-    ESCALATED: { color: 'text-rose-400', bg: 'bg-rose-500/20' },
-    RESOLVED: { color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
+const statusConfig: Record<string, { color: string; bg: string; label: string; priority: number }> = {
+    ADMIN_REVIEW: { color: 'text-orange-400', bg: 'bg-orange-500/20', label: 'Admin Review', priority: 0 },
+    OPEN: { color: 'text-amber-400', bg: 'bg-amber-500/20', label: 'Open', priority: 1 },
+    DISCUSSION: { color: 'text-blue-400', bg: 'bg-blue-500/20', label: 'Discussion', priority: 2 },
+    PROPOSAL: { color: 'text-violet-400', bg: 'bg-violet-500/20', label: 'Proposal', priority: 3 },
+    RESOLVED: { color: 'text-emerald-400', bg: 'bg-emerald-500/20', label: 'Resolved', priority: 10 },
+    CLOSED: { color: 'text-zinc-400', bg: 'bg-zinc-500/20', label: 'Closed', priority: 11 },
 };
 
-const priorityConfig: Record<string, { color: string; bg: string }> = {
-    LOW: { color: 'text-zinc-400', bg: 'bg-zinc-500/20' },
-    MEDIUM: { color: 'text-amber-400', bg: 'bg-amber-500/20' },
-    HIGH: { color: 'text-orange-400', bg: 'bg-orange-500/20' },
-    CRITICAL: { color: 'text-rose-400', bg: 'bg-rose-500/20' },
+const reasonLabels: Record<string, string> = {
+    QUALITY_ISSUES: 'Quality Issues', NON_DELIVERY: 'Non-Delivery', SCOPE_CREEP: 'Scope Creep',
+    MISSED_DEADLINE: 'Missed Deadline', COMMUNICATION: 'Communication', PAYMENT_DISPUTE: 'Payment Dispute', OTHER: 'Other',
+};
+
+type DisputeItem = {
+    id: string; reason: string; description: string; status: string; outcome: string | null;
+    freelancerPercent: number | null; createdAt: string; resolvedAt: string | null;
+    discussionDeadline: string | null; proposalDeadline: string | null;
+    milestoneTitle: string; milestoneAmount: string; contractId: string; contractTitle: string;
+    clientName: string; freelancerName: string; clientUserId: string; freelancerUserId: string;
+    openedById: string; messageCount: number; evidenceCount: number; proposalCount: number;
 };
 
 export default function AdminDisputesPage() {
-    const [filter, setFilter] = useState<'all' | 'unassigned' | 'mine'>('all');
-    const [showDecisionModal, setShowDecisionModal] = useState(false);
-    const [selectedDispute, setSelectedDispute] = useState<string | null>(null);
-    const [decision, setDecision] = useState<'freelancer' | 'client' | 'split' | null>(null);
-    const [resolutionNote, setResolutionNote] = useState('');
+    const [disputes, setDisputes] = useState<DisputeItem[]>([]);
+    const [filter, setFilter] = useState<'all' | 'needs_review' | 'active' | 'resolved'>('needs_review');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [isPending, startTransition] = useTransition();
 
-    const filteredDisputes = disputes.filter(d => {
-        if (filter === 'unassigned') return !d.assignedTo;
-        if (filter === 'mine') return d.assignedTo === 'Admin Mike';
-        return true;
-    });
+    // Resolution state
+    const [resolvePercent, setResolvePercent] = useState(50);
+    const [resolveNote, setResolveNote] = useState('');
 
-    const handleDecision = () => {
-        // Mock decision handling
-        setShowDecisionModal(false);
-        setSelectedDispute(null);
-        setDecision(null);
-        setResolutionNote('');
+    // Expanded detail data
+    const [detailData, setDetailData] = useState<Awaited<ReturnType<typeof getDispute>> | null>(null);
+
+    const loadDisputes = async () => {
+        const result = await getDisputesForUser();
+        if (result && 'disputes' in result && result.disputes) {
+            setDisputes(result.disputes as DisputeItem[]);
+        }
+        setLoading(false);
     };
 
+    useEffect(() => { loadDisputes(); }, []);
+
+    const loadDetail = async (id: string) => {
+        const result = await getDispute(id);
+        setDetailData(result);
+    };
+
+    const toggleExpand = (id: string) => {
+        if (expandedId === id) {
+            setExpandedId(null);
+            setDetailData(null);
+        } else {
+            setExpandedId(id);
+            setResolvePercent(50);
+            setResolveNote('');
+            loadDetail(id);
+        }
+    };
+
+    const filteredDisputes = disputes.filter(d => {
+        if (filter === 'needs_review') return d.status === 'ADMIN_REVIEW';
+        if (filter === 'active') return !['RESOLVED', 'CLOSED'].includes(d.status);
+        if (filter === 'resolved') return ['RESOLVED', 'CLOSED'].includes(d.status);
+        return true;
+    }).filter(d =>
+        d.milestoneTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.contractTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.freelancerName.toLowerCase().includes(searchQuery.toLowerCase())
+    ).sort((a, b) => (statusConfig[a.status]?.priority ?? 99) - (statusConfig[b.status]?.priority ?? 99));
+
+    const needsReviewCount = disputes.filter(d => d.status === 'ADMIN_REVIEW').length;
+    const activeCount = disputes.filter(d => !['RESOLVED', 'CLOSED'].includes(d.status)).length;
+    const totalInDispute = disputes.filter(d => !['RESOLVED', 'CLOSED'].includes(d.status)).reduce((s, d) => s + parseFloat(d.milestoneAmount), 0);
+
+    const handleResolve = (disputeId: string) => {
+        if (!resolveNote || resolveNote.trim().length < 5) {
+            toast.error('Resolution note must be at least 5 characters');
+            return;
+        }
+        const idempotencyKey = `resolve_${disputeId}_${Date.now()}`;
+        startTransition(async () => {
+            const result = await resolveDisputeAdmin(disputeId, resolvePercent, resolveNote, idempotencyKey);
+            if (result.success) {
+                toast.success('Dispute resolved successfully');
+                setExpandedId(null);
+                setDetailData(null);
+                loadDisputes();
+            } else {
+                toast.error(result.error || 'Failed to resolve');
+            }
+        });
+    };
+
+    if (loading) {
+        return (
+            <div className="max-w-6xl mx-auto p-8">
+                <div className="animate-pulse space-y-4">
+                    <div className="h-8 bg-zinc-800 rounded w-48" />
+                    <div className="grid grid-cols-3 gap-4">{[1, 2, 3].map(i => <div key={i} className="h-24 bg-zinc-800 rounded-xl" />)}</div>
+                    <div className="h-64 bg-zinc-800 rounded-xl" />
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <>
-            <div className="max-w-6xl mx-auto space-y-6">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-2xl font-bold text-white">Dispute Management</h1>
-                        <p className="text-zinc-400">Review and resolve platform disputes</p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className="text-right">
-                            <p className="text-zinc-500 text-sm">Pending Review</p>
-                            <p className="text-2xl font-bold text-amber-400">
-                                {disputes.filter(d => d.status !== 'RESOLVED').length}
-                            </p>
-                        </div>
-                    </div>
-                </div>
+        <div className="max-w-6xl mx-auto space-y-6">
+            <div>
+                <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+                    <Shield className="w-7 h-7 text-orange-400" /> Admin — Dispute Resolution Center
+                </h1>
+                <p className="text-zinc-400 mt-1">Review, arbitrate, and resolve disputes</p>
+            </div>
 
-                {/* Stats Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <GlassCard className="p-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-zinc-500 text-sm">Open</p>
-                                <p className="text-2xl font-bold text-amber-400">
-                                    {disputes.filter(d => d.status === 'OPEN').length}
-                                </p>
-                            </div>
-                            <AlertTriangle className="w-6 h-6 text-amber-400/50" />
-                        </div>
-                    </GlassCard>
-                    <GlassCard className="p-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-zinc-500 text-sm">Under Review</p>
-                                <p className="text-2xl font-bold text-blue-400">
-                                    {disputes.filter(d => d.status === 'UNDER_REVIEW').length}
-                                </p>
-                            </div>
-                            <Scale className="w-6 h-6 text-blue-400/50" />
-                        </div>
-                    </GlassCard>
-                    <GlassCard className="p-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-zinc-500 text-sm">Escalated</p>
-                                <p className="text-2xl font-bold text-rose-400">
-                                    {disputes.filter(d => d.status === 'ESCALATED').length}
-                                </p>
-                            </div>
-                            <AlertTriangle className="w-6 h-6 text-rose-400/50" />
-                        </div>
-                    </GlassCard>
-                    <GlassCard className="p-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-zinc-500 text-sm">Total Value</p>
-                                <p className="text-2xl font-bold text-white">
-                                    ${disputes.reduce((sum, d) => sum + d.disputedAmount, 0).toLocaleString()}
-                                </p>
-                            </div>
-                            <DollarSign className="w-6 h-6 text-zinc-500" />
-                        </div>
-                    </GlassCard>
-                </div>
-
-                {/* Filters */}
+            {/* Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <GlassCard className="p-4">
-                    <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-                        <div className="relative flex-1 max-w-md">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
-                            <input
-                                type="text"
-                                placeholder="Search disputes..."
-                                className="w-full bg-zinc-800/50 border border-zinc-700 text-white rounded-lg pl-12 pr-4 py-2 focus:outline-none focus:border-indigo-500"
-                            />
-                        </div>
-                        <div className="flex gap-2">
-                            {['all', 'unassigned', 'mine'].map((f) => (
-                                <button
-                                    key={f}
-                                    onClick={() => setFilter(f as typeof filter)}
-                                    className={`px-4 py-2 rounded-lg text-sm transition-all ${filter === f
-                                        ? 'bg-indigo-500 text-white'
-                                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
-                                        }`}
-                                >
-                                    {f === 'mine' ? 'My Cases' : f.charAt(0).toUpperCase() + f.slice(1)}
-                                </button>
-                            ))}
-                        </div>
+                    <div className="flex items-center justify-between">
+                        <div><p className="text-zinc-500 text-sm">Needs Review</p><p className="text-2xl font-bold text-orange-400">{needsReviewCount}</p></div>
+                        <Shield className="w-8 h-8 text-orange-400/50" />
                     </div>
                 </GlassCard>
-
-                {/* Disputes Table */}
-                <GlassCard className="overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full">
-                            <thead className="bg-zinc-800/50">
-                                <tr>
-                                    <th className="text-left p-4 text-zinc-400 font-medium text-sm">Dispute</th>
-                                    <th className="text-left p-4 text-zinc-400 font-medium text-sm">Parties</th>
-                                    <th className="text-left p-4 text-zinc-400 font-medium text-sm">Status</th>
-                                    <th className="text-left p-4 text-zinc-400 font-medium text-sm">Priority</th>
-                                    <th className="text-left p-4 text-zinc-400 font-medium text-sm">Amount</th>
-                                    <th className="text-left p-4 text-zinc-400 font-medium text-sm">Assigned</th>
-                                    <th className="text-right p-4 text-zinc-400 font-medium text-sm">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredDisputes.map((dispute) => {
-                                    const status = statusConfig[dispute.status];
-                                    const priority = priorityConfig[dispute.priority];
-
-                                    return (
-                                        <tr key={dispute.id} className="border-t border-zinc-800 hover:bg-zinc-800/30">
-                                            <td className="p-4">
-                                                <p className="text-white font-medium">{dispute.title}</p>
-                                                <p className="text-zinc-500 text-sm">{dispute.contract}</p>
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="text-sm">
-                                                    <p className="text-zinc-400">{dispute.initiator.name} <span className="text-zinc-600">vs</span></p>
-                                                    <p className="text-zinc-400">{dispute.respondent.name}</p>
-                                                </div>
-                                            </td>
-                                            <td className="p-4">
-                                                <span className={`px-2 py-1 rounded text-xs ${status.bg} ${status.color}`}>
-                                                    {dispute.status.replace('_', ' ')}
-                                                </span>
-                                            </td>
-                                            <td className="p-4">
-                                                <span className={`px-2 py-1 rounded text-xs ${priority.bg} ${priority.color}`}>
-                                                    {dispute.priority}
-                                                </span>
-                                            </td>
-                                            <td className="p-4">
-                                                <span className="text-white font-medium">${dispute.disputedAmount.toLocaleString()}</span>
-                                            </td>
-                                            <td className="p-4">
-                                                {dispute.assignedTo ? (
-                                                    <span className="text-zinc-400">{dispute.assignedTo}</span>
-                                                ) : (
-                                                    <GlassButton variant="ghost" size="sm">
-                                                        Assign to me
-                                                    </GlassButton>
-                                                )}
-                                            </td>
-                                            <td className="p-4 text-right">
-                                                <div className="flex gap-2 justify-end">
-                                                    <Link href={`/disputes/${dispute.id}`}>
-                                                        <GlassButton variant="ghost" size="sm">
-                                                            <Eye className="w-4 h-4" />
-                                                        </GlassButton>
-                                                    </Link>
-                                                    <GlassButton
-                                                        variant="primary"
-                                                        size="sm"
-                                                        onClick={() => {
-                                                            setSelectedDispute(dispute.id);
-                                                            setShowDecisionModal(true);
-                                                        }}
-                                                    >
-                                                        <Gavel className="w-4 h-4" />
-                                                    </GlassButton>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+                <GlassCard className="p-4">
+                    <div className="flex items-center justify-between">
+                        <div><p className="text-zinc-500 text-sm">Active</p><p className="text-2xl font-bold text-amber-400">{activeCount}</p></div>
+                        <AlertTriangle className="w-8 h-8 text-amber-400/50" />
+                    </div>
+                </GlassCard>
+                <GlassCard className="p-4">
+                    <div className="flex items-center justify-between">
+                        <div><p className="text-zinc-500 text-sm">Resolved</p><p className="text-2xl font-bold text-emerald-400">{disputes.length - activeCount}</p></div>
+                        <CheckCircle className="w-8 h-8 text-emerald-400/50" />
+                    </div>
+                </GlassCard>
+                <GlassCard className="p-4">
+                    <div className="flex items-center justify-between">
+                        <div><p className="text-zinc-500 text-sm">Amount at Risk</p><p className="text-2xl font-bold text-white">${totalInDispute.toLocaleString()}</p></div>
+                        <DollarSign className="w-8 h-8 text-zinc-500" />
                     </div>
                 </GlassCard>
             </div>
 
-            {/* Decision Modal */}
-            <GlassModal
-                isOpen={showDecisionModal}
-                onClose={() => setShowDecisionModal(false)}
-                title="Make Decision"
-            >
-                <div className="space-y-6">
-                    <div>
-                        <label className="text-white text-sm font-medium mb-3 block">Resolution</label>
-                        <div className="grid grid-cols-3 gap-3">
-                            <button
-                                onClick={() => setDecision('freelancer')}
-                                className={`p-4 rounded-xl border text-center transition-all ${decision === 'freelancer'
-                                    ? 'border-emerald-500 bg-emerald-500/10'
-                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
-                                    }`}
-                            >
-                                <User className="w-6 h-6 mx-auto mb-2 text-emerald-400" />
-                                <p className="text-white text-sm font-medium">Freelancer</p>
-                            </button>
-                            <button
-                                onClick={() => setDecision('client')}
-                                className={`p-4 rounded-xl border text-center transition-all ${decision === 'client'
-                                    ? 'border-blue-500 bg-blue-500/10'
-                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
-                                    }`}
-                            >
-                                <User className="w-6 h-6 mx-auto mb-2 text-blue-400" />
-                                <p className="text-white text-sm font-medium">Client</p>
-                            </button>
-                            <button
-                                onClick={() => setDecision('split')}
-                                className={`p-4 rounded-xl border text-center transition-all ${decision === 'split'
-                                    ? 'border-violet-500 bg-violet-500/10'
-                                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
-                                    }`}
-                            >
-                                <Scale className="w-6 h-6 mx-auto mb-2 text-violet-400" />
-                                <p className="text-white text-sm font-medium">Split</p>
-                            </button>
-                        </div>
+            {/* Filters */}
+            <GlassCard className="p-4">
+                <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+                    <div className="relative flex-1 max-w-md">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                        <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search disputes, parties, contracts..." className="w-full bg-zinc-800/50 border border-zinc-700 text-white rounded-lg pl-12 pr-4 py-2 focus:outline-none focus:border-indigo-500" />
                     </div>
-
-                    <div className="space-y-2">
-                        <label className="text-white text-sm font-medium">Resolution Note</label>
-                        <GlassTextarea
-                            value={resolutionNote}
-                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setResolutionNote(e.target.value)}
-                            placeholder="Explain your decision..."
-                            rows={4}
-                        />
-                    </div>
-
-                    <div className="flex gap-3 pt-4">
-                        <GlassButton variant="secondary" className="flex-1" onClick={() => setShowDecisionModal(false)}>
-                            Cancel
-                        </GlassButton>
-                        <GlassButton
-                            variant="primary"
-                            className="flex-1"
-                            disabled={!decision || !resolutionNote}
-                            onClick={handleDecision}
-                        >
-                            <Gavel className="w-4 h-4 mr-2" /> Confirm Decision
-                        </GlassButton>
+                    <div className="flex gap-2">
+                        {[
+                            { key: 'needs_review', label: `Review (${needsReviewCount})` },
+                            { key: 'active', label: 'Active' },
+                            { key: 'all', label: 'All' },
+                            { key: 'resolved', label: 'Resolved' },
+                        ].map((f) => (
+                            <button key={f.key} onClick={() => setFilter(f.key as typeof filter)} className={`px-4 py-2 rounded-lg text-sm transition-all ${filter === f.key ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}>
+                                {f.label}
+                            </button>
+                        ))}
                     </div>
                 </div>
-            </GlassModal>
-        </>
+            </GlassCard>
+
+            {/* Dispute List */}
+            <div className="space-y-3">
+                {filteredDisputes.length === 0 ? (
+                    <GlassCard className="p-12 text-center">
+                        <Scale className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
+                        <p className="text-zinc-400">{disputes.length === 0 ? 'No disputes in the system' : 'No disputes match your filter'}</p>
+                    </GlassCard>
+                ) : (
+                    filteredDisputes.map((dispute) => {
+                        const status = statusConfig[dispute.status] || statusConfig.OPEN;
+                        const isExpanded = expandedId === dispute.id;
+
+                        return (
+                            <GlassCard key={dispute.id} className="overflow-hidden">
+                                {/* Row */}
+                                <button onClick={() => toggleExpand(dispute.id)} className="w-full p-5 text-left hover:bg-zinc-800/30 transition-colors">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-3 mb-1">
+                                                <span className={`px-2 py-0.5 rounded text-xs ${status.bg} ${status.color}`}>{status.label}</span>
+                                                <span className="text-zinc-500 text-xs">{reasonLabels[dispute.reason] || dispute.reason}</span>
+                                                <span className="text-zinc-600 text-xs">•</span>
+                                                <span className="text-zinc-500 text-xs">{new Date(dispute.createdAt).toLocaleDateString()}</span>
+                                            </div>
+                                            <h3 className="text-white font-medium">{dispute.milestoneTitle}</h3>
+                                            <p className="text-zinc-500 text-sm mt-0.5">
+                                                {dispute.clientName} (client) vs {dispute.freelancerName} (freelancer) • {dispute.contractTitle}
+                                            </p>
+                                            <div className="flex items-center gap-4 mt-1 text-xs text-zinc-600">
+                                                <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" />{dispute.messageCount}</span>
+                                                <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{dispute.evidenceCount}</span>
+                                                <span className="flex items-center gap-1"><Scale className="w-3 h-3" />{dispute.proposalCount}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <p className="text-white font-bold">${dispute.milestoneAmount}</p>
+                                            {isExpanded ? <ChevronUp className="w-5 h-5 text-zinc-500" /> : <ChevronDown className="w-5 h-5 text-zinc-500" />}
+                                        </div>
+                                    </div>
+                                </button>
+
+                                {/* Expanded Detail */}
+                                {isExpanded && (
+                                    <div className="border-t border-zinc-800 p-5 bg-zinc-900/50">
+                                        {!detailData || 'error' in detailData ? (
+                                            <div className="text-center py-8">
+                                                <div className="animate-spin w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full mx-auto" />
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                {/* Left: Evidence + Messages */}
+                                                <div className="space-y-4">
+                                                    <div>
+                                                        <h4 className="text-white font-medium text-sm mb-2">Description</h4>
+                                                        <p className="text-zinc-400 text-sm bg-zinc-800/50 rounded-lg p-3">{detailData.dispute.description}</p>
+                                                    </div>
+                                                    {detailData.dispute.evidence.length > 0 && (
+                                                        <div>
+                                                            <h4 className="text-white font-medium text-sm mb-2">Evidence ({detailData.dispute.evidence.length})</h4>
+                                                            <div className="space-y-1">
+                                                                {detailData.dispute.evidence.map((ev: { id: string; fileName: string; fileUrl: string; description: string | null }) => (
+                                                                    <a key={ev.id} href={ev.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-2 bg-zinc-800/50 rounded text-sm text-indigo-400 hover:text-indigo-300">
+                                                                        <FileText className="w-3 h-3" /> {ev.fileName}
+                                                                    </a>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {detailData.dispute.proposals.length > 0 && (
+                                                        <div>
+                                                            <h4 className="text-white font-medium text-sm mb-2">Party Proposals</h4>
+                                                            <div className="space-y-1">
+                                                                {detailData.dispute.proposals.map((p: { id: string; proposedById: string; freelancerPercent: number; reason: string | null; createdAt: string }) => (
+                                                                     <div key={p.id} className="p-2 bg-zinc-800/50 rounded text-sm flex justify-between">
+                                                                        <span className="text-zinc-400">{p.proposedById === detailData.contract.clientUserId ? 'Client' : 'Freelancer'}</span>
+                                                                        <span className="text-sm">
+                                                                            <span className="text-emerald-400 font-medium">Freelancer: {p.freelancerPercent}%</span>
+                                                                            <span className="text-zinc-600 mx-1">|</span>
+                                                                            <span className="text-blue-400 font-medium">Client: {100 - p.freelancerPercent}%</span>
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <h4 className="text-white font-medium text-sm mb-2">Snapshot</h4>
+                                                        <div className="bg-zinc-800/50 rounded p-3 text-xs text-zinc-500 font-mono overflow-auto max-h-32">
+                                                            <pre>{JSON.stringify(detailData.dispute.snapshot, null, 2)}</pre>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Right: Resolution */}
+                                                <div>
+                                                    {!['RESOLVED', 'CLOSED'].includes(dispute.status) ? (
+                                                        <div className="space-y-4">
+                                                            <h4 className="text-white font-medium">Admin Resolution</h4>
+                                                            <div>
+                                                                <label className="text-sm text-zinc-400 block mb-2">Split: {resolvePercent}% → Freelancer, {100 - resolvePercent}% → Client</label>
+                                                                <input type="range" min={0} max={100} step={1} value={resolvePercent} onChange={e => setResolvePercent(Number(e.target.value))} className="w-full accent-indigo-500" />
+                                                                <div className="flex justify-between text-xs text-zinc-600 mt-1">
+                                                                    <span>Full Refund</span>
+                                                                    <span className="text-white font-medium">${(parseFloat(dispute.milestoneAmount) * resolvePercent / 100).toFixed(2)} / ${dispute.milestoneAmount}</span>
+                                                                    <span>Full Release</span>
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-sm text-zinc-400 block mb-1">Resolution Note *</label>
+                                                                <textarea value={resolveNote} onChange={e => setResolveNote(e.target.value)} rows={3} placeholder="Explain the rationale for this decision..." className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm resize-none focus:outline-none focus:border-indigo-500" />
+                                                            </div>
+                                                            <div className="bg-zinc-800/50 rounded-lg p-3 text-xs space-y-1">
+                                                                <div className="flex justify-between"><span className="text-zinc-500">Freelancer receives</span><span className="text-emerald-400">${(parseFloat(dispute.milestoneAmount) * resolvePercent / 100 * 0.98).toFixed(2)}</span></div>
+                                                                <div className="flex justify-between"><span className="text-zinc-500">Arbitration fee (2%)</span><span className="text-amber-400">${(parseFloat(dispute.milestoneAmount) * resolvePercent / 100 * 0.02).toFixed(2)}</span></div>
+                                                                <div className="flex justify-between"><span className="text-zinc-500">Client refund</span><span className="text-blue-400">${(parseFloat(dispute.milestoneAmount) * (100 - resolvePercent) / 100).toFixed(2)}</span></div>
+                                                                <div className="flex justify-between border-t border-zinc-700 pt-1 mt-1"><span className="text-zinc-400 font-medium">Total</span><span className="text-white font-medium">${dispute.milestoneAmount}</span></div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleResolve(dispute.id)}
+                                                                disabled={isPending || resolveNote.trim().length < 5}
+                                                                className="w-full px-4 py-3 bg-indigo-500/20 text-indigo-400 rounded-lg hover:bg-indigo-500/30 transition-colors font-medium disabled:opacity-40"
+                                                            >
+                                                                {isPending ? 'Resolving...' : `Resolve — ${resolvePercent}% to Freelancer`}
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                                            <p className="text-emerald-400 font-medium mb-2">✓ Resolved</p>
+                                                            {dispute.freelancerPercent !== null && (
+                                                                <p className="text-zinc-400 text-sm">{dispute.freelancerPercent}% to freelancer, {100 - dispute.freelancerPercent}% refunded</p>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </GlassCard>
+                        );
+                    })
+                )}
+            </div>
+        </div>
     );
 }

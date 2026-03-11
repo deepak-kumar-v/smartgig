@@ -706,6 +706,7 @@ export async function refundEscrow(contractId: string, idempotencyKey?: string):
             MilestoneStatus.IN_PROGRESS,
             MilestoneStatus.SUBMITTED,
             MilestoneStatus.APPROVED,
+            MilestoneStatus.DISPUTED,
         ];
         const activeMilestones = contract.milestones.filter((m: { status: MilestoneStatus }) =>
             blockedStatuses.includes(m.status)
