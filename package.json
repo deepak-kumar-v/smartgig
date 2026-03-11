@@ -3,12 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:socket": "tsx socket-server.ts",
+    "dev": "tsx socket-server.ts",
     "build": "npm run validate:intelligence && npm run validate:finance && next build",
     "validate:intelligence": "tsx scripts/validate-intelligence.ts",
     "validate:finance": "tsx scripts/validate-finance.ts",
-    "start": "next start",
+    "start": "cross-env NODE_ENV=production tsx socket-server.ts",
     "lint": "next lint",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
@@ -38,6 +37,7 @@
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.0",
+    "cross-env": "^10.1.0",
     "date-fns": "^4.1.0",
     "emoji-mart": "^5.6.0",
     "framer-motion": "^11.0.3",

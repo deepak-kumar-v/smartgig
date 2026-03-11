@@ -38,7 +38,7 @@ export function SocketProvider({ children, userId, userRole }: SocketProviderPro
             return;
         }
 
-        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || (typeof window !== 'undefined' ? window.location.origin : '');
 
         console.log('[SOCKET] Creating socket for userId:', userId, 'role:', userRole);
 
