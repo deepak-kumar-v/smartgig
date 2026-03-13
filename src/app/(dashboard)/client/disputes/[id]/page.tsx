@@ -38,6 +38,7 @@ export default function ClientDisputeDetailPage() {
     const [proposalPercent, setProposalPercent] = useState(50);
     const [proposalReason, setProposalReason] = useState('');
     const [showProposal, setShowProposal] = useState(false);
+    const [showSnapshot, setShowSnapshot] = useState(false);
 
     const loadData = async () => {
         const result = await getDispute(disputeId);
@@ -75,12 +76,12 @@ export default function ClientDisputeDetailPage() {
         );
     }
 
-    const { dispute, contract, milestone, lockAmount, currentUserId, isAdmin } = data;
+    const { dispute, contract, milestone, lockAmount, currentUserId, isAdmin, arbitrationFeePercent } = data;
     const status = statusConfig[dispute.status] || statusConfig.OPEN;
     const isResolved = ['RESOLVED', 'CLOSED'].includes(dispute.status);
     const canMessage = !isResolved;
-    const canPropose = ['DISCUSSION', 'PROPOSAL'].includes(dispute.status);
-    const canEscalate = ['DISCUSSION', 'PROPOSAL'].includes(dispute.status);
+    const canPropose = dispute.status === 'PROPOSAL';
+    const canEscalate = dispute.status === 'PROPOSAL';
 
     const handleSendMessage = () => {
         if (!message.trim()) return;
@@ -124,7 +125,7 @@ export default function ClientDisputeDetailPage() {
     };
 
     return (
-        <div className="max-w-6xl mx-auto space-y-6">
+        <div className="w-full max-w-none px-6 space-y-6">
             {/* Header */}
             <div className="flex items-center gap-4">
                 <button onClick={() => router.back()} className="text-zinc-400 hover:text-white transition-colors">
@@ -141,15 +142,15 @@ export default function ClientDisputeDetailPage() {
                 </span>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-[7fr_3fr] gap-6 items-start">
                 {/* LEFT — Discussion + Evidence */}
-                <div className="lg:col-span-2 space-y-6">
+                <div className="space-y-6">
                     {/* Messages */}
                     <GlassCard className="p-5">
                         <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
                             <MessageSquare className="w-4 h-4" /> Discussion
                         </h2>
-                        <div className="space-y-3 max-h-96 overflow-y-auto mb-4">
+                        <div className="space-y-3 max-h-[520px] overflow-y-auto mb-4">
                             {dispute.messages.map((msg: { id: string; senderId: string; content: string; isSystem: boolean; createdAt: string }) => (
                                 <div key={msg.id} className={`p-3 rounded-lg ${msg.isSystem
                                     ? 'bg-zinc-800/50 border border-zinc-700/50'
@@ -205,7 +206,7 @@ export default function ClientDisputeDetailPage() {
                             <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
                                 <FileText className="w-4 h-4" /> Evidence ({dispute.evidence.length})
                             </h2>
-                            <div className="space-y-2">
+                            <div className="space-y-2 max-h-[180px] overflow-y-auto">
                                 {dispute.evidence.map((ev: { id: string; fileName: string; fileUrl: string; uploadedById: string; description: string | null; createdAt: string }) => (
                                     <div key={ev.id} className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
                                         <div>
@@ -224,8 +225,46 @@ export default function ClientDisputeDetailPage() {
                     )}
                 </div>
 
-                {/* RIGHT — Status, Proposals, Actions */}
+                {/* RIGHT — Status + Actions + Proposals + Snapshot */}
                 <div className="space-y-6">
+                    {/* Resolution Summary Card */}
+                    {isResolved && dispute.freelancerPercent !== null && (() => {
+                        const escrowAmt = parseFloat(lockAmount);
+                        const fPct = dispute.freelancerPercent;
+                        const cPct = 100 - fPct;
+                        const freelancerAmount = escrowAmt * fPct / 100;
+                        const feeRate = parseFloat(arbitrationFeePercent ?? '2') / 100;
+                        const fee = freelancerAmount > 0 ? freelancerAmount * feeRate : 0;
+                        const freelancerPayout = freelancerAmount - fee;
+                        const clientRefund = escrowAmt - freelancerAmount;
+                        const isAutoSettled = !dispute.resolvedById || dispute.resolvedById === 'SYSTEM';
+                        return (
+                            <GlassCard className="p-5 border border-emerald-500/30 bg-emerald-500/5">
+                                <h2 className="text-emerald-400 font-semibold mb-3 flex items-center gap-2">
+                                    <CheckCircle className="w-4 h-4" /> Dispute Resolved {isAutoSettled ? '(Auto Settlement)' : '(Admin Decision)'}
+                                </h2>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between"><span className="text-zinc-400">Freelancer share</span><span className="text-emerald-400 font-medium">{fPct}%</span></div>
+                                    <div className="flex justify-between"><span className="text-zinc-400">Client refund</span><span className="text-blue-400 font-medium">{cPct}%</span></div>
+                                    <div className="border-t border-zinc-800 my-2" />
+                                    <div className="flex justify-between"><span className="text-zinc-400">Escrow amount</span><span className="text-white font-bold">${escrowAmt.toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span className="text-zinc-400">Freelancer payout</span><span className="text-emerald-400">${freelancerPayout.toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span className="text-zinc-400">Client refund</span><span className="text-blue-400">${clientRefund.toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span className="text-zinc-400">Arbitration fee ({arbitrationFeePercent}%)</span><span className="text-amber-400">${fee.toFixed(2)}</span></div>
+                                    <div className="border-t border-zinc-800 my-2" />
+                                    <div className="flex justify-between"><span className="text-zinc-400">Resolution type</span><span className="text-zinc-300">{isAutoSettled ? 'Auto Settlement (≤15% diff)' : 'Admin Decision'}</span></div>
+                                    <div className="flex justify-between"><span className="text-zinc-400">Resolved by</span><span className="text-zinc-300">{isAutoSettled ? 'System' : 'Admin'}</span></div>
+                                    {dispute.resolvedAt && (
+                                        <div className="flex justify-between"><span className="text-zinc-400">Resolved at</span><span className="text-zinc-300">{new Date(dispute.resolvedAt).toLocaleString()}</span></div>
+                                    )}
+                                    {dispute.resolutionNote && (
+                                        <p className="text-xs text-zinc-500 mt-2 italic">{dispute.resolutionNote}</p>
+                                    )}
+                                </div>
+                            </GlassCard>
+                        );
+                    })()}
+
                     {/* Status Card */}
                     <GlassCard className="p-5">
                         <h2 className="text-white font-semibold mb-4">Dispute Status</h2>
@@ -278,36 +317,6 @@ export default function ClientDisputeDetailPage() {
                             )}
                         </div>
                     </GlassCard>
-
-                    {/* Proposals */}
-                    {dispute.proposals.length > 0 && (
-                        <GlassCard className="p-5">
-                            <h2 className="text-white font-semibold mb-3 flex items-center gap-2">
-                                <Scale className="w-4 h-4" /> Proposals
-                            </h2>
-                            <p className="text-xs text-zinc-500 bg-zinc-800/50 rounded px-3 py-2 border border-zinc-700/50 mb-3">
-                                <span className="text-indigo-400 font-medium">Auto-settlement rule:</span> If proposals differ by ≤15%, the system automatically resolves at the midpoint.
-                            </p>
-                            <div className="space-y-2">
-                                {dispute.proposals.map((p: { id: string; proposedById: string; freelancerPercent: number; reason: string | null; createdAt: string }) => (
-                                    <div key={p.id} className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm text-zinc-400">
-                                                {p.proposedById === currentUserId ? 'Your proposal' : 'Counter-proposal'}
-                                            </span>
-                                            <span className="text-sm">
-                                                <span className="text-emerald-400 font-medium">Freelancer: {p.freelancerPercent}%</span>
-                                                <span className="text-zinc-600 mx-1">|</span>
-                                                <span className="text-blue-400 font-medium">Client: {100 - p.freelancerPercent}%</span>
-                                            </span>
-                                        </div>
-                                        {p.reason && <p className="text-xs text-zinc-500 mt-1">{p.reason}</p>}
-                                        <p className="text-xs text-zinc-600 mt-1">{new Date(p.createdAt).toLocaleString()}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </GlassCard>
-                    )}
 
                     {/* Actions */}
                     {!isResolved && (
@@ -422,14 +431,69 @@ export default function ClientDisputeDetailPage() {
                         </GlassCard>
                     )}
 
-                    {/* Snapshot */}
+                    {/* Proposals */}
+                    {dispute.proposals.length > 0 && (
+                        <GlassCard className="p-5">
+                            <h2 className="text-white font-semibold mb-3 flex items-center gap-2">
+                                <Scale className="w-4 h-4" /> Proposals
+                            </h2>
+                            <p className="text-xs text-zinc-500 mb-2">Newest proposals appear at the top.</p>
+                            <p className="text-xs text-zinc-500 bg-zinc-800/50 rounded px-3 py-2 border border-zinc-700/50 mb-3">
+                                <span className="text-indigo-400 font-medium">Auto-settlement rule:</span> If proposals differ by ≤15%, the system automatically resolves at the midpoint.
+                            </p>
+                            {dispute.proposals.length >= 2 ? (() => {
+                                const latest = dispute.proposals[0] as { freelancerPercent: number };
+                                const previous = dispute.proposals[1] as { freelancerPercent: number };
+                                const midpoint = Math.round((latest.freelancerPercent + previous.freelancerPercent) / 2);
+                                const diff = Math.abs(latest.freelancerPercent - previous.freelancerPercent);
+                                return (
+                                    <div className={`text-xs rounded px-3 py-2 mb-3 border ${diff <= 15 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-400'}`}>
+                                        Current midpoint: <span className="font-bold">{midpoint}%</span> · Difference: <span className="font-bold">{diff}%</span>
+                                        {diff <= 15 && <span className="ml-1">(within auto-settle range)</span>}
+                                    </div>
+                                );
+                            })() : (
+                                <p className="text-xs text-zinc-500 italic mb-3">Waiting for counter proposal</p>
+                            )}
+                            <div className="space-y-2">
+                                {dispute.proposals.map((p: { id: string; proposedById: string; freelancerPercent: number; reason: string | null; createdAt: string }, idx: number) => (
+                                    <div key={p.id} className={`p-3 rounded-lg border ${idx === 0 ? 'bg-indigo-500/5 border-indigo-500' : 'bg-zinc-800/50 border-zinc-700/50'}`}>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm text-zinc-400">
+                                                {p.proposedById === currentUserId ? 'Your proposal' : 'Counter-proposal'}
+                                            </span>
+                                            <span className="text-sm">
+                                                <span className="text-emerald-400 font-medium">Freelancer: {p.freelancerPercent}%</span>
+                                                <span className="text-zinc-600 mx-1">|</span>
+                                                <span className="text-blue-400 font-medium">Client: {100 - p.freelancerPercent}%</span>
+                                            </span>
+                                        </div>
+                                        {p.reason && <p className="text-xs text-zinc-500 mt-1">{p.reason}</p>}
+                                        <p className="text-xs text-zinc-600 mt-1">{new Date(p.createdAt).toLocaleString()}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </GlassCard>
+                    )}
+
+                    {/* Snapshot Toggle */}
                     <GlassCard className="p-5">
-                        <h2 className="text-white font-semibold mb-3 text-sm">Milestone Snapshot</h2>
-                        <p className="text-zinc-500 text-xs mb-2">Immutable record captured when dispute was opened</p>
-                        <div className="bg-zinc-800/50 rounded p-3 text-xs text-zinc-400 font-mono overflow-auto max-h-48">
-                            <pre>{JSON.stringify(dispute.snapshot, null, 2)}</pre>
-                        </div>
-                        <p className="text-zinc-600 text-xs mt-2">Hash: {dispute.snapshotHash?.slice(0, 16)}...</p>
+                        <button
+                            onClick={() => setShowSnapshot(!showSnapshot)}
+                            className="w-full text-left text-sm font-semibold text-white flex items-center justify-between"
+                        >
+                            {showSnapshot ? 'Hide Milestone Snapshot' : 'View Milestone Snapshot'}
+                            <ChevronUp className={`w-4 h-4 text-zinc-400 transition-transform ${showSnapshot ? '' : 'rotate-180'}`} />
+                        </button>
+                        {showSnapshot && (
+                            <div className="mt-3">
+                                <p className="text-zinc-500 text-xs mb-2">Immutable record captured when dispute was opened</p>
+                                <div className="bg-zinc-800/50 rounded p-3 text-xs text-zinc-400 font-mono max-h-[300px] overflow-y-auto">
+                                    <pre>{JSON.stringify(dispute.snapshot, null, 2)}</pre>
+                                </div>
+                                <p className="text-zinc-600 text-xs mt-2">Hash: {dispute.snapshotHash?.slice(0, 16)}...</p>
+                            </div>
+                        )}
                     </GlassCard>
                 </div>
             </div>

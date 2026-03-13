@@ -20,6 +20,9 @@ import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs/promises';
 
+// Type for Prisma interactive transaction client
+type TxClient = Parameters<Parameters<typeof db.$transaction>[0]>[0];
+
 // ============================================================================
 // Dispute Resolution Actions — Production-Grade, Fintech-Safe
 // ============================================================================
@@ -425,12 +428,14 @@ export async function submitProposal(
             return { error: 'Unauthorized. Only dispute parties can submit proposals.' };
         }
 
-        // Active phase guard
-        const allowedStatuses: DisputeStatus[] = [
-            DisputeStatus.DISCUSSION, DisputeStatus.PROPOSAL,
-        ];
-        if (!allowedStatuses.includes(dispute.status)) {
-            return { error: 'Proposals can only be submitted during DISCUSSION or PROPOSAL phases.' };
+        // Already resolved guard
+        if (dispute.status === DisputeStatus.RESOLVED || dispute.status === DisputeStatus.CLOSED) {
+            return { error: 'This dispute has already been resolved.' };
+        }
+
+        // Active phase guard — proposals only in PROPOSAL phase
+        if (dispute.status !== DisputeStatus.PROPOSAL) {
+            return { error: 'Proposals can only be submitted during the Proposal phase.' };
         }
 
         // Prevent consecutive proposal spam — same user cannot submit two in a row
@@ -440,8 +445,25 @@ export async function submitProposal(
 
         const userId = session.user.id!;
 
-        // Create proposal and check auto-settlement
+        // Escrow data needed for potential auto-settlement
+        const escrow = contract.escrowAccount;
+        if (!escrow) return { error: 'Escrow account not found' };
+        const lock = escrow.locks.find(
+            (l: { milestoneId: string; released: boolean }) => l.milestoneId === dispute.milestoneId && !l.released
+        );
+        if (!lock) return { error: 'No unreleased escrow lock for this milestone.' };
+
+        // Create proposal, check auto-settlement, and execute resolution atomically
         const result = await db.$transaction(async (tx) => {
+            // Re-check dispute status inside tx (guard against concurrent resolution)
+            const freshDispute = await tx.dispute.findUnique({
+                where: { id: disputeId },
+                select: { status: true },
+            });
+            if (!freshDispute || freshDispute.status === DisputeStatus.RESOLVED || freshDispute.status === DisputeStatus.CLOSED) {
+                throw new Error('DISPUTE_ALREADY_RESOLVED');
+            }
+
             await tx.disputeProposal.create({
                 data: {
                     disputeId,
@@ -451,17 +473,7 @@ export async function submitProposal(
                 },
             });
 
-            // Transition to PROPOSAL phase if still in DISCUSSION
-            if (dispute.status === DisputeStatus.DISCUSSION) {
-                await tx.dispute.update({
-                    where: { id: disputeId },
-                    data: {
-                        status: DisputeStatus.PROPOSAL,
-                        phaseAdvanceClient: false,
-                        phaseAdvanceFreelancer: false,
-                    },
-                });
-            }
+
 
             // System message
             await tx.disputeMessage.create({
@@ -489,14 +501,22 @@ export async function submitProposal(
                     const settledPercent = Math.round(
                         (latestClientProposal.freelancerPercent + latestFreelancerProposal.freelancerPercent) / 2
                     );
-                    return { autoSettle: true, settledPercent };
+
+                    // Execute resolution INSIDE this transaction
+                    const resolutionResult = await executeResolutionCore(
+                        tx, disputeId, dispute, contract, escrow, lock,
+                        settledPercent, null, 'Auto-settled: proposals within 15% threshold',
+                        `auto-settle-${disputeId}`
+                    );
+
+                    return { autoSettle: true, settledPercent, resolutionResult };
                 }
             }
 
-            return { autoSettle: false, settledPercent: 0 };
-        });
+            return { autoSettle: false, settledPercent: 0, resolutionResult: null };
+        }, { isolationLevel: 'Serializable' });
 
-        // Lifecycle event
+        // Lifecycle event for proposal
         recordLifecycleEvent({
             contractId: contract.id,
             milestoneId: dispute.milestoneId,
@@ -508,9 +528,40 @@ export async function submitProposal(
             metadata: { disputeId, freelancerPercent },
         });
 
-        // Auto-settle if triggered
-        if (result.autoSettle) {
-            return await executeResolution(disputeId, result.settledPercent, null, 'Auto-settled: proposals within 15% threshold');
+        // Post-tx: auto-settlement lifecycle events and notifications
+        if (result.autoSettle && result.resolutionResult) {
+            const r = result.resolutionResult;
+            recordLifecycleEvent({
+                contractId: contract.id,
+                milestoneId: dispute.milestoneId,
+                eventType: 'DISPUTE_AUTO_SETTLED',
+                devState: 'ACTIVE',
+                userMessage: `Dispute auto-settled: ${result.settledPercent}% → freelancer ($${r.freelancerPayout}), ${100 - result.settledPercent}% → client ($${r.clientRefund})`,
+                actorId: 'SYSTEM',
+                actorRole: 'SYSTEM',
+                metadata: { disputeId, outcome: r.outcome, payout: r.freelancerPayout, refund: r.clientRefund, fee: r.arbitrationFee },
+            });
+
+            // Notify both parties
+            const resolvedMsg = `Dispute for milestone "${dispute.milestone.title}" auto-settled: ${result.settledPercent}% to freelancer, ${100 - result.settledPercent}% refund to client.`;
+            for (const uid of [contract.freelancer.userId, contract.client.userId]) {
+                db.notification.create({
+                    data: {
+                        userId: uid,
+                        title: 'Dispute Auto-Settled',
+                        message: resolvedMsg,
+                        type: 'DISPUTE_RESOLVED',
+                    },
+                }).catch(err => console.error('[Notification] Failed:', err));
+            }
+
+            revalidatePath(`/client/contracts/${contract.id}`);
+            revalidatePath(`/freelancer/contracts/${contract.id}`);
+            revalidatePath(`/client/disputes/${disputeId}`);
+            revalidatePath(`/freelancer/disputes/${disputeId}`);
+            revalidatePath('/admin/disputes');
+
+            return { success: true, autoSettled: true };
         }
 
         revalidatePath(`/client/disputes/${disputeId}`);
@@ -519,7 +570,7 @@ export async function submitProposal(
         return { success: true };
     } catch (error) {
         console.error('[submitProposal] Error:', error);
-        return { error: 'Failed to submit proposal' };
+        return { error: error instanceof Error ? error.message : 'Failed to submit proposal' };
     }
 }
 
@@ -559,9 +610,8 @@ export async function escalateToAdmin(
 
         if (!isParty) return { error: 'Unauthorized' };
 
-        const escalatable: DisputeStatus[] = [DisputeStatus.DISCUSSION, DisputeStatus.PROPOSAL];
-        if (!escalatable.includes(dispute.status)) {
-            return { error: 'Dispute can only be escalated during DISCUSSION or PROPOSAL phases.' };
+        if (dispute.status !== DisputeStatus.PROPOSAL) {
+            return { error: 'Dispute can only be escalated during the Proposal phase.' };
         }
 
         await db.$transaction(async (tx) => {
@@ -784,6 +834,225 @@ export async function resolveDisputeAdmin(
 // executeResolution — Core financial resolution logic (shared by auto+admin)
 // ============================================================================
 
+// ============================================================================
+// executeResolutionCore — Centralized financial resolution logic
+// Called from both submitProposal (auto-settle) and executeResolution (admin)
+// ============================================================================
+
+async function executeResolutionCore(
+    tx: TxClient,
+    disputeId: string,
+    dispute: { milestoneId: string; milestone: { title: string } },
+    contract: { id: string; client: { userId: string }; freelancer: { userId: string }; escrowAccount?: { id: string } | null },
+    escrow: { id: string },
+    lock: { id: string; amount: unknown },
+    freelancerPercent: number,
+    resolvedById: string | null,
+    resolutionNote: string,
+    idempotencyKey?: string
+): Promise<{ outcome: string; freelancerPayout: string; clientRefund: string; arbitrationFee: string }> {
+    // Idempotency guard inside tx
+    if (idempotencyKey) {
+        const existing = await tx.idempotencyKey.findUnique({ where: { key: idempotencyKey } });
+        if (existing) throw new Error('DUPLICATE_REQUEST');
+        await tx.idempotencyKey.create({
+            data: { key: idempotencyKey, action: 'DISPUTE_RESOLUTION' },
+        });
+    }
+
+    // Re-fetch lock inside tx to prevent concurrent resolution
+    const freshLock = await tx.escrowLock.findUnique({ where: { id: lock.id } });
+    if (!freshLock || freshLock.released) {
+        throw new Error('LOCK_ALREADY_RELEASED: concurrent resolution detected');
+    }
+
+    // Read arbitration fee from SystemConfig
+    const feeConfig = await tx.systemConfig.findUnique({
+        where: { key: 'DISPUTE_ARBITRATION_FEE_PERCENT' },
+    });
+    const arbitrationFeePercent = new Prisma.Decimal(feeConfig?.value ?? '2');
+
+    const lockAmount = new Prisma.Decimal(lock.amount as Prisma.Decimal.Value);
+    const freelancerAmount = lockAmount.mul(new Prisma.Decimal(freelancerPercent)).div(new Prisma.Decimal(100));
+    const clientRefund = lockAmount.minus(freelancerAmount);
+
+    // Arbitration fee ONLY on freelancer payout (replaces commission)
+    const arbitrationFee = freelancerAmount.isPositive()
+        ? freelancerAmount.mul(arbitrationFeePercent).div(new Prisma.Decimal(100))
+        : new Prisma.Decimal(0);
+    const freelancerPayout = freelancerAmount.minus(arbitrationFee);
+
+    // Determine outcome
+    let outcome: DisputeOutcome;
+    if (freelancerPercent === 100) outcome = DisputeOutcome.FULL_RELEASE;
+    else if (freelancerPercent === 0) outcome = DisputeOutcome.FULL_REFUND;
+    else outcome = DisputeOutcome.PARTIAL_SPLIT;
+
+    // Invariant: payout + fee + refund === lockAmount
+    const total = freelancerPayout.plus(arbitrationFee).plus(clientRefund);
+    if (!total.equals(lockAmount)) {
+        throw new Error(`SPLIT_INCONSISTENT: payout=${freelancerPayout} + fee=${arbitrationFee} + refund=${clientRefund} = ${total} != lock=${lockAmount}`);
+    }
+
+    assertDecimalNonNegative(freelancerPayout, 'freelancerPayout');
+    assertDecimalNonNegative(arbitrationFee, 'arbitrationFee');
+    assertDecimalNonNegative(clientRefund, 'clientRefund');
+
+    const isAutoSettled = resolvedById === null;
+    const freelancerUserId = contract.freelancer.userId;
+    const clientUserId = contract.client.userId;
+
+    // A. Freelancer payout (DISPUTE_RESOLUTION)
+    if (freelancerPayout.isPositive()) {
+        let freelancerWallet = await tx.wallet.findUnique({ where: { userId: freelancerUserId } });
+        if (!freelancerWallet) {
+            freelancerWallet = await tx.wallet.create({ data: { userId: freelancerUserId } });
+        }
+        await tx.walletLedger.create({
+            data: {
+                walletId: freelancerWallet.id,
+                amount: freelancerPayout,
+                type: WalletTransactionType.DISPUTE_RESOLUTION,
+                contractId: contract.id,
+                milestoneId: dispute.milestoneId,
+            },
+        });
+    }
+
+    // B. Platform fee
+    if (arbitrationFee.isPositive()) {
+        const platformWallet = await getPlatformWallet(tx);
+        await tx.walletLedger.create({
+            data: {
+                walletId: platformWallet.id,
+                amount: arbitrationFee,
+                type: WalletTransactionType.PLATFORM_FEE,
+                contractId: contract.id,
+                milestoneId: dispute.milestoneId,
+            },
+        });
+    }
+
+    // C. Client refund
+    if (clientRefund.isPositive()) {
+        let clientWallet = await tx.wallet.findUnique({ where: { userId: clientUserId } });
+        if (!clientWallet) {
+            clientWallet = await tx.wallet.create({ data: { userId: clientUserId } });
+        }
+        await tx.walletLedger.create({
+            data: {
+                walletId: clientWallet.id,
+                amount: clientRefund,
+                type: WalletTransactionType.REFUND,
+                contractId: contract.id,
+                milestoneId: dispute.milestoneId,
+            },
+        });
+    }
+
+    // D. Mark EscrowLock released
+    await tx.escrowLock.update({
+        where: { id: lock.id },
+        data: { released: true },
+    });
+
+    // E. Milestone → PAID
+    await tx.milestone.update({
+        where: { id: dispute.milestoneId },
+        data: { status: MilestoneStatus.PAID },
+    });
+
+    // F. Dispute → RESOLVED
+    await tx.dispute.update({
+        where: { id: disputeId },
+        data: {
+            status: DisputeStatus.RESOLVED,
+            outcome,
+            freelancerPercent,
+            resolvedById,
+            resolutionNote,
+            resolvedAt: new Date(),
+        },
+    });
+
+    // G. System message
+    await tx.disputeMessage.create({
+        data: {
+            disputeId,
+            senderId: resolvedById ?? 'SYSTEM',
+            content: `Dispute ${isAutoSettled ? 'auto-settled' : 'resolved by admin'}: ${freelancerPercent}% to freelancer ($${freelancerPayout.toFixed(2)}), ${100 - freelancerPercent}% refund to client ($${clientRefund.toFixed(2)}). Arbitration fee: $${arbitrationFee.toFixed(2)}.`,
+            isSystem: true,
+        },
+    });
+
+    // H. Check if all milestones PAID → contract COMPLETED
+    const remainingUnpaid = await tx.milestone.findFirst({
+        where: {
+            contractId: contract.id,
+            status: { not: MilestoneStatus.PAID },
+        },
+        select: { id: true },
+    });
+    if (!remainingUnpaid) {
+        await tx.contract.update({
+            where: { id: contract.id },
+            data: { status: ContractStatus.COMPLETED },
+        });
+        await tx.escrowAccount.update({
+            where: { id: escrow.id },
+            data: { status: EscrowStatus.CLOSED },
+        });
+    }
+
+    // I. assertEscrowIntegrity
+    await assertEscrowIntegrity(tx, escrow.id, contract.id);
+
+    // J. Wallet consistency assertions
+    if (freelancerPayout.isPositive()) {
+        const fWallet = await tx.wallet.findUnique({ where: { userId: freelancerUserId } });
+        if (fWallet) {
+            const fSum = await tx.walletLedger.aggregate({
+                where: { walletId: fWallet.id },
+                _sum: { amount: true },
+            });
+            const fAvail = new Prisma.Decimal(fSum._sum.amount ?? 0);
+            if (fAvail.isNegative()) {
+                throw new Error(`WALLET_NEGATIVE: freelancer available=${fAvail}`);
+            }
+        }
+    }
+
+    // K. FinancialMutationLog
+    await tx.financialMutationLog.create({
+        data: {
+            action: 'DISPUTE_RESOLVED',
+            userId: resolvedById,
+            contractId: contract.id,
+            milestoneId: dispute.milestoneId,
+            metadata: {
+                disputeId,
+                resolutionOutcome: outcome,
+                freelancerPercent,
+                payout: freelancerPayout.toFixed(2),
+                refund: clientRefund.toFixed(2),
+                platformFee: arbitrationFee.toFixed(2),
+                isAutoSettled,
+            },
+        },
+    });
+
+    return {
+        outcome,
+        freelancerPayout: freelancerPayout.toFixed(2),
+        clientRefund: clientRefund.toFixed(2),
+        arbitrationFee: arbitrationFee.toFixed(2),
+    };
+}
+
+// ============================================================================
+// executeResolution — Wrapper for admin/standalone resolution calls
+// ============================================================================
+
 async function executeResolution(
     disputeId: string,
     freelancerPercent: number,
@@ -812,6 +1081,11 @@ async function executeResolution(
 
         if (!dispute) return { error: 'Dispute not found' };
 
+        // Guard: already resolved
+        if (dispute.status === DisputeStatus.RESOLVED || dispute.status === DisputeStatus.CLOSED) {
+            return { error: 'Dispute is already resolved' };
+        }
+
         const contract = dispute.milestone.contract;
         const escrow = contract.escrowAccount;
         if (!escrow) return { error: 'Escrow account not found' };
@@ -821,201 +1095,22 @@ async function executeResolution(
         );
         if (!lock) return { error: 'No unreleased escrow lock for this milestone' };
 
-        // Idempotency pre-check
+        // Idempotency pre-check (fast path outside tx)
         if (idempotencyKey) {
             const existing = await db.idempotencyKey.findUnique({ where: { key: idempotencyKey } });
             if (existing) return { error: 'DUPLICATE_REQUEST' };
         }
 
-        // Read arbitration fee from SystemConfig
-        const feeConfig = await db.systemConfig.findUnique({
-            where: { key: 'DISPUTE_ARBITRATION_FEE_PERCENT' },
-        });
-        const arbitrationFeePercent = new Prisma.Decimal(feeConfig?.value ?? '2');
-
-        const lockAmount = new Prisma.Decimal(lock.amount);
-        const freelancerAmount = lockAmount.mul(new Prisma.Decimal(freelancerPercent)).div(new Prisma.Decimal(100));
-        const clientRefund = lockAmount.minus(freelancerAmount);
-
-        // Arbitration fee ONLY on freelancer payout (replaces commission)
-        const arbitrationFee = freelancerAmount.isPositive()
-            ? freelancerAmount.mul(arbitrationFeePercent).div(new Prisma.Decimal(100))
-            : new Prisma.Decimal(0);
-        const freelancerPayout = freelancerAmount.minus(arbitrationFee);
-
-        // Determine outcome
-        let outcome: DisputeOutcome;
-        if (freelancerPercent === 100) outcome = DisputeOutcome.FULL_RELEASE;
-        else if (freelancerPercent === 0) outcome = DisputeOutcome.FULL_REFUND;
-        else outcome = DisputeOutcome.PARTIAL_SPLIT;
-
-        // Invariant: payout + fee + refund === lockAmount
-        const total = freelancerPayout.plus(arbitrationFee).plus(clientRefund);
-        if (!total.equals(lockAmount)) {
-            throw new Error(`SPLIT_INCONSISTENT: payout=${freelancerPayout} + fee=${arbitrationFee} + refund=${clientRefund} = ${total} != lock=${lockAmount}`);
-        }
-
-        assertDecimalNonNegative(freelancerPayout, 'freelancerPayout');
-        assertDecimalNonNegative(arbitrationFee, 'arbitrationFee');
-        assertDecimalNonNegative(clientRefund, 'clientRefund');
-
         const isAutoSettled = resolvedById === null;
         const freelancerUserId = contract.freelancer.userId;
         const clientUserId = contract.client.userId;
 
-        // ── Atomic Financial Transaction ──
-        await db.$transaction(async (tx) => {
-            // Idempotency guard inside tx
-            if (idempotencyKey) {
-                await tx.idempotencyKey.create({
-                    data: { key: idempotencyKey, action: 'DISPUTE_RESOLUTION' },
-                });
-            }
-
-            // Re-fetch lock inside tx
-            const freshLock = await tx.escrowLock.findUnique({ where: { id: lock.id } });
-            if (!freshLock || freshLock.released) {
-                throw new Error('LOCK_ALREADY_RELEASED: concurrent resolution detected');
-            }
-
-            // A. Freelancer payout (DISPUTE_RESOLUTION)
-            if (freelancerPayout.isPositive()) {
-                let freelancerWallet = await tx.wallet.findUnique({ where: { userId: freelancerUserId } });
-                if (!freelancerWallet) {
-                    freelancerWallet = await tx.wallet.create({ data: { userId: freelancerUserId } });
-                }
-                await tx.walletLedger.create({
-                    data: {
-                        walletId: freelancerWallet.id,
-                        amount: freelancerPayout,
-                        type: WalletTransactionType.DISPUTE_RESOLUTION,
-                        contractId: contract.id,
-                        milestoneId: dispute.milestoneId,
-                    },
-                });
-            }
-
-            // B. Platform fee
-            if (arbitrationFee.isPositive()) {
-                const platformWallet = await getPlatformWallet(tx);
-                await tx.walletLedger.create({
-                    data: {
-                        walletId: platformWallet.id,
-                        amount: arbitrationFee,
-                        type: WalletTransactionType.PLATFORM_FEE,
-                        contractId: contract.id,
-                        milestoneId: dispute.milestoneId,
-                    },
-                });
-            }
-
-            // C. Client refund
-            if (clientRefund.isPositive()) {
-                let clientWallet = await tx.wallet.findUnique({ where: { userId: clientUserId } });
-                if (!clientWallet) {
-                    clientWallet = await tx.wallet.create({ data: { userId: clientUserId } });
-                }
-                await tx.walletLedger.create({
-                    data: {
-                        walletId: clientWallet.id,
-                        amount: clientRefund,
-                        type: WalletTransactionType.REFUND,
-                        contractId: contract.id,
-                        milestoneId: dispute.milestoneId,
-                    },
-                });
-            }
-
-            // D. Mark EscrowLock released
-            await tx.escrowLock.update({
-                where: { id: lock.id },
-                data: { released: true },
-            });
-
-            // E. Milestone → PAID
-            await tx.milestone.update({
-                where: { id: dispute.milestoneId },
-                data: { status: MilestoneStatus.PAID },
-            });
-
-            // F. Dispute → RESOLVED
-            await tx.dispute.update({
-                where: { id: disputeId },
-                data: {
-                    status: DisputeStatus.RESOLVED,
-                    outcome,
-                    freelancerPercent,
-                    resolvedById,
-                    resolutionNote,
-                    resolvedAt: new Date(),
-                },
-            });
-
-            // G. System message
-            await tx.disputeMessage.create({
-                data: {
-                    disputeId,
-                    senderId: resolvedById ?? 'SYSTEM',
-                    content: `Dispute ${isAutoSettled ? 'auto-settled' : 'resolved by admin'}: ${freelancerPercent}% to freelancer ($${freelancerPayout.toFixed(2)}), ${100 - freelancerPercent}% refund to client ($${clientRefund.toFixed(2)}). Arbitration fee: $${arbitrationFee.toFixed(2)}.`,
-                    isSystem: true,
-                },
-            });
-
-            // H. Check if all milestones PAID → contract COMPLETED
-            const remainingUnpaid = await tx.milestone.findFirst({
-                where: {
-                    contractId: contract.id,
-                    status: { not: MilestoneStatus.PAID },
-                },
-                select: { id: true },
-            });
-            if (!remainingUnpaid) {
-                await tx.contract.update({
-                    where: { id: contract.id },
-                    data: { status: ContractStatus.COMPLETED },
-                });
-                await tx.escrowAccount.update({
-                    where: { id: escrow.id },
-                    data: { status: EscrowStatus.CLOSED },
-                });
-            }
-
-            // I. assertEscrowIntegrity
-            await assertEscrowIntegrity(tx, escrow.id, contract.id);
-
-            // J. Wallet consistency assertions
-            if (freelancerPayout.isPositive()) {
-                const fWallet = await tx.wallet.findUnique({ where: { userId: freelancerUserId } });
-                if (fWallet) {
-                    const fSum = await tx.walletLedger.aggregate({
-                        where: { walletId: fWallet.id },
-                        _sum: { amount: true },
-                    });
-                    const fAvail = new Prisma.Decimal(fSum._sum.amount ?? 0);
-                    if (fAvail.isNegative()) {
-                        throw new Error(`WALLET_NEGATIVE: freelancer available=${fAvail}`);
-                    }
-                }
-            }
-
-            // K. FinancialMutationLog
-            await tx.financialMutationLog.create({
-                data: {
-                    action: 'DISPUTE_RESOLVED',
-                    userId: resolvedById,
-                    contractId: contract.id,
-                    milestoneId: dispute.milestoneId,
-                    metadata: {
-                        disputeId,
-                        resolutionOutcome: outcome,
-                        freelancerPercent,
-                        payout: freelancerPayout.toFixed(2),
-                        refund: clientRefund.toFixed(2),
-                        platformFee: arbitrationFee.toFixed(2),
-                        isAutoSettled,
-                    },
-                },
-            });
+        // ── Atomic Financial Transaction — delegates to core ──
+        const resolutionResult = await db.$transaction(async (tx) => {
+            return await executeResolutionCore(
+                tx, disputeId, dispute, contract, escrow, lock,
+                freelancerPercent, resolvedById, resolutionNote, idempotencyKey
+            );
         }, { isolationLevel: 'Serializable' });
 
         // Post-tx lifecycle events
@@ -1024,10 +1119,10 @@ async function executeResolution(
             milestoneId: dispute.milestoneId,
             eventType: isAutoSettled ? 'DISPUTE_AUTO_SETTLED' : 'DISPUTE_RESOLVED',
             devState: 'ACTIVE',
-            userMessage: `Dispute ${isAutoSettled ? 'auto-settled' : 'resolved'}: ${freelancerPercent}% → freelancer ($${freelancerPayout.toFixed(2)}), ${100 - freelancerPercent}% → client ($${clientRefund.toFixed(2)})`,
+            userMessage: `Dispute ${isAutoSettled ? 'auto-settled' : 'resolved'}: ${freelancerPercent}% → freelancer ($${resolutionResult.freelancerPayout}), ${100 - freelancerPercent}% → client ($${resolutionResult.clientRefund})`,
             actorId: resolvedById ?? 'SYSTEM',
             actorRole: isAutoSettled ? 'SYSTEM' : 'CLIENT',
-            metadata: { disputeId, outcome, payout: freelancerPayout.toFixed(2), refund: clientRefund.toFixed(2), fee: arbitrationFee.toFixed(2) },
+            metadata: { disputeId, outcome: resolutionResult.outcome, payout: resolutionResult.freelancerPayout, refund: resolutionResult.clientRefund, fee: resolutionResult.arbitrationFee },
         });
 
         // Notify both parties
@@ -1040,7 +1135,7 @@ async function executeResolution(
                     message: resolvedMsg,
                     type: 'DISPUTE_RESOLVED',
                 },
-            }).catch(err => console.error('[Notification] Failed:', err));
+            }).catch((err: Error) => console.error('[Notification] Failed:', err));
         }
 
         revalidatePath(`/client/contracts/${contract.id}`);
@@ -1188,6 +1283,10 @@ export async function getDispute(disputeId: string) {
             lockAmount: lock ? new Prisma.Decimal(lock.amount).toFixed(2) : (dispute.snapshot as Record<string, string>).escrowLockAmount ?? '0.00',
             currentUserId: session.user.id,
             isAdmin,
+            arbitrationFeePercent: await (async () => {
+                const cfg = await db.systemConfig.findUnique({ where: { key: 'DISPUTE_ARBITRATION_FEE_PERCENT' } });
+                return cfg?.value ?? '2';
+            })(),
         };
     } catch (error) {
         console.error('[getDispute] Error:', error);
