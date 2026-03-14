@@ -570,7 +570,27 @@ export async function submitProposal(
         return { success: true };
     } catch (error) {
         console.error('[submitProposal] Error:', error);
-        return { error: error instanceof Error ? error.message : 'Failed to submit proposal' };
+
+        // Sanitize internal errors — never expose raw system messages to UI
+        if (error instanceof Error) {
+            if (error.message.includes('ESCROW_INTEGRITY') || error.message.includes('SPLIT_INCONSISTENT')) {
+                return { error: 'Auto-settlement could not be completed due to a system validation error. No funds were moved. You may continue negotiation or escalate to admin review.' };
+            }
+            if (error.message === 'DUPLICATE_REQUEST') {
+                return { error: 'This request has already been processed.' };
+            }
+            if (error.message === 'DISPUTE_ALREADY_RESOLVED') {
+                return { error: 'This dispute has already been resolved.' };
+            }
+            if (error.message.includes('LOCK_ALREADY_RELEASED')) {
+                return { error: 'Escrow lock has already been released. The dispute may have been resolved concurrently.' };
+            }
+            if (error.message.includes('WALLET_NEGATIVE')) {
+                return { error: 'Settlement failed due to a wallet balance issue. Please contact support.' };
+            }
+            return { error: error.message };
+        }
+        return { error: 'Failed to submit proposal' };
     }
 }
 
@@ -723,6 +743,7 @@ export async function requestPhaseTransition(
                         data: {
                             ...flagUpdate,
                             status: DisputeStatus.PROPOSAL,
+                            discussionEndedAt: new Date(),
                             phaseAdvanceClient: false,
                             phaseAdvanceFreelancer: false,
                         },
@@ -743,6 +764,7 @@ export async function requestPhaseTransition(
                             ...flagUpdate,
                             status: DisputeStatus.ADMIN_REVIEW,
                             escalatedAt: new Date(),
+                            proposalEndedAt: new Date(),
                             phaseAdvanceClient: false,
                             phaseAdvanceFreelancer: false,
                         },
@@ -901,6 +923,25 @@ async function executeResolutionCore(
     const isAutoSettled = resolvedById === null;
     const freelancerUserId = contract.freelancer.userId;
     const clientUserId = contract.client.userId;
+
+    // 0. ESCROW_RELEASE — gross release entry (counterpart to ESCROW_LOCK)
+    //    Goes on client wallet to cancel the original ESCROW_LOCK debit.
+    //    This is the "escrow released" event; distributions below show where funds went.
+    {
+        let clientWallet = await tx.wallet.findUnique({ where: { userId: clientUserId } });
+        if (!clientWallet) {
+            clientWallet = await tx.wallet.create({ data: { userId: clientUserId } });
+        }
+        await tx.walletLedger.create({
+            data: {
+                walletId: clientWallet.id,
+                amount: lockAmount,
+                type: WalletTransactionType.ESCROW_RELEASE,
+                contractId: contract.id,
+                milestoneId: dispute.milestoneId,
+            },
+        });
+    }
 
     // A. Freelancer payout (DISPUTE_RESOLUTION)
     if (freelancerPayout.isPositive()) {
@@ -1205,11 +1246,13 @@ export async function getDispute(disputeId: string) {
                 where: { id: disputeId },
                 data: {
                     status: DisputeStatus.PROPOSAL,
+                    discussionEndedAt: dispute.discussionDeadline,
                     phaseAdvanceClient: false,
                     phaseAdvanceFreelancer: false,
                 },
             });
             dispute.status = DisputeStatus.PROPOSAL;
+            dispute.discussionEndedAt = dispute.discussionDeadline;
             dispute.phaseAdvanceClient = false;
             dispute.phaseAdvanceFreelancer = false;
         }
@@ -1219,12 +1262,14 @@ export async function getDispute(disputeId: string) {
                 data: {
                     status: DisputeStatus.ADMIN_REVIEW,
                     escalatedAt: now,
+                    proposalEndedAt: dispute.proposalDeadline,
                     phaseAdvanceClient: false,
                     phaseAdvanceFreelancer: false,
                 },
             });
             dispute.status = DisputeStatus.ADMIN_REVIEW;
             dispute.escalatedAt = now;
+            dispute.proposalEndedAt = dispute.proposalDeadline;
             dispute.phaseAdvanceClient = false;
             dispute.phaseAdvanceFreelancer = false;
 
@@ -1254,6 +1299,8 @@ export async function getDispute(disputeId: string) {
                 resolvedAt: dispute.resolvedAt?.toISOString() ?? null,
                 discussionDeadline: dispute.discussionDeadline?.toISOString() ?? null,
                 proposalDeadline: dispute.proposalDeadline?.toISOString() ?? null,
+                discussionEndedAt: dispute.discussionEndedAt?.toISOString() ?? null,
+                proposalEndedAt: dispute.proposalEndedAt?.toISOString() ?? null,
                 messages: dispute.messages.map(m => ({
                     ...m,
                     createdAt: m.createdAt.toISOString(),

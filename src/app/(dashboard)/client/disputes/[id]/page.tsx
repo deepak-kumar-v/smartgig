@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { GlassCard } from '@/components/ui/glass-card';
 import {
     Scale, Clock, MessageSquare, FileText, Upload, Send,
-    AlertTriangle, Shield, CheckCircle, ArrowLeft, ChevronUp
+    AlertTriangle, Shield, CheckCircle, ArrowLeft, ChevronUp, Info, Lock, Unlock
 } from 'lucide-react';
 import {
     getDispute, submitDisputeMessage, uploadDisputeEvidence,
@@ -278,24 +278,48 @@ export default function ClientDisputeDetailPage() {
                                 <span className="text-white font-bold">${lockAmount}</span>
                             </div>
                             <div className="flex justify-between text-sm">
+                                <span className="text-zinc-500 flex items-center gap-1"><Lock className="w-3 h-3" /> Locked</span>
+                                <span className={isResolved ? 'text-zinc-600' : 'text-amber-400 font-medium'}>${isResolved ? '0.00' : lockAmount}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                                <span className="text-zinc-500 flex items-center gap-1"><Unlock className="w-3 h-3" /> Released</span>
+                                <span className={isResolved ? 'text-emerald-400 font-medium' : 'text-zinc-600'}>${isResolved ? lockAmount : '0.00'}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
                                 <span className="text-zinc-500">Opened</span>
                                 <span className="text-white">{new Date(dispute.createdAt).toLocaleDateString()}</span>
                             </div>
-                            {dispute.discussionDeadline && !isResolved && (
+                            {dispute.discussionDeadline && (
                                 <div className="flex justify-between text-sm">
                                     <span className="text-zinc-500">Discussion Deadline</span>
                                     <span className="text-amber-400 flex items-center gap-1">
                                         <Clock className="w-3 h-3" />
                                         {new Date(dispute.discussionDeadline).toLocaleDateString()}
+                                        {dispute.discussionEndedAt && new Date(dispute.discussionEndedAt) < new Date(dispute.discussionDeadline) && (
+                                            <span className="relative group cursor-help ml-1">
+                                                <Info className="w-3 h-3 text-blue-400" />
+                                                <span className="absolute bottom-full right-0 mb-1 px-2 py-1 bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                                                    Phase ended early — both parties agreed to move forward.
+                                                </span>
+                                            </span>
+                                        )}
                                     </span>
                                 </div>
                             )}
-                            {dispute.proposalDeadline && !isResolved && (
+                            {dispute.proposalDeadline && (
                                 <div className="flex justify-between text-sm">
                                     <span className="text-zinc-500">Proposal Deadline</span>
                                     <span className="text-violet-400 flex items-center gap-1">
                                         <Clock className="w-3 h-3" />
                                         {new Date(dispute.proposalDeadline).toLocaleDateString()}
+                                        {dispute.proposalEndedAt && new Date(dispute.proposalEndedAt) < new Date(dispute.proposalDeadline) && (
+                                            <span className="relative group cursor-help ml-1">
+                                                <Info className="w-3 h-3 text-blue-400" />
+                                                <span className="absolute bottom-full right-0 mb-1 px-2 py-1 bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                                                    Phase ended early — both parties agreed to escalate.
+                                                </span>
+                                            </span>
+                                        )}
                                     </span>
                                 </div>
                             )}
@@ -318,6 +342,86 @@ export default function ClientDisputeDetailPage() {
                         </div>
                     </GlassCard>
 
+                    {/* Phase Timeline */}
+                    {(() => {
+                        const wasAutoSettled = isResolved && (!dispute.resolvedById || dispute.resolvedById === 'SYSTEM');
+                        const wasAdminResolved = isResolved && !wasAutoSettled;
+                        const wentToAdmin = dispute.status === 'ADMIN_REVIEW' || wasAdminResolved;
+                        return (
+                    <GlassCard className="p-5">
+                        <h2 className="text-white font-semibold mb-4">Phase Timeline</h2>
+                        <div className="relative pl-4 border-l border-zinc-700 space-y-4">
+                            {/* Opened */}
+                            <div className="relative">
+                                <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-zinc-400 border-2 border-zinc-900" />
+                                <p className="text-xs text-zinc-500">Opened</p>
+                                <p className="text-sm text-white">{new Date(dispute.createdAt).toLocaleDateString()}</p>
+                            </div>
+                            {/* Discussion Phase */}
+                            <div className="relative">
+                                <div className={`absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full border-2 border-zinc-900 ${dispute.status === 'DISCUSSION' ? 'bg-blue-400 animate-pulse' : dispute.discussionEndedAt ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                                <p className="text-xs text-zinc-500">Discussion Phase</p>
+                                <p className="text-sm text-white">
+                                    {dispute.status === 'DISCUSSION' ? (
+                                        <span className="text-blue-400">Active</span>
+                                    ) : dispute.discussionEndedAt ? (
+                                        dispute.discussionDeadline && new Date(dispute.discussionEndedAt) < new Date(dispute.discussionDeadline)
+                                            ? <span className="text-emerald-400">Ended early by mutual agreement</span>
+                                            : <span className="text-zinc-400">Ended by deadline</span>
+                                    ) : (
+                                        <span className="text-zinc-600">Pending</span>
+                                    )}
+                                </p>
+                            </div>
+                            {/* Proposal Phase */}
+                            {(dispute.status !== 'DISCUSSION' || dispute.discussionEndedAt) && (
+                                <div className="relative">
+                                    <div className={`absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full border-2 border-zinc-900 ${dispute.status === 'PROPOSAL' ? 'bg-violet-400 animate-pulse' : (wasAutoSettled || dispute.proposalEndedAt) ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                                    <p className="text-xs text-zinc-500">Proposal Phase</p>
+                                    <p className="text-sm text-white">
+                                        {dispute.status === 'PROPOSAL' ? (
+                                            <span className="text-violet-400">Active</span>
+                                        ) : wasAutoSettled ? (
+                                            <span className="text-emerald-400">Resolved automatically via settlement</span>
+                                        ) : dispute.proposalEndedAt ? (
+                                            dispute.proposalDeadline && new Date(dispute.proposalEndedAt) < new Date(dispute.proposalDeadline)
+                                                ? <span className="text-emerald-400">Ended early by mutual agreement</span>
+                                                : <span className="text-zinc-400">Ended by deadline</span>
+                                        ) : (
+                                            <span className="text-zinc-600">Pending</span>
+                                        )}
+                                    </p>
+                                </div>
+                            )}
+                            {/* Admin Review — only if dispute actually went to admin */}
+                            {(dispute.status === 'ADMIN_REVIEW' || wentToAdmin || isResolved) && (
+                                <div className="relative">
+                                    <div className={`absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full border-2 border-zinc-900 ${dispute.status === 'ADMIN_REVIEW' ? 'bg-orange-400 animate-pulse' : wentToAdmin ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                                    <p className="text-xs text-zinc-500">Admin Review</p>
+                                    <p className="text-sm text-white">
+                                        {dispute.status === 'ADMIN_REVIEW' ? (
+                                            <span className="text-orange-400">Active</span>
+                                        ) : wasAutoSettled ? (
+                                            <span className="text-zinc-500 italic">Not required — resolved before escalation</span>
+                                        ) : (
+                                            <span className="text-emerald-400">Completed</span>
+                                        )}
+                                    </p>
+                                </div>
+                            )}
+                            {/* Resolved */}
+                            {(dispute.status === 'RESOLVED' || dispute.status === 'CLOSED') && (
+                                <div className="relative">
+                                    <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-zinc-900" />
+                                    <p className="text-xs text-zinc-500">Resolved</p>
+                                    <p className="text-sm text-emerald-400">{dispute.resolvedAt ? new Date(dispute.resolvedAt).toLocaleDateString() : ''}</p>
+                                </div>
+                            )}
+                        </div>
+                    </GlassCard>
+                        );
+                    })()}
+
                     {/* Actions */}
                     {!isResolved && (
                         <GlassCard className="p-5">
@@ -334,6 +438,32 @@ export default function ClientDisputeDetailPage() {
                                             </button>
                                         ) : (
                                             <div className="space-y-3 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
+                                                {/* Proposal Comparison Context */}
+                                                {(() => {
+                                                    const myLast = dispute.proposals.find((p: { proposedById: string }) => p.proposedById === currentUserId);
+                                                    const otherLast = dispute.proposals.find((p: { proposedById: string }) => p.proposedById !== currentUserId);
+                                                    const changeDelta = myLast ? proposalPercent - myLast.freelancerPercent : null;
+                                                    const gap = otherLast ? Math.abs(proposalPercent - otherLast.freelancerPercent) : null;
+                                                    // Client wants lower freelancerPercent → closer = smaller gap
+                                                    const isCloser = otherLast && myLast ? Math.abs(proposalPercent - otherLast.freelancerPercent) < Math.abs(myLast.freelancerPercent - otherLast.freelancerPercent) : null;
+                                                    return (
+                                                        <div className="space-y-1.5 mb-3 text-xs">
+                                                            {myLast && (
+                                                                <div className="flex justify-between"><span className="text-zinc-500">Your last proposal</span><span className="text-zinc-300">Freelancer: {myLast.freelancerPercent}%</span></div>
+                                                            )}
+                                                            {otherLast && (
+                                                                <div className="flex justify-between"><span className="text-zinc-500">Other party&apos;s last</span><span className="text-zinc-300">Freelancer: {otherLast.freelancerPercent}%</span></div>
+                                                            )}
+                                                            <div className="flex justify-between font-medium"><span className="text-zinc-400">Current proposal</span><span className="text-violet-400">Freelancer: {proposalPercent}%</span></div>
+                                                            {changeDelta !== null && (
+                                                                <div className="flex justify-between"><span className="text-zinc-500">Change from your last</span><span className={changeDelta === 0 ? 'text-zinc-400' : isCloser ? 'text-emerald-400' : 'text-red-400'}>{changeDelta > 0 ? '+' : ''}{changeDelta}%</span></div>
+                                                            )}
+                                                            {gap !== null && (
+                                                                <div className="flex justify-between"><span className="text-zinc-500">Gap between offers</span><span className={isCloser ? 'text-emerald-400' : 'text-red-400'}>{gap}%</span></div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                                 <div>
                                                     <label className="text-xs text-zinc-500 block mb-1">Freelancer receives: {proposalPercent}%</label>
                                                     <input
@@ -377,12 +507,30 @@ export default function ClientDisputeDetailPage() {
                                 )}
                                 {/* Mutual fast-forward: DISCUSSION → PROPOSAL */}
                                 {dispute.status === 'DISCUSSION' && (
-                                    dispute.phaseAdvanceClient && currentUserId === contract.clientUserId ||
-                                    dispute.phaseAdvanceFreelancer && currentUserId === contract.freelancerUserId
-                                    ? (
+                                    dispute.phaseAdvanceClient ? (
                                         <div className="w-full px-4 py-2 bg-emerald-500/10 text-emerald-400 rounded-lg text-sm text-center border border-emerald-500/20">
                                             <CheckCircle className="w-4 h-4 inline mr-2" />
                                             You requested to move forward — waiting for other party
+                                        </div>
+                                    ) : dispute.phaseAdvanceFreelancer ? (
+                                        <div className="space-y-2">
+                                            <div className="w-full px-4 py-2 bg-blue-500/10 text-blue-400 rounded-lg text-sm text-center border border-blue-500/20">
+                                                Freelancer requested to move to Proposal phase
+                                            </div>
+                                            <button
+                                                onClick={() => startTransition(async () => {
+                                                    const result = await requestPhaseTransition(disputeId);
+                                                    if (result.success) {
+                                                        toast.success(result.transitioned ? 'Moved to Proposal phase!' : 'Request sent — waiting for other party');
+                                                        loadData();
+                                                    } else toast.error(result.error || 'Failed');
+                                                })}
+                                                disabled={isPending}
+                                                className="w-full px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors text-sm disabled:opacity-40"
+                                            >
+                                                <CheckCircle className="w-4 h-4 inline mr-2" />
+                                                Confirm & Move to Proposal Phase
+                                            </button>
                                         </div>
                                     ) : (
                                         <button
@@ -403,12 +551,30 @@ export default function ClientDisputeDetailPage() {
                                 )}
                                 {/* Mutual fast-forward: PROPOSAL → ADMIN_REVIEW */}
                                 {dispute.status === 'PROPOSAL' && (
-                                    dispute.phaseAdvanceClient && currentUserId === contract.clientUserId ||
-                                    dispute.phaseAdvanceFreelancer && currentUserId === contract.freelancerUserId
-                                    ? (
+                                    dispute.phaseAdvanceClient ? (
                                         <div className="w-full px-4 py-2 bg-emerald-500/10 text-emerald-400 rounded-lg text-sm text-center border border-emerald-500/20">
                                             <CheckCircle className="w-4 h-4 inline mr-2" />
                                             You requested admin review — waiting for other party
+                                        </div>
+                                    ) : dispute.phaseAdvanceFreelancer ? (
+                                        <div className="space-y-2">
+                                            <div className="w-full px-4 py-2 bg-orange-500/10 text-orange-400 rounded-lg text-sm text-center border border-orange-500/20">
+                                                Freelancer requested to escalate to admin review
+                                            </div>
+                                            <button
+                                                onClick={() => startTransition(async () => {
+                                                    const result = await requestPhaseTransition(disputeId);
+                                                    if (result.success) {
+                                                        toast.success(result.transitioned ? 'Escalated to admin review!' : 'Request sent — waiting for other party');
+                                                        loadData();
+                                                    } else toast.error(result.error || 'Failed');
+                                                })}
+                                                disabled={isPending}
+                                                className="w-full px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors text-sm disabled:opacity-40"
+                                            >
+                                                <CheckCircle className="w-4 h-4 inline mr-2" />
+                                                Confirm & Escalate to Admin
+                                            </button>
                                         </div>
                                     ) : (
                                         <button

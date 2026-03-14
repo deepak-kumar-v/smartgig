@@ -112,17 +112,34 @@ export async function assertEscrowIntegrity(
         _sum: { amount: true },
     });
 
+    const disputeResolutionLedger = await tx.walletLedger.aggregate({
+        where: {
+            milestoneId: { in: milestoneIds },
+            type: WalletTransactionType.DISPUTE_RESOLUTION,
+        },
+        _sum: { amount: true },
+    });
+
     // Lock entries are negative in the ledger — take absolute value
     const lockedFromLedger = new Prisma.Decimal(lockLedger._sum?.amount ?? 0).abs();
     const releasedFromLedger = new Prisma.Decimal(releaseLedger._sum?.amount ?? 0);
     const platformFeeFromLedger = new Prisma.Decimal(platformFeeLedger._sum?.amount ?? 0);
     const refundedFromLedger = new Prisma.Decimal(refundLedger._sum?.amount ?? 0);
+    const disputeResFromLedger = new Prisma.Decimal(disputeResolutionLedger._sum?.amount ?? 0);
 
-    // expectedUnreleased = locked - released - platformFee - refunded
-    const expectedUnreleased = lockedFromLedger
-        .minus(releasedFromLedger)
-        .minus(platformFeeFromLedger)
-        .minus(refundedFromLedger);
+    // Two valid outflow patterns:
+    // 1. Normal release: ESCROW_RELEASE (freelancerPayout) + PLATFORM_FEE = lockAmount
+    // 2. Dispute release: ESCROW_RELEASE (lockAmount gross) with separate DISPUTE_RESOLUTION + PLATFORM_FEE + REFUND distributions
+    //
+    // Use the pattern that applies: if DISPUTE_RESOLUTION entries exist,
+    // ESCROW_RELEASE is the gross release and distributions are separate.
+    // Otherwise, ESCROW_RELEASE + PLATFORM_FEE + REFUND are direct outflows.
+    const isDisputeRelease = disputeResFromLedger.isPositive();
+    const totalOutflow = isDisputeRelease
+        ? releasedFromLedger // ESCROW_RELEASE = lockAmount covers full outflow
+        : releasedFromLedger.plus(platformFeeFromLedger).plus(refundedFromLedger);
+
+    const expectedUnreleased = lockedFromLedger.minus(totalOutflow);
 
     // Tolerance: 0.001 (sub-cent, covers any Decimal rounding edge)
     if (!unreleasedTotal.equals(expectedUnreleased)) {

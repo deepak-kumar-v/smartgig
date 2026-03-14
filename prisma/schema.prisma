@@ -480,6 +480,10 @@ model Dispute {
   discussionDeadline  DateTime?
   proposalDeadline    DateTime?
 
+  // Phase end timestamps (set when phase transitions, enables early-transition detection)
+  discussionEndedAt   DateTime?
+  proposalEndedAt     DateTime?
+
   // Mutual phase fast-forward flags (reset on every phase transition)
   phaseAdvanceClient     Boolean @default(false)
   phaseAdvanceFreelancer Boolean @default(false)
