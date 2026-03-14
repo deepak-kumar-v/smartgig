@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { GlassCard } from '@/components/ui/glass-card';
 import {
     Scale, Clock, MessageSquare, FileText, Upload, Send,
-    AlertTriangle, Shield, CheckCircle, ArrowLeft, ChevronUp, Info, Lock, Unlock
+    AlertTriangle, Shield, CheckCircle, ArrowLeft, ChevronUp, Info, Lock, Unlock, Zap
 } from 'lucide-react';
 import {
     getDispute, submitDisputeMessage, uploadDisputeEvidence,
@@ -240,7 +240,7 @@ export default function FreelancerDisputeDetailPage() {
                                     <div className="flex justify-between"><span className="text-zinc-400">Escrow amount</span><span className="text-white font-bold">${escrowAmt.toFixed(2)}</span></div>
                                     <div className="flex justify-between"><span className="text-zinc-400">Freelancer payout</span><span className="text-emerald-400">${freelancerPayout.toFixed(2)}</span></div>
                                     <div className="flex justify-between"><span className="text-zinc-400">Client refund</span><span className="text-blue-400">${clientRefund.toFixed(2)}</span></div>
-                                    <div className="flex justify-between"><span className="text-zinc-400">Arbitration fee ({arbitrationFeePercent}%)</span><span className="text-amber-400">${fee.toFixed(2)}</span></div>
+                                    <div className="flex justify-between items-center"><span className="text-zinc-400 flex items-center gap-1">Arbitration fee ({arbitrationFeePercent}%)<span className="relative group cursor-help"><Info className="w-3 h-3 text-zinc-500" /><span className="absolute bottom-full right-0 mb-1 px-3 py-2 bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 rounded w-64 opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none leading-relaxed"><span className="font-medium text-amber-400 block mb-1">Arbitration fee</span>A small dispute resolution fee charged only from the freelancer&apos;s payout when the SmartGIG system automatically settles a dispute.<br/><br/>The client&apos;s refund is not reduced by this fee.</span></span></span><span className="text-amber-400">${fee.toFixed(2)}</span></div>
                                     <div className="border-t border-zinc-800 my-2" />
                                     <div className="flex justify-between"><span className="text-zinc-400">Resolution type</span><span className="text-zinc-300">{isAutoSettled ? 'Auto Settlement (≤15% diff)' : 'Admin Decision'}</span></div>
                                     <div className="flex justify-between"><span className="text-zinc-400">Resolved by</span><span className="text-zinc-300">{isAutoSettled ? 'System' : 'Admin'}</span></div>
@@ -250,6 +250,35 @@ export default function FreelancerDisputeDetailPage() {
                                     {dispute.resolutionNote && (
                                         <p className="text-xs text-zinc-500 mt-2 italic">{dispute.resolutionNote}</p>
                                     )}
+                                </div>
+                            </GlassCard>
+                        );
+                    })()}
+
+                    {/* Settlement Explanation Card */}
+                    {isResolved && dispute.freelancerPercent !== null && (() => {
+                        const wasAutoSettled = !dispute.resolvedById || dispute.resolvedById === 'SYSTEM';
+                        if (!wasAutoSettled) return null;
+                        const clientProposal = dispute.proposals.find((p: { proposedById: string }) => p.proposedById === contract.clientUserId);
+                        const freelancerProposal = dispute.proposals.find((p: { proposedById: string }) => p.proposedById === contract.freelancerUserId);
+                        if (!clientProposal || !freelancerProposal) return null;
+                        const diff = Math.abs(clientProposal.freelancerPercent - freelancerProposal.freelancerPercent);
+                        const midpoint = Math.round((clientProposal.freelancerPercent + freelancerProposal.freelancerPercent) / 2);
+                        return (
+                            <GlassCard className="p-5 border border-blue-500/20 bg-blue-500/5">
+                                <h2 className="text-blue-400 font-semibold mb-3 flex items-center gap-2">
+                                    <Zap className="w-4 h-4" /> Settlement Explanation
+                                </h2>
+                                <div className="space-y-2 text-sm">
+                                    <p className="text-zinc-400 text-xs mb-2">Final proposals from each party:</p>
+                                    <div className="flex justify-between"><span className="text-zinc-400">Client offered</span><span className="text-blue-400 font-medium">Freelancer: {clientProposal.freelancerPercent}%</span></div>
+                                    <div className="flex justify-between"><span className="text-zinc-400">Freelancer offered</span><span className="text-emerald-400 font-medium">Freelancer: {freelancerProposal.freelancerPercent}%</span></div>
+                                    <div className="border-t border-zinc-800 my-2" />
+                                    <div className="flex justify-between"><span className="text-zinc-400">Difference</span><span className="text-amber-400 font-medium">{diff}% <span className="text-zinc-500 font-normal">(within ≤15% threshold)</span></span></div>
+                                    <div className="bg-zinc-800/50 rounded p-3 mt-2 border border-zinc-700/30">
+                                        <p className="text-zinc-300 text-xs">SmartGIG automatically resolved the dispute at the midpoint:</p>
+                                        <p className="text-white font-bold mt-1">{midpoint}% freelancer / {100 - midpoint}% client</p>
+                                    </div>
                                 </div>
                             </GlassCard>
                         );
@@ -542,10 +571,41 @@ export default function FreelancerDisputeDetailPage() {
                         </GlassCard>
                     )}
 
+                    {/* Locked negotiation message when resolved */}
+                    {isResolved && (
+                        <GlassCard className="p-4 border border-zinc-700/50">
+                            <p className="text-zinc-500 text-sm text-center italic">Negotiation closed — this dispute has already been resolved.</p>
+                        </GlassCard>
+                    )}
+
                     {/* Proposals */}
                     {dispute.proposals.length > 0 && (
                         <GlassCard className="p-5">
                             <h2 className="text-white font-semibold mb-3 flex items-center gap-2"><Scale className="w-4 h-4" /> Proposals</h2>
+                            {/* Negotiation Progress */}
+                            {(() => {
+                                const clientProposals = dispute.proposals.filter((p: { proposedById: string }) => p.proposedById === contract.clientUserId);
+                                const freelancerProposals = dispute.proposals.filter((p: { proposedById: string }) => p.proposedById === contract.freelancerUserId);
+                                if (clientProposals.length > 0 && freelancerProposals.length > 0) {
+                                    const firstClient = clientProposals[clientProposals.length - 1];
+                                    const firstFreelancer = freelancerProposals[freelancerProposals.length - 1];
+                                    const lastClient = clientProposals[0];
+                                    const lastFreelancer = freelancerProposals[0];
+                                    const initialGap = Math.abs(firstClient.freelancerPercent - firstFreelancer.freelancerPercent);
+                                    const finalGap = Math.abs(lastClient.freelancerPercent - lastFreelancer.freelancerPercent);
+                                    return (
+                                        <div className="bg-zinc-800/30 rounded-lg p-3 mb-3 border border-zinc-700/30">
+                                            <p className="text-xs font-medium text-zinc-400 mb-2">Negotiation Progress</p>
+                                            <div className="flex justify-between text-xs"><span className="text-zinc-500">Initial offer gap</span><span className="text-red-400 font-medium">{initialGap}%</span></div>
+                                            <div className="flex justify-between text-xs mt-1"><span className="text-zinc-500">Final offer gap</span><span className={finalGap <= 15 ? 'text-emerald-400 font-medium' : 'text-amber-400 font-medium'}>{finalGap}%</span></div>
+                                            {finalGap < initialGap && (
+                                                <p className="text-xs text-zinc-600 mt-2 italic">Both parties gradually moved closer{finalGap <= 15 ? ' until the settlement threshold was reached.' : '.'}</p>
+                                            )}
+                                        </div>
+                                    );
+                                }
+                                return null;
+                            })()}
                             <p className="text-xs text-zinc-500 mb-2">Newest proposals appear at the top.</p>
                             <p className="text-xs text-zinc-500 bg-zinc-800/50 rounded px-3 py-2 border border-zinc-700/50 mb-3">
                                 <span className="text-indigo-400 font-medium">Auto-settlement rule:</span> If proposals differ by ≤15%, the system automatically resolves at the midpoint.
@@ -577,6 +637,16 @@ export default function FreelancerDisputeDetailPage() {
                                         </div>
                                         {p.reason && <p className="text-xs text-zinc-500 mt-1">{p.reason}</p>}
                                         <p className="text-xs text-zinc-600 mt-1">{new Date(p.createdAt).toLocaleString()}</p>
+                                        {/* Settlement Trigger Badge */}
+                                        {isResolved && idx === 0 && dispute.proposals.length >= 2 && (() => {
+                                            const prev = dispute.proposals[1] as { freelancerPercent: number };
+                                            const diff = Math.abs(p.freelancerPercent - prev.freelancerPercent);
+                                            return diff <= 15 ? (
+                                                <div className="flex items-center gap-1 mt-1.5 text-xs text-amber-400">
+                                                    <Zap className="w-3 h-3" /> Triggered auto-settlement
+                                                </div>
+                                            ) : null;
+                                        })()}
                                     </div>
                                 ))}
                             </div>

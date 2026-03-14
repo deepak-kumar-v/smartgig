@@ -210,15 +210,22 @@ async function run(): Promise<void> {
                 where: { milestoneId: lock.milestoneId, type: WalletTransactionType.PLATFORM_FEE },
                 _sum: { amount: true },
             });
+            const refundEntry = await prisma.walletLedger.aggregate({
+                where: { milestoneId: lock.milestoneId, type: WalletTransactionType.REFUND },
+                _sum: { amount: true },
+            });
 
             const freelancerPayout = new Prisma.Decimal(releaseEntry._sum?.amount ?? 0);
             const commissionAmount = new Prisma.Decimal(feeEntry._sum?.amount ?? 0);
+            const refundAmount = new Prisma.Decimal(refundEntry._sum?.amount ?? 0);
             const lockAmount = new Prisma.Decimal(lock.amount);
 
-            if (!freelancerPayout.plus(commissionAmount).equals(lockAmount)) {
+            // Normal release:  payout + commission = lock
+            // Dispute release: payout + commission + refund = lock
+            if (!freelancerPayout.plus(commissionAmount).plus(refundAmount).equals(lockAmount)) {
                 violations.push({
                     category: 'Commission Consistency',
-                    message: `Milestone ${lock.milestoneId}: payout (${freelancerPayout.toFixed(2)}) + commission (${commissionAmount.toFixed(2)}) ≠ lock (${lockAmount.toFixed(2)})`,
+                    message: `Milestone ${lock.milestoneId}: payout (${freelancerPayout.toFixed(2)}) + commission (${commissionAmount.toFixed(2)}) + refund (${refundAmount.toFixed(2)}) ≠ lock (${lockAmount.toFixed(2)})`,
                 });
             }
         }

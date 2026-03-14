@@ -924,26 +924,8 @@ async function executeResolutionCore(
     const freelancerUserId = contract.freelancer.userId;
     const clientUserId = contract.client.userId;
 
-    // 0. ESCROW_RELEASE — gross release entry (counterpart to ESCROW_LOCK)
-    //    Goes on client wallet to cancel the original ESCROW_LOCK debit.
-    //    This is the "escrow released" event; distributions below show where funds went.
-    {
-        let clientWallet = await tx.wallet.findUnique({ where: { userId: clientUserId } });
-        if (!clientWallet) {
-            clientWallet = await tx.wallet.create({ data: { userId: clientUserId } });
-        }
-        await tx.walletLedger.create({
-            data: {
-                walletId: clientWallet.id,
-                amount: lockAmount,
-                type: WalletTransactionType.ESCROW_RELEASE,
-                contractId: contract.id,
-                milestoneId: dispute.milestoneId,
-            },
-        });
-    }
-
-    // A. Freelancer payout (DISPUTE_RESOLUTION)
+    // A. Freelancer payout (ESCROW_RELEASE — matches normal release ledger pattern)
+    //    ESCROW_RELEASE + PLATFORM_FEE + REFUND = lockAmount
     if (freelancerPayout.isPositive()) {
         let freelancerWallet = await tx.wallet.findUnique({ where: { userId: freelancerUserId } });
         if (!freelancerWallet) {
@@ -953,7 +935,7 @@ async function executeResolutionCore(
             data: {
                 walletId: freelancerWallet.id,
                 amount: freelancerPayout,
-                type: WalletTransactionType.DISPUTE_RESOLUTION,
+                type: WalletTransactionType.ESCROW_RELEASE,
                 contractId: contract.id,
                 milestoneId: dispute.milestoneId,
             },
