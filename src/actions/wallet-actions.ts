@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { Prisma, WalletTransactionType } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
-import { emitDataUpdated } from '@/lib/emit-data-updated';
+import { emitScopedUpdate } from '@/lib/emit-scoped-update';
 
 // ============================================================================
 // Wallet Server Actions — Fintech-Grade Wallet System (Decimal-Safe)
@@ -208,7 +208,7 @@ export async function depositToWallet(
         revalidatePath('/freelancer/wallet');
         revalidatePath('/freelancer/wallet/withdraw');
 
-        emitDataUpdated();
+        emitScopedUpdate('wallet:updated');
 
         return { success: true, balance: newBalance.toFixed(2) };
     } catch (error) {

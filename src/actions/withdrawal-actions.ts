@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
-import { emitDataUpdated } from '@/lib/emit-data-updated';
+import { emitScopedUpdate } from '@/lib/emit-scoped-update';
 
 // ============================================================================
 // Withdrawal Actions — No immediate ledger mutation
@@ -87,7 +87,7 @@ export async function requestWithdrawal(amount: number) {
         revalidatePath('/freelancer/wallet');
         revalidatePath('/freelancer/wallet/withdraw');
 
-        emitDataUpdated();
+        emitScopedUpdate('wallet:updated');
 
         return result;
     } catch (error) {
@@ -212,7 +212,7 @@ export async function approveWithdrawal(requestId: string) {
         revalidatePath('/freelancer/wallet/withdraw');
         revalidatePath('/admin/withdrawals');
 
-        emitDataUpdated();
+        emitScopedUpdate('wallet:updated');
 
         return result;
     } catch (error) {
@@ -271,7 +271,7 @@ export async function rejectWithdrawal(requestId: string) {
         revalidatePath('/freelancer/wallet/withdraw');
         revalidatePath('/admin/withdrawals');
 
-        emitDataUpdated();
+        emitScopedUpdate('wallet:updated');
 
         return { success: true };
     } catch (error) {

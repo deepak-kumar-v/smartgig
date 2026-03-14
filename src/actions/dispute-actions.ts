@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
-import { emitDataUpdated } from '@/lib/emit-data-updated';
+import { emitScopedUpdate } from '@/lib/emit-scoped-update';
 import { assertEscrowIntegrity } from '@/lib/escrow-integrity';
 import { assertDecimalNonNegative } from '@/lib/financial-assertions';
 import { getPlatformWallet } from '@/lib/platform-wallet';
@@ -210,7 +210,7 @@ export async function openDispute(
         revalidatePath('/client/disputes');
         revalidatePath('/freelancer/disputes');
 
-        emitDataUpdated();
+        emitScopedUpdate('dispute:updated');
 
         return { success: true, disputeId: dispute.id };
     } catch (error) {
@@ -300,7 +300,7 @@ export async function submitDisputeMessage(
         revalidatePath(`/client/disputes/${disputeId}`);
         revalidatePath(`/freelancer/disputes/${disputeId}`);
 
-        emitDataUpdated();
+        emitScopedUpdate('dispute:updated');
 
         return { success: true };
     } catch (error) {
@@ -426,7 +426,7 @@ export async function uploadDisputeEvidence(
         revalidatePath(`/client/disputes/${disputeId}`);
         revalidatePath(`/freelancer/disputes/${disputeId}`);
 
-        emitDataUpdated();
+        emitScopedUpdate('dispute:updated');
 
         return { success: true };
     } catch (error) {
@@ -613,7 +613,7 @@ export async function submitProposal(
             revalidatePath(`/freelancer/disputes/${disputeId}`);
             revalidatePath('/admin/disputes');
 
-            emitDataUpdated();
+            emitScopedUpdate('dispute:updated');
 
             return { success: true, autoSettled: true };
         }
@@ -621,7 +621,7 @@ export async function submitProposal(
         revalidatePath(`/client/disputes/${disputeId}`);
         revalidatePath(`/freelancer/disputes/${disputeId}`);
 
-        emitDataUpdated();
+        emitScopedUpdate('dispute:updated');
 
         return { success: true };
     } catch (error) {
@@ -723,7 +723,7 @@ export async function escalateToAdmin(
         revalidatePath(`/freelancer/disputes/${disputeId}`);
         revalidatePath('/admin/disputes');
 
-        emitDataUpdated();
+        emitScopedUpdate('dispute:updated');
 
         return { success: true };
     } catch (error) {
@@ -871,7 +871,7 @@ export async function requestPhaseTransition(
         revalidatePath(`/freelancer/disputes/${disputeId}`);
         revalidatePath('/admin/disputes');
 
-        emitDataUpdated();
+        emitScopedUpdate('dispute:updated');
 
         return { success: true, transitioned: bothReady };
     } catch (error) {
@@ -1242,7 +1242,7 @@ async function executeResolution(
         revalidatePath(`/freelancer/disputes/${disputeId}`);
         revalidatePath('/admin/disputes');
 
-        emitDataUpdated();
+        emitScopedUpdate('dispute:updated');
 
         return { success: true, autoSettled: isAutoSettled };
     } catch (error) {
@@ -1315,7 +1315,7 @@ export async function getDispute(disputeId: string) {
             dispute.phaseAdvanceClient = false;
             dispute.phaseAdvanceFreelancer = false;
 
-            emitDataUpdated();
+            emitScopedUpdate('dispute:updated');
         }
         if (dispute.status === DisputeStatus.PROPOSAL && dispute.proposalDeadline && now > dispute.proposalDeadline) {
             await db.dispute.update({
@@ -1334,7 +1334,7 @@ export async function getDispute(disputeId: string) {
             dispute.phaseAdvanceClient = false;
             dispute.phaseAdvanceFreelancer = false;
 
-            emitDataUpdated();
+            emitScopedUpdate('dispute:updated');
 
             // Emit lifecycle event for auto-escalation
             recordLifecycleEvent({

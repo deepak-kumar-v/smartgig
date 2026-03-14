@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 import { assertEscrowIntegrity } from '@/lib/escrow-integrity';
 import { assertDecimalNonNegative } from '@/lib/financial-assertions';
-import { emitDataUpdated } from '@/lib/emit-data-updated';
+import { emitScopedUpdate } from '@/lib/emit-scoped-update';
 import {
     ContractStatus,
     EscrowStatus,
@@ -317,7 +317,7 @@ export async function fundEscrow(contractId: string, idempotencyKey?: string): P
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
 
-        emitDataUpdated();
+        emitScopedUpdate('contract:updated');
 
         return { success: true };
     } catch (error) {
@@ -613,7 +613,7 @@ export async function fundMilestone(milestoneId: string, idempotencyKey?: string
         revalidatePath(`/client/contracts/${contract.id}`);
         revalidatePath(`/freelancer/contracts/${contract.id}`);
 
-        emitDataUpdated();
+        emitScopedUpdate('contract:updated');
 
         return { success: true };
     } catch (error) {
@@ -898,7 +898,7 @@ export async function refundEscrow(contractId: string, idempotencyKey?: string):
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
 
-        emitDataUpdated();
+        emitScopedUpdate('contract:updated');
 
         return { success: true };
     } catch (error) {
@@ -1128,7 +1128,7 @@ export async function refundMilestone(
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
 
-        emitDataUpdated();
+        emitScopedUpdate('contract:updated');
 
         return { success: true };
     } catch (error) {

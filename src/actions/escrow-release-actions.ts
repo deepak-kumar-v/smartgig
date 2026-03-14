@@ -7,7 +7,7 @@ import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 import { assertEscrowIntegrity } from '@/lib/escrow-integrity';
 import { assertDecimalNonNegative } from '@/lib/financial-assertions';
 import { getPlatformWallet } from '@/lib/platform-wallet';
-import { emitDataUpdated } from '@/lib/emit-data-updated';
+import { emitScopedUpdate } from '@/lib/emit-scoped-update';
 import {
     ContractStatus,
     EscrowStatus,
@@ -348,7 +348,7 @@ export async function releaseMilestoneFunds(milestoneId: string, idempotencyKey?
         revalidatePath(`/client/contracts/${contract.id}`);
         revalidatePath(`/freelancer/contracts/${contract.id}`);
 
-        emitDataUpdated();
+        emitScopedUpdate('contract:updated');
 
         return { success: true };
     } catch (error) {
