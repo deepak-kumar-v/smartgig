@@ -267,7 +267,7 @@ export async function submitDisputeMessage(
             return { error: 'Cannot send messages on a resolved or closed dispute.' };
         }
 
-        await db.disputeMessage.create({
+        const createdMessage = await db.disputeMessage.create({
             data: {
                 disputeId,
                 senderId: session.user.id,
@@ -275,6 +275,23 @@ export async function submitDisputeMessage(
                 isSystem: false,
             },
         });
+
+        // Emit real-time update via Socket.IO (fire-and-forget, never blocks)
+        try {
+            const io = (globalThis as any).__socketIO;
+            if (io) {
+                io.to(`dispute:${disputeId}`).emit('dispute:new-message', {
+                    id: createdMessage.id,
+                    disputeId: createdMessage.disputeId,
+                    senderId: createdMessage.senderId,
+                    content: createdMessage.content,
+                    isSystem: createdMessage.isSystem,
+                    createdAt: createdMessage.createdAt.toISOString(),
+                });
+            }
+        } catch (socketErr) {
+            console.error('[submitDisputeMessage] Socket emit failed (non-blocking):', socketErr);
+        }
 
         revalidatePath(`/client/disputes/${disputeId}`);
         revalidatePath(`/freelancer/disputes/${disputeId}`);

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useTransition } from 'react';
+import React, { useState, useEffect, useTransition, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { GlassCard } from '@/components/ui/glass-card';
+import { useSocket } from '@/providers/socket-provider';
 import {
     Scale, Clock, MessageSquare, FileText, Upload, Send,
     AlertTriangle, Shield, CheckCircle, ArrowLeft, ChevronUp, Info, Lock, Unlock, Zap
@@ -39,6 +40,12 @@ export default function ClientDisputeDetailPage() {
     const [proposalReason, setProposalReason] = useState('');
     const [showProposal, setShowProposal] = useState(false);
     const [showSnapshot, setShowSnapshot] = useState(false);
+    const { socket } = useSocket();
+
+    // Local messages state for real-time updates
+    type DisputeMsg = { id: string; senderId: string; content: string; isSystem: boolean; createdAt: string };
+    const [messages, setMessages] = useState<DisputeMsg[]>([]);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const loadData = async () => {
         const result = await getDispute(disputeId);
@@ -47,6 +54,34 @@ export default function ClientDisputeDetailPage() {
     };
 
     useEffect(() => { loadData(); }, [disputeId]);
+
+    // Sync messages from server data
+    useEffect(() => {
+        if (data && !('error' in data)) {
+            setMessages(data.dispute.messages as DisputeMsg[]);
+        }
+    }, [data]);
+
+    // Socket.IO: join/leave dispute room + real-time listener
+    useEffect(() => {
+        if (!socket || !disputeId) return;
+
+        socket.emit('join-dispute', disputeId);
+
+        const handleNewMessage = (msg: DisputeMsg) => {
+            setMessages(prev => {
+                if (prev.some(m => m.id === msg.id)) return prev;
+                return [...prev, msg];
+            });
+        };
+
+        socket.on('dispute:new-message', handleNewMessage);
+
+        return () => {
+            socket.emit('leave-dispute', disputeId);
+            socket.off('dispute:new-message', handleNewMessage);
+        };
+    }, [socket, disputeId]);
 
     if (loading) {
         return (
@@ -151,7 +186,7 @@ export default function ClientDisputeDetailPage() {
                             <MessageSquare className="w-4 h-4" /> Discussion
                         </h2>
                         <div className="space-y-3 max-h-[520px] overflow-y-auto mb-4">
-                            {dispute.messages.map((msg: { id: string; senderId: string; content: string; isSystem: boolean; createdAt: string }) => (
+                            {messages.map((msg) => (
                                 <div key={msg.id} className={`p-3 rounded-lg ${msg.isSystem
                                     ? 'bg-zinc-800/50 border border-zinc-700/50'
                                     : msg.senderId === currentUserId

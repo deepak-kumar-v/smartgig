@@ -202,8 +202,13 @@ async function run(): Promise<void> {
         milestoneCount = releasedLocks.length;
 
         for (const lock of releasedLocks) {
+            // Payout sources: ESCROW_RELEASE (normal) + DISPUTE_RESOLUTION (dispute)
             const releaseEntry = await prisma.walletLedger.aggregate({
                 where: { milestoneId: lock.milestoneId, type: WalletTransactionType.ESCROW_RELEASE },
+                _sum: { amount: true },
+            });
+            const disputeResEntry = await prisma.walletLedger.aggregate({
+                where: { milestoneId: lock.milestoneId, type: WalletTransactionType.DISPUTE_RESOLUTION },
                 _sum: { amount: true },
             });
             const feeEntry = await prisma.walletLedger.aggregate({
@@ -215,17 +220,30 @@ async function run(): Promise<void> {
                 _sum: { amount: true },
             });
 
-            const freelancerPayout = new Prisma.Decimal(releaseEntry._sum?.amount ?? 0);
+            // payout = ESCROW_RELEASE + DISPUTE_RESOLUTION
+            const escrowRelease = new Prisma.Decimal(releaseEntry._sum?.amount ?? 0);
+            const disputeRes = new Prisma.Decimal(disputeResEntry._sum?.amount ?? 0);
+            const totalPayout = escrowRelease.plus(disputeRes);
             const commissionAmount = new Prisma.Decimal(feeEntry._sum?.amount ?? 0);
             const refundAmount = new Prisma.Decimal(refundEntry._sum?.amount ?? 0);
             const lockAmount = new Prisma.Decimal(lock.amount);
 
-            // Normal release:  payout + commission = lock
-            // Dispute release: payout + commission + refund = lock
-            if (!freelancerPayout.plus(commissionAmount).plus(refundAmount).equals(lockAmount)) {
+            // Invariant: payout + refund + commission = lock
+            //   Normal release:  ESCROW_RELEASE + PLATFORM_FEE = lock
+            //   Dispute release: (ESCROW_RELEASE | DISPUTE_RESOLUTION) + PLATFORM_FEE + REFUND = lock
+            const totalDistributed = totalPayout.plus(commissionAmount).plus(refundAmount);
+            if (!totalDistributed.equals(lockAmount)) {
                 violations.push({
                     category: 'Commission Consistency',
-                    message: `Milestone ${lock.milestoneId}: payout (${freelancerPayout.toFixed(2)}) + commission (${commissionAmount.toFixed(2)}) + refund (${refundAmount.toFixed(2)}) ≠ lock (${lockAmount.toFixed(2)})`,
+                    message: `Milestone ${lock.milestoneId}: payout (${totalPayout.toFixed(2)}) + commission (${commissionAmount.toFixed(2)}) + refund (${refundAmount.toFixed(2)}) = ${totalDistributed.toFixed(2)} ≠ lock (${lockAmount.toFixed(2)})`,
+                });
+            }
+
+            // Safety: released lock with zero total outflow = funds vanished
+            if (totalDistributed.isZero()) {
+                violations.push({
+                    category: 'Double-Spend Detection',
+                    message: `Lock ${lock.id} (milestone ${lock.milestoneId}) marked released but no payout/refund/fee ledger entries exist — funds unaccounted`,
                 });
             }
         }
@@ -270,15 +288,26 @@ async function run(): Promise<void> {
             }
         }
 
-        // Locks marked released without matching release ledger entry
+        // Locks marked released without any distribution ledger entries
+        // (ESCROW_RELEASE, DISPUTE_RESOLUTION, PLATFORM_FEE, or REFUND)
         for (const lock of releasedLocks) {
-            const releaseCount = await prisma.walletLedger.count({
-                where: { milestoneId: lock.milestoneId, type: WalletTransactionType.ESCROW_RELEASE },
+            const distributionCount = await prisma.walletLedger.count({
+                where: {
+                    milestoneId: lock.milestoneId,
+                    type: {
+                        in: [
+                            WalletTransactionType.ESCROW_RELEASE,
+                            WalletTransactionType.DISPUTE_RESOLUTION,
+                            WalletTransactionType.PLATFORM_FEE,
+                            WalletTransactionType.REFUND,
+                        ],
+                    },
+                },
             });
-            if (releaseCount === 0) {
+            if (distributionCount === 0) {
                 violations.push({
                     category: 'Double-Spend Detection',
-                    message: `Lock ${lock.id} (milestone ${lock.milestoneId}) marked released but no ESCROW_RELEASE ledger entry exists`,
+                    message: `Lock ${lock.id} (milestone ${lock.milestoneId}) marked released but no distribution ledger entries exist`,
                 });
             }
         }

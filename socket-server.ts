@@ -62,6 +62,9 @@ app.prepare().then(() => {
         path: '/socket.io'
     });
 
+    // Expose io globally for server actions (e.g. dispute-actions.ts)
+    (globalThis as any).__socketIO = io;
+
     // Store user-to-socket mapping
     const userSockets = new Map<string, string>();
     const socketUsers = new Map<string, string>();
@@ -974,6 +977,23 @@ app.prepare().then(() => {
         });
 
         // ==================== END MESSAGE EDIT & DELETE ====================
+
+        // ==================== DISPUTE DISCUSSION ROOMS ====================
+        // Completely isolated from conversation rooms — uses dispute:{id} namespace
+
+        socket.on('join-dispute', (disputeId: string) => {
+            if (!disputeId) return;
+            socket.join(`dispute:${disputeId}`);
+            console.log(`[Socket] User ${userId} joined dispute:${disputeId}`);
+        });
+
+        socket.on('leave-dispute', (disputeId: string) => {
+            if (!disputeId) return;
+            socket.leave(`dispute:${disputeId}`);
+            console.log(`[Socket] User ${userId} left dispute:${disputeId}`);
+        });
+
+        // ==================== END DISPUTE DISCUSSION ROOMS ====================
 
         // Handle disconnect
         socket.on('disconnect', () => {
