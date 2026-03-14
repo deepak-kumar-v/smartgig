@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 
 // ============================================================================
 // Types
@@ -248,6 +249,8 @@ export async function submitProposal(payload: ProposalPayload) {
         revalidatePath('/client/proposals');
         revalidatePath('/messages');
 
+        emitDataUpdated();
+
         return {
             success: true,
             proposalId: proposal.id
@@ -309,6 +312,8 @@ export async function acceptProposal(proposalId: string) {
         revalidatePath(`/client/jobs/${proposal.jobId}`);
         revalidatePath('/client/dashboard');
 
+        emitDataUpdated();
+
         return { success: true };
 
     } catch (error) {
@@ -362,6 +367,8 @@ export async function rejectProposal(proposalId: string) {
         revalidatePath(`/client/proposals/${proposalId}`);
         revalidatePath(`/client/jobs/${proposal.jobId}`);
         revalidatePath('/client/dashboard');
+
+        emitDataUpdated();
 
         return { success: true };
 

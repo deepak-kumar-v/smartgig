@@ -126,7 +126,7 @@ async function run(): Promise<void> {
                 _sum: { amount: true },
             });
             const refundLedger = await prisma.walletLedger.aggregate({
-                where: { milestoneId: { in: milestoneIds }, type: WalletTransactionType.REFUND },
+                where: { milestoneId: { in: milestoneIds }, type: WalletTransactionType.REFUND, refundReason: 'DISPUTE_SETTLEMENT' },
                 _sum: { amount: true },
             });
 
@@ -216,7 +216,7 @@ async function run(): Promise<void> {
                 _sum: { amount: true },
             });
             const refundEntry = await prisma.walletLedger.aggregate({
-                where: { milestoneId: lock.milestoneId, type: WalletTransactionType.REFUND },
+                where: { milestoneId: lock.milestoneId, type: WalletTransactionType.REFUND, refundReason: 'DISPUTE_SETTLEMENT' },
                 _sum: { amount: true },
             });
 
@@ -308,6 +308,43 @@ async function run(): Promise<void> {
                 violations.push({
                     category: 'Double-Spend Detection',
                     message: `Lock ${lock.id} (milestone ${lock.milestoneId}) marked released but no distribution ledger entries exist`,
+                });
+            }
+        }
+
+        // D2. Double-settlement detection per milestone
+        // A milestone should have at most ONE settlement sequence
+        const allMilestoneIds = [...new Set(releasedLocks.map(l => l.milestoneId))];
+        for (const mid of allMilestoneIds) {
+            const releaseCount = await prisma.walletLedger.count({
+                where: { milestoneId: mid, type: WalletTransactionType.ESCROW_RELEASE },
+            });
+            const settlementRefundCount = await prisma.walletLedger.count({
+                where: { milestoneId: mid, type: WalletTransactionType.REFUND, refundReason: 'DISPUTE_SETTLEMENT' },
+            });
+            const feeCount = await prisma.walletLedger.count({
+                where: { milestoneId: mid, type: WalletTransactionType.PLATFORM_FEE },
+            });
+
+            // Normal release: 1 ESCROW_RELEASE + 1 PLATFORM_FEE
+            // Dispute settlement: may have ESCROW_RELEASE + PLATFORM_FEE + DISPUTE_SETTLEMENT refund
+            // Either way, no more than 1 of each
+            if (releaseCount > 1) {
+                violations.push({
+                    category: 'Double-Settlement Detection',
+                    message: `Milestone ${mid}: ${releaseCount} ESCROW_RELEASE entries — possible double settlement`,
+                });
+            }
+            if (settlementRefundCount > 1) {
+                violations.push({
+                    category: 'Double-Settlement Detection',
+                    message: `Milestone ${mid}: ${settlementRefundCount} DISPUTE_SETTLEMENT refund entries — possible double settlement`,
+                });
+            }
+            if (feeCount > 1) {
+                violations.push({
+                    category: 'Double-Settlement Detection',
+                    message: `Milestone ${mid}: ${feeCount} PLATFORM_FEE entries — possible double settlement`,
                 });
             }
         }

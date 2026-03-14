@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 
 // V3.2 Schema - Clean schema aligned with post-job (NO legacy fields)
 const JobPostSchemaV2 = z.object({
@@ -235,6 +236,9 @@ export async function createJobPostV2(formData: FormData) {
 
     revalidatePath('/explore');
     revalidatePath('/client/dashboard');
+
+    emitDataUpdated();
+
     return { success: true };
 }
 
@@ -389,6 +393,8 @@ export async function updateJobPost(jobId: string, formData: FormData) {
         revalidatePath('/client/jobs');
         revalidatePath('/client/dashboard');
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (err) {
         console.error("Failed to update job:", err);
@@ -434,6 +440,8 @@ export async function deleteJobPost(jobId: string) {
 
         revalidatePath('/client/jobs');
         revalidatePath('/client/dashboard');
+
+        emitDataUpdated();
 
         return { success: true, message: "Job deleted successfully." };
     } catch (err) {

@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 import { ContractStatus, ChangeRequestStatus } from '@prisma/client';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 
 // ============================================================================
 // Milestone Change Request Actions — Freelancer Proposal System
@@ -92,6 +93,8 @@ export async function createChangeRequest(
 
         revalidatePath(`/client/contracts/${milestone.contractId}`);
         revalidatePath(`/freelancer/contracts/${milestone.contractId}`);
+
+        emitDataUpdated();
 
         return { success: true, requestId: request.id };
     } catch (error) {
@@ -196,6 +199,8 @@ export async function acceptChangeRequest(requestId: string): Promise<{ success?
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         console.error('[acceptChangeRequest] Error:', error);
@@ -252,6 +257,8 @@ export async function rejectChangeRequest(requestId: string): Promise<{ success?
 
         revalidatePath(`/client/contracts/${request.milestone.contractId}`);
         revalidatePath(`/freelancer/contracts/${request.milestone.contractId}`);
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {

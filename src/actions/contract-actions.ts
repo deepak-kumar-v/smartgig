@@ -5,6 +5,7 @@ import { auth } from '@/lib/auth';
 import { revalidatePath } from 'next/cache';
 import { ContractStatus, Prisma } from '@prisma/client';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 
 // ============================================================================
 // Contract Server Actions
@@ -161,6 +162,8 @@ export async function createContractFromProposal(
         revalidatePath('/freelancer/contracts');
         revalidatePath('/messages');
 
+        emitDataUpdated();
+
         return { success: true, contractId: contract.id };
 
     } catch (error) {
@@ -261,6 +264,8 @@ export async function createFullContractFromTrial(trialContractId: string) {
         revalidatePath(`/client/contracts/${trialContractId}`);
         revalidatePath('/freelancer/contracts');
 
+        emitDataUpdated();
+
         return { success: true, contractId: fullContract.id };
 
     } catch (error) {
@@ -345,6 +350,8 @@ export async function updateContract(
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
 
+        emitDataUpdated();
+
         return { success: true };
 
     } catch (error) {
@@ -414,6 +421,8 @@ export async function acceptContract(contractId: string) {
         revalidatePath('/client/contracts');
         revalidatePath('/freelancer/contracts');
 
+        emitDataUpdated();
+
         return { success: true };
 
     } catch (error) {
@@ -482,6 +491,9 @@ export async function sendForReview(contractId: string) {
 
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
+
+        emitDataUpdated();
+
         return { success: true };
 
     } catch (error) {
@@ -532,6 +544,9 @@ export async function requestChanges(contractId: string) {
 
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
+
+        emitDataUpdated();
+
         return { success: true };
 
     } catch (error) {
@@ -620,6 +635,9 @@ export async function finalizeContract(contractId: string) {
 
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
+
+        emitDataUpdated();
+
         return { success: true };
 
     } catch (error) {
@@ -703,6 +721,8 @@ export async function startContract(contractId: string) {
         revalidatePath('/client/contracts');
         revalidatePath('/freelancer/contracts');
 
+        emitDataUpdated();
+
         return { success: true };
 
     } catch (error) {
@@ -770,6 +790,8 @@ export async function rejectContract(contractId: string) {
         revalidatePath(`/freelancer/contracts/${contractId}`);
         revalidatePath('/client/contracts');
         revalidatePath('/freelancer/contracts');
+
+        emitDataUpdated();
 
         return { success: true };
 
@@ -916,6 +938,8 @@ export async function deleteContract(contractId: string) {
         revalidatePath('/client/contracts');
         revalidatePath('/freelancer/contracts');
 
+        emitDataUpdated();
+
         return { success: true };
 
     } catch (error) {
@@ -1027,6 +1051,8 @@ export async function cancelContract(contractId: string): Promise<{ success?: bo
         revalidatePath('/client/contracts');
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
+
+        emitDataUpdated();
 
         return { success: true, refundedCount };
     } catch (error) {

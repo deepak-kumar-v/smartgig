@@ -8,6 +8,7 @@ import { getContractEscrowData, ContractEscrowData, MilestoneFinancialState } fr
 import { getWalletDashboardData } from '@/actions/wallet-actions';
 import { fundEscrow, refundEscrow } from '@/actions/escrow-actions';
 import { releaseMilestoneFunds } from '@/actions/escrow-release-actions';
+import { useGlobalRefresh } from '@/providers/global-refresh-provider';
 
 // ============================================================================
 // Types
@@ -43,6 +44,7 @@ export default function EscrowPanel({ contractId, contractStatus, contractType, 
     const [refreshKey, setRefreshKey] = useState(0);
 
     const isClient = role === 'CLIENT';
+    const { refreshVersion } = useGlobalRefresh();
 
     useEffect(() => {
         async function load() {
@@ -64,7 +66,7 @@ export default function EscrowPanel({ contractId, contractStatus, contractType, 
             setLoading(false);
         }
         load();
-    }, [contractId, refreshKey, refreshSignal]);
+    }, [contractId, refreshKey, refreshSignal, refreshVersion]);
 
     // ── Action Handlers ──
 
@@ -159,10 +161,18 @@ function ClientPanel({
                     <Row label="Total You Funded" value={`$${escrow.totalFunded}`} color="text-white" />
                     <Row label="Currently in Escrow" value={`$${escrow.currentlyLocked}`} color="text-amber-400" />
                     <Row label="Total Released" value={`$${escrow.totalReleased}`} color="text-emerald-400" />
-                    {parseFloat(escrow.totalRefunded) > 0 && (
-                        <Row label="Refunded" value={`$${escrow.totalRefunded}`} color="text-blue-400" />
+                    {parseFloat(escrow.settlementRefunded) > 0 && (
+                        <Row label="Refunded" value={`$${escrow.settlementRefunded}`} color="text-blue-400" />
+                    )}
+                    {parseFloat(escrow.historicalRefunds) > 0 && (
+                        <Row label="Historical Refunds" value={`$${escrow.historicalRefunds}`} color="text-zinc-500" hint="Operational refunds from cancelled escrow, re-funding, or testing. Not part of settlement accounting." />
                     )}
                 </Card>
+            )}
+
+            {/* ── 2b. Refund History ── */}
+            {escrow && escrow.refundHistory && escrow.refundHistory.length > 0 && (
+                <RefundHistorySection entries={escrow.refundHistory} />
             )}
 
             {/* ── 3. Per-Milestone Breakdown (Gross Only) ── */}
@@ -411,3 +421,65 @@ export function FinancialStateBadge({ state }: { state: MilestoneFinancialState 
         </span>
     );
 }
+
+// ============================================================================
+// Refund History — Collapsible Section
+// ============================================================================
+
+function RefundHistorySection({ entries }: { entries: { date: string; reason: string; amount: string; milestoneTitle: string }[] }) {
+    const [isOpen, setIsOpen] = useState(false);
+
+    function formatTimestamp(iso: string): string {
+        const d = new Date(iso);
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = months[d.getMonth()];
+        const day = d.getDate();
+        const hours = d.getHours().toString().padStart(2, '0');
+        const minutes = d.getMinutes().toString().padStart(2, '0');
+        return `${month} ${day}, ${hours}:${minutes}`;
+    }
+
+    return (
+        <div className="rounded-lg border" style={{ backgroundColor: '#111318', borderColor: '#1E2328' }}>
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full flex items-center justify-between p-5 text-left"
+            >
+                <h3 className="text-[12px] text-zinc-500 uppercase tracking-widest font-medium">
+                    Refund History ({entries.length})
+                </h3>
+                <span className="text-[12px] text-zinc-600">{isOpen ? '▲' : '▼'}</span>
+            </button>
+            {isOpen && (
+                <div className="px-5 pb-5 space-y-2">
+                    {entries.map((entry, i) => (
+                        <div
+                            key={i}
+                            className="flex items-center justify-between py-2 border-b"
+                            style={{ borderColor: '#1A1E24' }}
+                        >
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] text-zinc-600 tabular-nums whitespace-nowrap">
+                                        {formatTimestamp(entry.date)}
+                                    </span>
+                                    <span className="text-[11px] text-zinc-500">—</span>
+                                    <span className="text-[12px] text-zinc-400 truncate">
+                                        {entry.reason}
+                                    </span>
+                                </div>
+                                <span className="text-[11px] text-zinc-600 block mt-0.5 truncate">
+                                    {entry.milestoneTitle}
+                                </span>
+                            </div>
+                            <span className="text-[13px] tabular-nums text-blue-400/80 ml-3 whitespace-nowrap">
+                                ${entry.amount}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+

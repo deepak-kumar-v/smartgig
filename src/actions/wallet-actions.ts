@@ -3,6 +3,8 @@
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { Prisma, WalletTransactionType } from '@prisma/client';
+import { revalidatePath } from 'next/cache';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 
 // ============================================================================
 // Wallet Server Actions — Fintech-Grade Wallet System (Decimal-Safe)
@@ -200,6 +202,13 @@ export async function depositToWallet(
 
         // Compute new balance after deposit
         const newBalance = await getWalletBalance(userId);
+
+        revalidatePath('/client/wallet');
+        revalidatePath('/client/wallet/deposit');
+        revalidatePath('/freelancer/wallet');
+        revalidatePath('/freelancer/wallet/withdraw');
+
+        emitDataUpdated();
 
         return { success: true, balance: newBalance.toFixed(2) };
     } catch (error) {

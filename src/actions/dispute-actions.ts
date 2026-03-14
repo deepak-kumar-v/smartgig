@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 import { assertEscrowIntegrity } from '@/lib/escrow-integrity';
 import { assertDecimalNonNegative } from '@/lib/financial-assertions';
 import { getPlatformWallet } from '@/lib/platform-wallet';
@@ -14,6 +15,7 @@ import {
     EscrowStatus,
     MilestoneStatus,
     WalletTransactionType,
+    RefundReason,
     Prisma,
 } from '@prisma/client';
 import crypto from 'crypto';
@@ -208,6 +210,8 @@ export async function openDispute(
         revalidatePath('/client/disputes');
         revalidatePath('/freelancer/disputes');
 
+        emitDataUpdated();
+
         return { success: true, disputeId: dispute.id };
     } catch (error) {
         console.error('[openDispute] Error:', error);
@@ -296,6 +300,8 @@ export async function submitDisputeMessage(
         revalidatePath(`/client/disputes/${disputeId}`);
         revalidatePath(`/freelancer/disputes/${disputeId}`);
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         console.error('[submitDisputeMessage] Error:', error);
@@ -362,13 +368,13 @@ export async function uploadDisputeEvidence(
 
         const ext = path.extname(file.name) || '.bin';
         const fileName = `${crypto.randomUUID()}${ext}`;
-        const uploadDir = path.join(process.cwd(), 'uploads', 'disputes', disputeId);
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'disputes', disputeId);
         await fs.mkdir(uploadDir, { recursive: true });
         await fs.writeFile(path.join(uploadDir, fileName), buffer);
 
         const fileUrl = `/uploads/disputes/${disputeId}/${fileName}`;
 
-        await db.disputeEvidence.create({
+        const createdEvidence = await db.disputeEvidence.create({
             data: {
                 disputeId,
                 uploadedById: session.user.id,
@@ -381,7 +387,7 @@ export async function uploadDisputeEvidence(
         });
 
         // System message about evidence upload
-        await db.disputeMessage.create({
+        const sysMsg = await db.disputeMessage.create({
             data: {
                 disputeId,
                 senderId: session.user.id,
@@ -390,8 +396,37 @@ export async function uploadDisputeEvidence(
             },
         });
 
+        // Emit real-time updates via Socket.IO (fire-and-forget)
+        try {
+            const io = (globalThis as any).__socketIO;
+            if (io) {
+                io.to(`dispute:${disputeId}`).emit('dispute:new-evidence', {
+                    id: createdEvidence.id,
+                    disputeId: createdEvidence.disputeId,
+                    uploadedById: createdEvidence.uploadedById,
+                    fileUrl: createdEvidence.fileUrl,
+                    fileName: createdEvidence.fileName,
+                    fileType: createdEvidence.fileType,
+                    description: createdEvidence.description,
+                    createdAt: createdEvidence.createdAt.toISOString(),
+                });
+                io.to(`dispute:${disputeId}`).emit('dispute:new-message', {
+                    id: sysMsg.id,
+                    disputeId: sysMsg.disputeId,
+                    senderId: sysMsg.senderId,
+                    content: sysMsg.content,
+                    isSystem: sysMsg.isSystem,
+                    createdAt: sysMsg.createdAt.toISOString(),
+                });
+            }
+        } catch (socketErr) {
+            console.error('[uploadDisputeEvidence] Socket emit failed (non-blocking):', socketErr);
+        }
+
         revalidatePath(`/client/disputes/${disputeId}`);
         revalidatePath(`/freelancer/disputes/${disputeId}`);
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {
@@ -578,15 +613,18 @@ export async function submitProposal(
             revalidatePath(`/freelancer/disputes/${disputeId}`);
             revalidatePath('/admin/disputes');
 
+            emitDataUpdated();
+
             return { success: true, autoSettled: true };
         }
 
         revalidatePath(`/client/disputes/${disputeId}`);
         revalidatePath(`/freelancer/disputes/${disputeId}`);
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
-        console.error('[submitProposal] Error:', error);
 
         // Sanitize internal errors — never expose raw system messages to UI
         if (error instanceof Error) {
@@ -684,6 +722,8 @@ export async function escalateToAdmin(
         revalidatePath(`/client/disputes/${disputeId}`);
         revalidatePath(`/freelancer/disputes/${disputeId}`);
         revalidatePath('/admin/disputes');
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {
@@ -831,6 +871,8 @@ export async function requestPhaseTransition(
         revalidatePath(`/freelancer/disputes/${disputeId}`);
         revalidatePath('/admin/disputes');
 
+        emitDataUpdated();
+
         return { success: true, transitioned: bothReady };
     } catch (error) {
         console.error('[requestPhaseTransition] Error:', error);
@@ -941,6 +983,21 @@ async function executeResolutionCore(
     const freelancerUserId = contract.freelancer.userId;
     const clientUserId = contract.client.userId;
 
+    // ── Double-settlement guard ──
+    // Prevent duplicate settlement execution for the same milestone
+    const existingSettlement = await tx.walletLedger.findFirst({
+        where: {
+            milestoneId: dispute.milestoneId,
+            OR: [
+                { type: WalletTransactionType.ESCROW_RELEASE },
+                { type: WalletTransactionType.REFUND, refundReason: RefundReason.DISPUTE_SETTLEMENT },
+            ],
+        },
+    });
+    if (existingSettlement) {
+        throw new Error('DOUBLE_SETTLEMENT: settlement already exists for this milestone');
+    }
+
     // A. Freelancer payout (ESCROW_RELEASE — matches normal release ledger pattern)
     //    ESCROW_RELEASE + PLATFORM_FEE + REFUND = lockAmount
     if (freelancerPayout.isPositive()) {
@@ -984,6 +1041,7 @@ async function executeResolutionCore(
                 walletId: clientWallet.id,
                 amount: clientRefund,
                 type: WalletTransactionType.REFUND,
+                refundReason: RefundReason.DISPUTE_SETTLEMENT,
                 contractId: contract.id,
                 milestoneId: dispute.milestoneId,
             },
@@ -1184,6 +1242,8 @@ async function executeResolution(
         revalidatePath(`/freelancer/disputes/${disputeId}`);
         revalidatePath('/admin/disputes');
 
+        emitDataUpdated();
+
         return { success: true, autoSettled: isAutoSettled };
     } catch (error) {
         db.financialErrorLog.create({
@@ -1254,6 +1314,8 @@ export async function getDispute(disputeId: string) {
             dispute.discussionEndedAt = dispute.discussionDeadline;
             dispute.phaseAdvanceClient = false;
             dispute.phaseAdvanceFreelancer = false;
+
+            emitDataUpdated();
         }
         if (dispute.status === DisputeStatus.PROPOSAL && dispute.proposalDeadline && now > dispute.proposalDeadline) {
             await db.dispute.update({
@@ -1271,6 +1333,8 @@ export async function getDispute(disputeId: string) {
             dispute.proposalEndedAt = dispute.proposalDeadline;
             dispute.phaseAdvanceClient = false;
             dispute.phaseAdvanceFreelancer = false;
+
+            emitDataUpdated();
 
             // Emit lifecycle event for auto-escalation
             recordLifecycleEvent({

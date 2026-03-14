@@ -50,6 +50,13 @@ enum WalletTransactionType {
   DISPUTE_RESOLUTION
 }
 
+enum RefundReason {
+  OPERATIONAL
+  DISPUTE_SETTLEMENT
+  CONTRACT_CANCELLED
+  MANUAL_ADMIN_REFUND
+}
+
 enum ChangeRequestStatus {
   PENDING
   ACCEPTED
@@ -425,6 +432,7 @@ model WalletLedger {
   wallet      Wallet                @relation(fields: [walletId], references: [id])
   amount      Decimal               @db.Decimal(18, 2)
   type        WalletTransactionType
+  refundReason RefundReason?
   contractId  String?
   milestoneId String?
   createdAt   DateTime              @default(now())

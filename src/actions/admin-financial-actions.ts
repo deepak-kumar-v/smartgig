@@ -24,6 +24,8 @@ export interface PlatformFinancialOverview {
     totalLocked: string;
     totalReleased: string;
     totalRefunded: string;
+    settlementRefunded: string;
+    operationalRefunds: string;
     totalPlatformRevenue: string;
     revenueByMonth: RevenueByMonth[];
     revenueByContract: RevenueByContract[];
@@ -48,6 +50,7 @@ export async function getAdminFinancialOverview(): Promise<PlatformFinancialOver
             lockedAgg,
             releasedAgg,
             refundAgg,
+            settlementRefundAgg,
             platformRevenueAgg,
             platformFeeEntries,
             activeEscrows,
@@ -68,9 +71,14 @@ export async function getAdminFinancialOverview(): Promise<PlatformFinancialOver
                 where: { released: true },
                 _sum: { amount: true },
             }),
-            // Total refunded
+            // Total refunded (settlement only)
             db.walletLedger.aggregate({
                 where: { type: WalletTransactionType.REFUND },
+                _sum: { amount: true },
+            }),
+            // Settlement refunds only
+            db.walletLedger.aggregate({
+                where: { type: WalletTransactionType.REFUND, refundReason: 'DISPUTE_SETTLEMENT' },
                 _sum: { amount: true },
             }),
             // Total platform revenue (SUM of PLATFORM_FEE)
@@ -144,6 +152,9 @@ export async function getAdminFinancialOverview(): Promise<PlatformFinancialOver
             totalLocked: new Prisma.Decimal(lockedAgg._sum.amount ?? 0).toFixed(2),
             totalReleased: new Prisma.Decimal(releasedAgg._sum.amount ?? 0).toFixed(2),
             totalRefunded: new Prisma.Decimal(refundAgg._sum.amount ?? 0).toFixed(2),
+            settlementRefunded: new Prisma.Decimal(settlementRefundAgg._sum?.amount ?? 0).toFixed(2),
+            operationalRefunds: new Prisma.Decimal(refundAgg._sum.amount ?? 0)
+                .minus(new Prisma.Decimal(settlementRefundAgg._sum?.amount ?? 0)).toFixed(2),
             totalPlatformRevenue: new Prisma.Decimal(platformRevenueAgg._sum.amount ?? 0).toFixed(2),
             revenueByMonth,
             revenueByContract,

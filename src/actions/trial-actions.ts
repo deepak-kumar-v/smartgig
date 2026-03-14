@@ -7,6 +7,7 @@ import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 import { assertEscrowIntegrity } from '@/lib/escrow-integrity';
 import { assertDecimalNonNegative } from '@/lib/financial-assertions';
 import { getPlatformWallet } from '@/lib/platform-wallet';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 import {
     ContractStatus,
     EscrowStatus,
@@ -244,6 +245,8 @@ export async function approveTrialWork(contractId: string) {
                 console.error('[AuditLog] Failed to log TRIAL_APPROVED:', err);
             });
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         db.financialErrorLog.create({
@@ -291,6 +294,8 @@ export async function rejectTrialWork(contractId: string) {
             actorRole: 'CLIENT',
         });
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         console.error('Reject Trial Error:', error);
@@ -329,6 +334,8 @@ export async function raiseDispute(contractId: string) {
 
         revalidatePath('/freelancer/contracts');
         revalidatePath(`/freelancer/contracts/${contractId}`);
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         console.error('Raise Dispute Error:', error);
@@ -435,6 +442,8 @@ export async function upgradeToStandard(trialContractId: string) {
 
         revalidatePath('/client/contracts');
         revalidatePath('/messages');
+        emitDataUpdated();
+
         return { success: true, newContractId: newContract.id };
     } catch (error) {
         console.error('[upgradeToStandard] ERROR:', error);

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useTransition, useRef, useCallback } from '
 import { useParams, useRouter } from 'next/navigation';
 import { GlassCard } from '@/components/ui/glass-card';
 import { useSocket } from '@/providers/socket-provider';
+import { useGlobalRefresh } from '@/providers/global-refresh-provider';
 import {
     Scale, Clock, MessageSquare, FileText, Upload, Send,
     AlertTriangle, Shield, CheckCircle, ArrowLeft, ChevronUp, Info, Lock, Unlock, Zap
@@ -41,11 +42,19 @@ export default function ClientDisputeDetailPage() {
     const [showProposal, setShowProposal] = useState(false);
     const [showSnapshot, setShowSnapshot] = useState(false);
     const { socket } = useSocket();
+    const { refreshVersion } = useGlobalRefresh();
 
     // Local messages state for real-time updates
     type DisputeMsg = { id: string; senderId: string; content: string; isSystem: boolean; createdAt: string };
     const [messages, setMessages] = useState<DisputeMsg[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Local evidence state for real-time updates
+    type EvidenceItem = { id: string; fileName: string; fileUrl: string; uploadedById: string; description: string | null; createdAt: string };
+    const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+    const [pendingFile, setPendingFile] = useState<File | null>(null);
+    const [uploading, setUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const loadData = async () => {
         const result = await getDispute(disputeId);
@@ -53,12 +62,13 @@ export default function ClientDisputeDetailPage() {
         setLoading(false);
     };
 
-    useEffect(() => { loadData(); }, [disputeId]);
+    useEffect(() => { loadData(); }, [disputeId, refreshVersion]);
 
     // Sync messages from server data
     useEffect(() => {
         if (data && !('error' in data)) {
             setMessages(data.dispute.messages as DisputeMsg[]);
+            setEvidence(data.dispute.evidence as EvidenceItem[]);
         }
     }, [data]);
 
@@ -77,9 +87,18 @@ export default function ClientDisputeDetailPage() {
 
         socket.on('dispute:new-message', handleNewMessage);
 
+        const handleNewEvidence = (ev: EvidenceItem) => {
+            setEvidence(prev => {
+                if (prev.some(e => e.id === ev.id)) return prev;
+                return [ev, ...prev];
+            });
+        };
+        socket.on('dispute:new-evidence', handleNewEvidence);
+
         return () => {
             socket.emit('leave-dispute', disputeId);
             socket.off('dispute:new-message', handleNewMessage);
+            socket.off('dispute:new-evidence', handleNewEvidence);
         };
     }, [socket, disputeId]);
 
@@ -130,11 +149,21 @@ export default function ClientDisputeDetailPage() {
     const handleUploadEvidence = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        setPendingFile(file);
+        // Reset file input so re-selecting the same file triggers onChange
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const confirmUploadEvidence = () => {
+        if (!pendingFile) return;
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', pendingFile);
+        setUploading(true);
         startTransition(async () => {
             const result = await uploadDisputeEvidence(disputeId, formData);
-            if (result.success) { toast.success('Evidence uploaded'); loadData(); }
+            setUploading(false);
+            setPendingFile(null);
+            if (result.success) { toast.success('Evidence uploaded successfully.'); loadData(); }
             else toast.error(result.error || 'Failed to upload');
         });
     };
@@ -227,7 +256,7 @@ export default function ClientDisputeDetailPage() {
                                     {dispute.status !== 'PROPOSAL' && (
                                         <label className="px-4 py-2 bg-zinc-800 text-zinc-400 rounded-lg hover:bg-zinc-700 cursor-pointer transition-colors">
                                             <Upload className="w-4 h-4" />
-                                            <input type="file" className="hidden" onChange={handleUploadEvidence} disabled={isPending} />
+                                            <input type="file" className="hidden" onChange={handleUploadEvidence} disabled={isPending || uploading} ref={fileInputRef} />
                                         </label>
                                     )}
                                 </div>
@@ -236,13 +265,13 @@ export default function ClientDisputeDetailPage() {
                     </GlassCard>
 
                     {/* Evidence */}
-                    {dispute.evidence.length > 0 && (
+                    {evidence.length > 0 && (
                         <GlassCard className="p-5">
                             <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
-                                <FileText className="w-4 h-4" /> Evidence ({dispute.evidence.length})
+                                <FileText className="w-4 h-4" /> Evidence ({evidence.length})
                             </h2>
                             <div className="space-y-2 max-h-[180px] overflow-y-auto">
-                                {dispute.evidence.map((ev: { id: string; fileName: string; fileUrl: string; uploadedById: string; description: string | null; createdAt: string }) => (
+                                {evidence.map((ev) => (
                                     <div key={ev.id} className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
                                         <div>
                                             <a href={ev.fileUrl} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 text-sm font-medium">
@@ -258,6 +287,66 @@ export default function ClientDisputeDetailPage() {
                             </div>
                         </GlassCard>
                     )}
+
+                    {/* Evidence Upload Confirmation Dialog */}
+                    {pendingFile && (() => {
+                        const existingDup = evidence.find(e => e.fileName === pendingFile.name);
+                        const isDuplicate = !!existingDup;
+                        const isOwnDuplicate = isDuplicate && existingDup.uploadedById === currentUserId;
+                        const dupOwnerLabel = isOwnDuplicate ? 'You' : contract.freelancerName || 'Freelancer';
+                        return (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                            <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+                                <h3 className="text-white font-semibold text-lg mb-2">
+                                    {isDuplicate ? 'Duplicate Evidence' : 'Upload Evidence?'}
+                                </h3>
+                                {isDuplicate && (
+                                    <p className="text-amber-400 text-sm mb-2 flex items-center gap-1">
+                                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                                        {isOwnDuplicate
+                                            ? <>You already uploaded a file named &quot;{pendingFile.name}&quot;.</>
+                                            : <>{dupOwnerLabel} has already uploaded a file named &quot;{pendingFile.name}&quot;.</>
+                                        }
+                                    </p>
+                                )}
+                                <p className="text-zinc-400 text-sm mb-1">
+                                    {isDuplicate
+                                        ? (isOwnDuplicate
+                                            ? 'Uploading duplicate files can make the dispute record confusing.'
+                                            : 'Are you sure you want to upload another file with the same name?')
+                                        : 'This file will become part of the official dispute record.'}
+                                </p>
+                                <p className="text-amber-400 text-xs mb-4 flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3" /> Evidence cannot be deleted after upload.
+                                </p>
+                                <div className="bg-zinc-800/50 rounded-lg p-3 mb-4 border border-zinc-700/50">
+                                    <p className="text-sm text-zinc-300 truncate"><FileText className="w-3 h-3 inline mr-1" />{pendingFile.name}</p>
+                                    <p className="text-xs text-zinc-500 mt-1">{(pendingFile.size / 1024).toFixed(1)} KB</p>
+                                </div>
+                                <div className="flex gap-3 justify-end">
+                                    <button
+                                        onClick={() => setPendingFile(null)}
+                                        disabled={uploading}
+                                        className="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={confirmUploadEvidence}
+                                        disabled={uploading}
+                                        className="px-4 py-2 text-sm bg-indigo-500/20 text-indigo-400 rounded-lg hover:bg-indigo-500/30 disabled:opacity-40 transition-colors flex items-center gap-2"
+                                    >
+                                        {uploading ? (
+                                            <><span className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" /> Uploading...</>
+                                        ) : (
+                                            <><Upload className="w-3 h-3" /> {isDuplicate ? 'Upload Anyway' : 'Upload Evidence'}</>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        );
+                    })()}
                 </div>
 
                 {/* RIGHT — Status + Actions + Proposals + Snapshot */}

@@ -32,6 +32,10 @@ export interface ContractEscrowData {
     releasedToFreelancer: string;
     platformFeesPaid: string;
     totalRefunded: string;
+    settlementRefunded: string;
+    historicalRefunds: string;
+    // Refund history entries
+    refundHistory: { date: string; reason: string; amount: string; milestoneTitle: string }[];
     // Milestones
     milestones: MilestoneFinancialData[];
 }
@@ -91,6 +95,9 @@ export async function getContractEscrowData(
                 releasedToFreelancer: '0.00',
                 platformFeesPaid: '0.00',
                 totalRefunded: '0.00',
+                settlementRefunded: '0.00',
+                historicalRefunds: '0.00',
+                refundHistory: [],
                 milestones: contract.milestones.map(m => ({
                     milestoneId: m.id,
                     milestoneTitle: m.title,
@@ -137,28 +144,67 @@ export async function getContractEscrowData(
                         milestoneId: { in: milestoneIds },
                         type: WalletTransactionType.REFUND,
                     },
-                    select: { milestoneId: true, amount: true },
+                    select: { milestoneId: true, amount: true, refundReason: true, createdAt: true },
                 }),
             ])
             : [
                 { _sum: { amount: null } },
                 { _sum: { amount: null } },
-                [] as { milestoneId: string | null; amount: Prisma.Decimal }[],
+                [] as { milestoneId: string | null; amount: Prisma.Decimal; refundReason: string | null; createdAt: Date }[],
             ];
 
         const releasedToFreelancer = new Prisma.Decimal(releaseAgg._sum.amount ?? 0);
         const platformFeesPaid = new Prisma.Decimal(feeAgg._sum.amount ?? 0);
 
-        // Build per-milestone refund lookup
+        // Build per-milestone refund lookup and split by reason
         const refundByMilestone = new Map<string, Prisma.Decimal>();
         let totalRefunded = new Prisma.Decimal(0);
+        let settlementRefunded = new Prisma.Decimal(0);
+        let historicalRefunds = new Prisma.Decimal(0);
+
+        // Build milestone title lookup
+        const milestoneTitleMap = new Map<string, string>();
+        for (const m of contract.milestones) {
+            milestoneTitleMap.set(m.id, m.title);
+        }
+
+        const refundHistory: { date: string; reason: string; amount: string; milestoneTitle: string }[] = [];
+
         for (const entry of refundEntries) {
+            const amt = new Prisma.Decimal(entry.amount);
+            totalRefunded = totalRefunded.plus(amt);
+
+            const isSettlement = entry.refundReason === 'DISPUTE_SETTLEMENT';
+            if (isSettlement) {
+                settlementRefunded = settlementRefunded.plus(amt);
+            } else {
+                historicalRefunds = historicalRefunds.plus(amt);
+            }
+
             if (entry.milestoneId) {
                 const prev = refundByMilestone.get(entry.milestoneId) ?? new Prisma.Decimal(0);
-                refundByMilestone.set(entry.milestoneId, prev.plus(new Prisma.Decimal(entry.amount)));
-                totalRefunded = totalRefunded.plus(new Prisma.Decimal(entry.amount));
+                refundByMilestone.set(entry.milestoneId, prev.plus(amt));
             }
+
+            // Map reason to human-readable label
+            const reasonLabels: Record<string, string> = {
+                OPERATIONAL: 'Escrow Cancelled',
+                DISPUTE_SETTLEMENT: 'Dispute Settlement',
+                CONTRACT_CANCELLED: 'Contract Cancelled',
+                MANUAL_ADMIN_REFUND: 'Admin Refund',
+            };
+            const reasonLabel = reasonLabels[entry.refundReason ?? ''] ?? 'Escrow Cancelled';
+
+            refundHistory.push({
+                date: entry.createdAt.toISOString(),
+                reason: reasonLabel,
+                amount: amt.toFixed(2),
+                milestoneTitle: entry.milestoneId ? (milestoneTitleMap.get(entry.milestoneId) ?? 'Unknown') : 'Unknown',
+            });
         }
+
+        // Sort refund history by date descending
+        refundHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
         // ── Per-milestone ledger queries (milestoneId-scoped) ──
         const perMilestoneRelease = milestoneIds.length > 0
@@ -239,6 +285,9 @@ export async function getContractEscrowData(
             releasedToFreelancer: releasedToFreelancer.toFixed(2),
             platformFeesPaid: platformFeesPaid.toFixed(2),
             totalRefunded: totalRefunded.toFixed(2),
+            settlementRefunded: settlementRefunded.toFixed(2),
+            historicalRefunds: historicalRefunds.toFixed(2),
+            refundHistory,
             milestones,
         };
     } catch (error) {

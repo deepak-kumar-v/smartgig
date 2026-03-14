@@ -5,6 +5,7 @@ import { join } from 'path';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 
 /**
  * Upload a deliverable file for a milestone.
@@ -65,6 +66,8 @@ export async function createDeliverable(formData: FormData): Promise<{ success?:
 
         revalidatePath(`/client/contracts/${milestone.contractId}`);
         revalidatePath(`/freelancer/contracts/${milestone.contractId}`);
+
+        emitDataUpdated();
 
         return {
             success: true,

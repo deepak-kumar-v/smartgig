@@ -108,6 +108,7 @@ export async function assertEscrowIntegrity(
         where: {
             milestoneId: { in: milestoneIds },
             type: WalletTransactionType.REFUND,
+            refundReason: 'DISPUTE_SETTLEMENT',
         },
         _sum: { amount: true },
     });

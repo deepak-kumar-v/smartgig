@@ -6,11 +6,13 @@ import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 import { assertEscrowIntegrity } from '@/lib/escrow-integrity';
 import { assertDecimalNonNegative } from '@/lib/financial-assertions';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 import {
     ContractStatus,
     EscrowStatus,
     MilestoneStatus,
     WalletTransactionType,
+    RefundReason,
     Prisma,
 } from '@prisma/client';
 
@@ -315,6 +317,8 @@ export async function fundEscrow(contractId: string, idempotencyKey?: string): P
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         db.financialErrorLog.create({
@@ -609,6 +613,8 @@ export async function fundMilestone(milestoneId: string, idempotencyKey?: string
         revalidatePath(`/client/contracts/${contract.id}`);
         revalidatePath(`/freelancer/contracts/${contract.id}`);
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         db.financialErrorLog.create({
@@ -786,6 +792,7 @@ export async function refundEscrow(contractId: string, idempotencyKey?: string):
                         walletId: clientWallet.id,
                         amount: lockAmount,
                         type: WalletTransactionType.REFUND,
+                        refundReason: RefundReason.OPERATIONAL,
                         contractId,
                         milestoneId: lock.milestoneId,
                     },
@@ -890,6 +897,8 @@ export async function refundEscrow(contractId: string, idempotencyKey?: string):
         revalidatePath('/client/contracts');
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {
@@ -1016,6 +1025,7 @@ export async function refundMilestone(
                     walletId: clientWallet.id,
                     amount: lockAmount,
                     type: WalletTransactionType.REFUND,
+                    refundReason: RefundReason.OPERATIONAL,
                     contractId,
                     milestoneId,
                 },
@@ -1117,6 +1127,8 @@ export async function refundMilestone(
         revalidatePath('/client/contracts');
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {

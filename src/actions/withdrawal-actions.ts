@@ -3,6 +3,8 @@
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { revalidatePath } from 'next/cache';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 
 // ============================================================================
 // Withdrawal Actions — No immediate ledger mutation
@@ -80,6 +82,12 @@ export async function requestWithdrawal(amount: number) {
 
             return { success: true as const, requestId: request.id };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+        revalidatePath('/client/wallet');
+        revalidatePath('/freelancer/wallet');
+        revalidatePath('/freelancer/wallet/withdraw');
+
+        emitDataUpdated();
 
         return result;
     } catch (error) {
@@ -199,6 +207,13 @@ export async function approveWithdrawal(requestId: string) {
             return { success: true as const };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
+        revalidatePath('/client/wallet');
+        revalidatePath('/freelancer/wallet');
+        revalidatePath('/freelancer/wallet/withdraw');
+        revalidatePath('/admin/withdrawals');
+
+        emitDataUpdated();
+
         return result;
     } catch (error) {
         db.financialErrorLog.create({
@@ -250,6 +265,13 @@ export async function rejectWithdrawal(requestId: string) {
                 },
             });
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+        revalidatePath('/client/wallet');
+        revalidatePath('/freelancer/wallet');
+        revalidatePath('/freelancer/wallet/withdraw');
+        revalidatePath('/admin/withdrawals');
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {

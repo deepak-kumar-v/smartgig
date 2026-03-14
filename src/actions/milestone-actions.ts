@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { recordLifecycleEvent } from '@/lib/lifecycle-events';
 import { ContractStatus, MilestoneStatus } from '@prisma/client';
+import { emitDataUpdated } from '@/lib/emit-data-updated';
 
 // ============================================================================
 // Milestone Server Actions — CRUD + State Transitions (Hardened)
@@ -133,6 +134,8 @@ export async function createMilestone(
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
 
+        emitDataUpdated();
+
         return { success: true, milestoneId: milestone.id };
     } catch (error) {
         const msg = error instanceof Error ? error.message : 'Failed to create milestone';
@@ -215,6 +218,8 @@ export async function updateMilestone(
         revalidatePath(`/client/contracts/${milestone.contractId}`);
         revalidatePath(`/freelancer/contracts/${milestone.contractId}`);
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         const msg = error instanceof Error ? error.message : 'Failed to update milestone';
@@ -296,6 +301,8 @@ export async function deleteMilestone(milestoneId: string): Promise<{ success?: 
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         const msg = error instanceof Error ? error.message : 'Failed to delete milestone';
@@ -359,6 +366,8 @@ export async function startMilestone(milestoneId: string): Promise<{ success?: b
 
         revalidatePath(`/client/contracts/${milestone.contractId}`);
         revalidatePath(`/freelancer/contracts/${milestone.contractId}`);
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {
@@ -432,6 +441,8 @@ export async function submitMilestone(milestoneId: string): Promise<{ success?: 
         revalidatePath(`/client/contracts/${milestone.contractId}`);
         revalidatePath(`/freelancer/contracts/${milestone.contractId}`);
 
+        emitDataUpdated();
+
         return { success: true };
     } catch (error) {
         console.error('[submitMilestone] Error:', error);
@@ -504,6 +515,8 @@ export async function approveMilestone(milestoneId: string): Promise<{ success?:
 
         revalidatePath(`/client/contracts/${milestone.contractId}`);
         revalidatePath(`/freelancer/contracts/${milestone.contractId}`);
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {
@@ -591,6 +604,8 @@ export async function reorderMilestones(
 
         revalidatePath(`/client/contracts/${contractId}`);
         revalidatePath(`/freelancer/contracts/${contractId}`);
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {
@@ -692,6 +707,8 @@ export async function openDispute(
 
         revalidatePath(`/client/contracts/${contract.id}`);
         revalidatePath(`/freelancer/contracts/${contract.id}`);
+
+        emitDataUpdated();
 
         return { success: true };
     } catch (error) {

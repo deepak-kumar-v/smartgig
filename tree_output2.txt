@@ -1,0 +1,535 @@
+project-root
+│
+├── .agent
+│   └── plans
+│       ├── proposal-persistence-walkthrough.md
+│       └── proposal-persistence.md
+├── .next
+├── docs
+│   ├── ai-images-unable-to-upload.md
+│   ├── audio-messaging.md
+│   ├── chat-regression-checklist.md
+│   ├── enterprise-communication-channel.md
+│   ├── financial-operational-hardening.md
+│   ├── financial-production-audit-round-2.md
+│   ├── financial-production-audit-round-3.md
+│   ├── financial-production-audit.md
+│   ├── financial-scale-hardening.md
+│   ├── financial-security-audit.md
+│   ├── financial-system-maturity.md
+│   ├── financial-system-tier.md
+│   ├── future_communication_upgrades.md
+│   ├── FUTURE_UPGRADES.md
+│   ├── platform-future-intelligence-roadmap.md
+│   ├── refund-escrow-audit.md
+│   ├── system-intelligence-directive.md
+│   └── wallet-first-audit.md
+├── e2e
+│   ├── client-access.spec.ts
+│   ├── dashboard-v2.spec.ts
+│   ├── demo-flows.spec.ts
+│   ├── flows.spec.ts
+│   └── smoke.spec.ts
+├── node_modules
+├── playwright-report
+├── prisma
+│   ├── migrations
+│   ├── dev.db
+│   ├── schema.prisma
+│   └── seed.ts
+├── proof_pack
+│   ├── 01_full_file_tree.md
+│   ├── 02_route_topology.md
+│   ├── 03_forms_inventory_complete.md
+│   └── 04_feature_matrix_reconciled.md
+├── public
+│   └── uploads
+├── scripts
+│   ├── audit-commission.ts
+│   ├── backfill-commission-rate.ts
+│   ├── backfill-milestone-sequence.ts
+│   ├── clean-users.ts
+│   ├── fix-broken-contract-status.ts
+│   ├── fix-trial-funded-status.ts
+│   ├── repair-escrow-integrity.ts
+│   ├── seed-categories.ts
+│   ├── validate-finance.ts
+│   └── validate-intelligence.ts
+├── src
+│   ├── actions
+│   │   ├── admin-anomaly-actions.ts
+│   │   ├── admin-diagnostic-actions.ts
+│   │   ├── admin-financial-actions.ts
+│   │   ├── auth-actions.ts
+│   │   ├── chat-upload-actions.ts
+│   │   ├── contract-actions.ts
+│   │   ├── contract-financial-actions.ts
+│   │   ├── deliverable-actions.ts
+│   │   ├── dispute-actions.ts
+│   │   ├── escrow-actions.ts
+│   │   ├── escrow-data-actions.ts
+│   │   ├── escrow-release-actions.ts
+│   │   ├── job-actions-v2.ts
+│   │   ├── milestone-actions.ts
+│   │   ├── milestone-change-request-actions.ts
+│   │   ├── onboarding-actions.ts
+│   │   ├── proposal-actions.ts
+│   │   ├── trial-actions.ts
+│   │   ├── trust-actions.ts
+│   │   ├── upload-actions.ts
+│   │   ├── wallet-actions.ts
+│   │   └── withdrawal-actions.ts
+│   ├── app
+│   │   ├── (auth)
+│   │   │   ├── 2fa
+│   │   │   │   └── verify
+│   │   │   │       └── page.tsx
+│   │   │   ├── forgot-password
+│   │   │   │   └── page.tsx
+│   │   │   ├── login
+│   │   │   │   └── page.tsx
+│   │   │   ├── register
+│   │   │   │   └── page.tsx
+│   │   │   ├── reset-password
+│   │   │   │   └── [token]
+│   │   │   │       └── page.tsx
+│   │   │   ├── verify-email
+│   │   │   │   └── [token]
+│   │   │   │       └── page.tsx
+│   │   │   └── verify-phone
+│   │   │       └── page.tsx
+│   │   ├── (dashboard)
+│   │   │   ├── admin
+│   │   │   │   ├── audit-logs
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── dashboard
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── disputes
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── financial-diagnostics
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── financial-overview
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── jobs
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── trust
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── users
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── withdrawals
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── layout.tsx
+│   │   │   ├── client
+│   │   │   │   ├── contracts
+│   │   │   │   │   ├── [contractId]
+│   │   │   │   │   │   ├── contract-detail-view.tsx
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── loading.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── dashboard
+│   │   │   │   │   ├── client-dashboard-view.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── dashboard-v3
+│   │   │   │   │   ├── layout.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── disputes
+│   │   │   │   │   ├── [id]
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── new
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── error.tsx
+│   │   │   │   │   ├── loading.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── jobs
+│   │   │   │   │   ├── [jobId]
+│   │   │   │   │   │   ├── edit
+│   │   │   │   │   │   │   ├── edit-job-form.tsx
+│   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   ├── job-details-view.tsx
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── messages
+│   │   │   │   │   ├── error.tsx
+│   │   │   │   │   ├── loading.tsx
+│   │   │   │   │   ├── messages-layout.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── notifications
+│   │   │   │   │   ├── error.tsx
+│   │   │   │   │   ├── loading.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── orders
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── post-job
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── profile
+│   │   │   │   │   └── edit
+│   │   │   │   │       └── page.tsx
+│   │   │   │   ├── proposals
+│   │   │   │   │   ├── [proposalId]
+│   │   │   │   │   │   ├── page.tsx
+│   │   │   │   │   │   └── proposal-detail-view.tsx
+│   │   │   │   │   ├── loading.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── reviews
+│   │   │   │   │   └── new
+│   │   │   │   │       └── page.tsx
+│   │   │   │   ├── settings
+│   │   │   │   │   ├── devices
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── notifications
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── security
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── wallet
+│   │   │   │   │   ├── deposit
+│   │   │   │   │   │   ├── deposit-form.tsx
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── transactions
+│   │   │   │   │   │   └── [id]
+│   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── layout.tsx
+│   │   │   ├── contracts
+│   │   │   │   └── [id]
+│   │   │   │       ├── roadmap
+│   │   │   │       │   └── page.tsx
+│   │   │   │       └── page.tsx
+│   │   │   ├── dashboard
+│   │   │   │   └── page.tsx
+│   │   │   ├── freelancer
+│   │   │   │   ├── contracts
+│   │   │   │   │   ├── [contractId]
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── dashboard
+│   │   │   │   │   ├── loading.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── disputes
+│   │   │   │   │   ├── [id]
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── new
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── error.tsx
+│   │   │   │   │   ├── loading.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── find-work
+│   │   │   │   │   ├── find-work-client-view.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── jobs
+│   │   │   │   │   └── [jobId]
+│   │   │   │   │       └── page.tsx
+│   │   │   │   ├── messages
+│   │   │   │   │   ├── error.tsx
+│   │   │   │   │   ├── loading.tsx
+│   │   │   │   │   ├── messages-layout.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── notifications
+│   │   │   │   │   ├── error.tsx
+│   │   │   │   │   ├── loading.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── overview
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── portfolio
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── profile
+│   │   │   │   │   ├── edit
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── proposals
+│   │   │   │   │   ├── apply
+│   │   │   │   │   │   ├── page.tsx
+│   │   │   │   │   │   └── proposal-form.tsx
+│   │   │   │   │   ├── apply-backup
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── reviews
+│   │   │   │   │   └── new
+│   │   │   │   │       └── page.tsx
+│   │   │   │   ├── services
+│   │   │   │   │   ├── new
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── settings
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── trust
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── wallet
+│   │   │   │   │   ├── transactions
+│   │   │   │   │   │   └── [id]
+│   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   ├── withdraw
+│   │   │   │   │   │   ├── page.tsx
+│   │   │   │   │   │   └── withdraw-view.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── layout.tsx
+│   │   │   ├── jobs
+│   │   │   │   └── [jobId]
+│   │   │   │       └── control
+│   │   │   │           ├── layout.tsx
+│   │   │   │           └── page.tsx
+│   │   │   ├── services
+│   │   │   │   ├── [id]
+│   │   │   │   │   └── checkout
+│   │   │   │   │       └── page.tsx
+│   │   │   │   ├── error.tsx
+│   │   │   │   └── loading.tsx
+│   │   │   └── layout.tsx
+│   │   ├── (onboarding)
+│   │   │   └── onboarding
+│   │   │       └── page.tsx
+│   │   ├── (public)
+│   │   │   ├── explore
+│   │   │   │   ├── error.tsx
+│   │   │   │   ├── loading.tsx
+│   │   │   │   └── page.tsx
+│   │   │   ├── freelancer
+│   │   │   │   └── [id]
+│   │   │   │       └── page.tsx
+│   │   │   ├── job
+│   │   │   │   └── [id]
+│   │   │   │       └── page.tsx
+│   │   │   ├── services
+│   │   │   │   ├── [id]
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── loading.tsx
+│   │   │   │   └── page.tsx
+│   │   │   └── talent
+│   │   │       ├── page.tsx
+│   │   │       └── talent-search.tsx
+│   │   ├── access-denied
+│   │   │   └── page.tsx
+│   │   ├── actions
+│   │   │   ├── client.ts
+│   │   │   ├── contracts.ts
+│   │   │   └── services.ts
+│   │   ├── api
+│   │   │   ├── audit-logs
+│   │   │   │   └── route.ts
+│   │   │   ├── auth
+│   │   │   │   └── [...nextauth]
+│   │   │   │       └── route.ts
+│   │   │   ├── conversations
+│   │   │   │   └── route.ts
+│   │   │   ├── invoices
+│   │   │   │   ├── [id]
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── route.ts
+│   │   │   ├── lifecycle-events
+│   │   │   │   ├── [contractId]
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── job
+│   │   │   │       └── [jobId]
+│   │   │   │           └── route.ts
+│   │   │   ├── me
+│   │   │   │   └── route.ts
+│   │   │   ├── messages
+│   │   │   │   ├── versions
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── route.ts
+│   │   │   ├── payments
+│   │   │   │   └── ledger
+│   │   │   │       └── route.ts
+│   │   │   ├── security
+│   │   │   │   └── device
+│   │   │   │       └── route.ts
+│   │   │   ├── video-rooms
+│   │   │   │   └── route.ts
+│   │   │   └── webrtc
+│   │   │       └── turn
+│   │   │           └── route.ts
+│   │   ├── features
+│   │   │   └── page.tsx
+│   │   ├── pricing
+│   │   │   └── page.tsx
+│   │   ├── uploads
+│   │   │   └── [...path]
+│   │   │       └── route.ts
+│   │   ├── video-call
+│   │   │   └── [roomId]
+│   │   │       └── page.tsx
+│   │   ├── error.tsx
+│   │   ├── globals.css
+│   │   ├── layout.tsx
+│   │   ├── not-found.tsx
+│   │   ├── page.tsx
+│   │   ├── robots.ts
+│   │   ├── sitemap.ts
+│   │   └── template.tsx
+│   ├── components
+│   │   ├── 3d
+│   │   │   └── hero-scene.tsx
+│   │   ├── admin
+│   │   │   └── admin-withdrawals-panel.tsx
+│   │   ├── auth
+│   │   │   ├── oauth-banner.tsx
+│   │   │   └── social-login.tsx
+│   │   ├── call
+│   │   │   ├── audio
+│   │   │   │   └── AudioCallView.tsx
+│   │   │   ├── video
+│   │   │   │   └── VideoCallView.tsx
+│   │   │   └── CallModal.tsx
+│   │   ├── chat
+│   │   │   ├── call-provider-menu.tsx
+│   │   │   ├── chat-attachment-card.tsx
+│   │   │   ├── chat-call-card.tsx
+│   │   │   ├── google-meet-draft-card.tsx
+│   │   │   └── message-version-history.tsx
+│   │   ├── client
+│   │   │   └── sidebar-v3.tsx
+│   │   ├── contract
+│   │   │   ├── contract-financial-timeline.tsx
+│   │   │   └── escrow-panel.tsx
+│   │   ├── control-center
+│   │   │   ├── utils
+│   │   │   │   ├── burn-rate.ts
+│   │   │   │   ├── deadlock-detector.ts
+│   │   │   │   ├── dispute-risk.ts
+│   │   │   │   ├── lifecycle-health.ts
+│   │   │   │   ├── phase-duration.ts
+│   │   │   │   ├── reliability-score.ts
+│   │   │   │   ├── responsiveness-index.ts
+│   │   │   │   └── state-machine.ts
+│   │   │   ├── burn-rate-card.tsx
+│   │   │   ├── dispute-risk-meter.tsx
+│   │   │   ├── financial-strip.tsx
+│   │   │   ├── interaction-analytics.tsx
+│   │   │   ├── job-control-center.tsx
+│   │   │   ├── phase-info-panel.tsx
+│   │   │   ├── reliability-badge.tsx
+│   │   │   ├── responsiveness-bar.tsx
+│   │   │   ├── state-machine-graph.tsx
+│   │   │   └── trial-upgrade-connector.tsx
+│   │   ├── dashboard
+│   │   │   ├── dashboard-layout.tsx
+│   │   │   ├── dashboard-shell.tsx
+│   │   │   └── trust-dashboard.tsx
+│   │   ├── global
+│   │   │   ├── floating-glass-navbar.tsx
+│   │   │   ├── footer.tsx
+│   │   │   └── navbar.tsx
+│   │   ├── job
+│   │   │   ├── job-post-card.tsx
+│   │   │   └── job-review-card.tsx
+│   │   ├── jobs
+│   │   │   └── apply-button.tsx
+│   │   ├── landing
+│   │   │   ├── escrow-section.tsx
+│   │   │   ├── features-section.tsx
+│   │   │   └── hero-section.tsx
+│   │   ├── providers
+│   │   │   └── security-provider.tsx
+│   │   ├── roadmap
+│   │   │   └── lifecycle-roadmap.tsx
+│   │   ├── services
+│   │   │   ├── active-filters.tsx
+│   │   │   ├── service-filters.tsx
+│   │   │   └── service-search.tsx
+│   │   ├── system-intelligence
+│   │   │   ├── page-metadata.ts
+│   │   │   ├── system-intelligence-overlay.tsx
+│   │   │   └── system-intelligence-provider.tsx
+│   │   ├── ui
+│   │   │   ├── access-denied-state.tsx
+│   │   │   ├── avatar.tsx
+│   │   │   ├── badge.tsx
+│   │   │   ├── breadcrumb.tsx
+│   │   │   ├── button.tsx
+│   │   │   ├── card.tsx
+│   │   │   ├── collapsible.tsx
+│   │   │   ├── data-table.tsx
+│   │   │   ├── dialog.tsx
+│   │   │   ├── dropdown-menu.tsx
+│   │   │   ├── empty-state.tsx
+│   │   │   ├── file-upload.tsx
+│   │   │   ├── glass-button.tsx
+│   │   │   ├── glass-card.tsx
+│   │   │   ├── glass-input.tsx
+│   │   │   ├── glass-modal.tsx
+│   │   │   ├── glass-textarea.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── logo.tsx
+│   │   │   ├── not-found-state.tsx
+│   │   │   ├── pagination.tsx
+│   │   │   ├── rating-input.tsx
+│   │   │   ├── scroll-area.tsx
+│   │   │   ├── scroll-reveal.tsx
+│   │   │   ├── separator.tsx
+│   │   │   ├── sheet.tsx
+│   │   │   ├── sidebar.tsx
+│   │   │   ├── skeleton.tsx
+│   │   │   ├── table.tsx
+│   │   │   ├── tabs.tsx
+│   │   │   ├── toast.tsx
+│   │   │   └── tooltip.tsx
+│   │   ├── wallet
+│   │   │   └── wallet-dashboard.tsx
+│   │   └── global-sync-listener.tsx
+│   ├── hooks
+│   │   ├── use-call.ts
+│   │   ├── use-chat.ts
+│   │   ├── use-device-fingerprint.ts
+│   │   ├── use-global-sync.ts
+│   │   ├── use-mobile.tsx
+│   │   └── use-role-guard.tsx
+│   ├── lib
+│   │   ├── audit-service.ts
+│   │   ├── auth.config.ts
+│   │   ├── auth.ts
+│   │   ├── db.ts
+│   │   ├── emit-data-updated.ts
+│   │   ├── escrow-integrity.ts
+│   │   ├── financial-assertions.ts
+│   │   ├── lifecycle-events.ts
+│   │   ├── mock-data.ts
+│   │   ├── platform-wallet.ts
+│   │   ├── security-services.ts
+│   │   ├── security.ts
+│   │   ├── services.ts
+│   │   ├── types.ts
+│   │   ├── utils.ts
+│   │   └── video-service.ts
+│   ├── providers
+│   │   ├── identity-provider.tsx
+│   │   ├── providers.tsx
+│   │   └── socket-provider.tsx
+│   ├── scripts
+│   │   └── cleanup-jobs.ts
+│   ├── services
+│   │   └── api
+│   │       ├── audit.ts
+│   │       └── video.ts
+│   ├── system
+│   │   └── intelligence-registry.ts
+│   └── middleware.ts
+├── task_proofs
+│   └── dashboard_restoration_final_report.md
+├── test-results
+├── uploads
+├── .env
+├── .gitignore
+├── components.json
+├── implementation_plan_access_denied.md
+├── next-auth.d.ts
+├── next-env.d.ts
+├── next.config.ts
+├── package-lock.json
+├── package.json
+├── playwright.config.ts
+├── postcss.config.mjs
+├── PROJECT_AUDIT_REPORT.md
+├── project-structure.txt
+├── proposed_methodology_flowchart.md
+├── scan-report.md
+├── socket-server.ts
+├── system_architecture_design.md
+├── system_components_ppt.md
+├── tailwind.config.ts
+├── tmp_tree.js
+├── tmp_tree2.js
+├── tree_output.txt
+├── tsc_final.txt
+├── tsc_output.txt
+├── tsconfig.json
+└── tsconfig.tsbuildinfo
