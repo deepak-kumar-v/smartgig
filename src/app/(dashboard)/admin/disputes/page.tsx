@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useTransition } from 'react';
+import Link from 'next/link';
 import { GlassCard } from '@/components/ui/glass-card';
 import {
     Scale, Clock, CheckCircle, AlertTriangle, Shield,
-    DollarSign, Search, MessageSquare, FileText, ChevronDown, ChevronUp
+    DollarSign, Search, MessageSquare, FileText, ChevronDown, ChevronUp, ExternalLink
 } from 'lucide-react';
 import { getDisputesForUser, getDispute, resolveDisputeAdmin, submitDisputeMessage } from '@/actions/dispute-actions';
 import { toast } from 'sonner';
@@ -214,7 +215,10 @@ export default function AdminDisputesPage() {
                                                 <span className="flex items-center gap-1"><Scale className="w-3 h-3" />{dispute.proposalCount}</span>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <Link href={`/admin/disputes/${dispute.id}`} onClick={e => e.stopPropagation()} className="px-3 py-1.5 bg-indigo-500/20 text-indigo-400 rounded-lg hover:bg-indigo-500/30 transition-colors text-xs flex items-center gap-1">
+                                                <ExternalLink className="w-3 h-3" /> Detail
+                                            </Link>
                                             <p className="text-white font-bold">${dispute.milestoneAmount}</p>
                                             {isExpanded ? <ChevronUp className="w-5 h-5 text-zinc-500" /> : <ChevronDown className="w-5 h-5 text-zinc-500" />}
                                         </div>

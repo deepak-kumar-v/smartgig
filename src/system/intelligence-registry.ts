@@ -1026,6 +1026,68 @@ register({
 });
 
 register({
+    route: '/admin/disputes/[id]',
+    domain: PageDomain.ADMIN,
+    version: '1.0.0',
+    lastUpdated: '2026-03-15',
+    description: 'Admin arbitration interface used to resolve disputes between client and freelancer. Provides full visibility into dispute lifecycle including discussion messages, evidence, proposal analytics, escrow state, and settlement controls.',
+
+    currentPage: {
+        capabilities: [
+            'View full dispute summary with parties and escrow state',
+            'Review immutable milestone snapshot',
+            'View escrow breakdown (lock amount, status)',
+            'Read-only view of party discussion messages',
+            'Read-only view of party evidence files',
+            'Proposal analytics with midpoint suggestion',
+            'Admin group and private chat (3-tab system)',
+            'Upload admin evidence with SHA-256 dedup',
+            'Settlement panel with financial breakdown and confirmation modal',
+        ],
+        safeguards: [
+            'Settlement delegated to resolveDisputeAdmin() → executeResolutionCore()',
+            'Confirmation modal required before resolution execution',
+            'Resolution creates lifecycle audit log entry',
+            'Admin evidence uses SHA-256 hash dedup',
+            'All mutations run inside Prisma transactions',
+        ],
+        dependencies: ['admin-dispute-actions.ts', 'dispute-actions.ts'],
+        accessControl: ['Admin role required on every server action'],
+    },
+
+    attackDefense: [
+        'Unauthorized access: strict ADMIN role verification via assertAdmin()',
+        'Double settlement: idempotencyKey guard in executeResolutionCore()',
+        'Duplicate evidence: SHA-256 content hash dedup per dispute',
+        'Confirmation modal prevents accidental resolution',
+        'Financial invariants enforced through existing resolution engine',
+    ],
+
+    scaleHardening: [
+        'Indexed [disputeId] on DisputeAdminMessage and DisputeAdminEvidence',
+        'Indexed [senderId] on DisputeAdminMessage',
+        'Read-only dispute snapshots prevent stale data issues',
+        'Real-time socket synchronization across admin/client/freelancer views',
+    ],
+
+    systemDiagrams: {
+        ascii: `  Admin Arbitration Flow:
+  Admin → /admin/disputes/[id]
+        → Dispute Review (summary, snapshot, escrow)
+        → Proposal Analytics (midpoint, threshold)
+        → Evidence Evaluation (party + admin evidence)
+        → Admin Chat (group / private channels)
+        → Settlement Execution
+            → Confirmation Modal
+            → adminResolveDispute()
+            → resolveDisputeAdmin()
+            → executeResolutionCore()
+            → Escrow Release/Refund
+            → Lifecycle Audit Log`,
+    },
+});
+
+register({
     route: '/admin/jobs',
     domain: PageDomain.ADMIN,
     version: '1.0.0',

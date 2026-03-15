@@ -117,6 +117,11 @@ model User {
   paymentMethods    PaymentMethod[]
   withdrawalRequests WithdrawalRequest[]
   callParticipation CallParticipant[]
+
+  // Admin arbitration relations
+  adminMsgsSent       DisputeAdminMessage[]   @relation("AdminMsgSender")
+  adminMsgsReceived   DisputeAdminMessage[]   @relation("AdminMsgRecipient")
+  adminEvidenceUploads DisputeAdminEvidence[]  @relation("AdminEvidenceUploader")
 }
 
 model Account {
@@ -505,6 +510,8 @@ model Dispute {
   messages            DisputeMessage[]
   evidence            DisputeEvidence[]
   proposals           DisputeProposal[]
+  adminMessages       DisputeAdminMessage[]
+  adminEvidence       DisputeAdminEvidence[]
 
   @@index([contractId])
   @@index([status])
@@ -548,6 +555,40 @@ model DisputeProposal {
   accepted          Boolean?
   createdAt         DateTime  @default(now())
   respondedAt       DateTime?
+
+  @@index([disputeId])
+}
+
+model DisputeAdminMessage {
+  id          String   @id @default(cuid())
+  disputeId   String
+  senderId    String
+  recipientId String?
+  content     String
+  isPrivate   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  dispute     Dispute  @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  sender      User     @relation("AdminMsgSender", fields: [senderId], references: [id])
+  recipient   User?    @relation("AdminMsgRecipient", fields: [recipientId], references: [id])
+
+  @@index([disputeId])
+  @@index([senderId])
+}
+
+model DisputeAdminEvidence {
+  id           String   @id @default(cuid())
+  disputeId    String
+  uploadedById String
+  fileUrl      String
+  fileName     String
+  fileType     String
+  description  String?
+  contentHash  String
+  createdAt    DateTime @default(now())
+
+  dispute      Dispute  @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  uploadedBy   User     @relation("AdminEvidenceUploader", fields: [uploadedById], references: [id])
 
   @@index([disputeId])
 }
