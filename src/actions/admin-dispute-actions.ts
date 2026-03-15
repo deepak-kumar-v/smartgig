@@ -136,6 +136,10 @@ export async function getAdminDisputeDetail(disputeId: string) {
                     uploaderName: e.uploadedBy.name ?? 'Admin',
                     createdAt: e.createdAt.toISOString(),
                 })),
+                // Moderation fields
+                adminInquiryOpen: dispute.adminInquiryOpen,
+                clientMutedUntil: dispute.clientMutedUntil?.toISOString() ?? null,
+                freelancerMutedUntil: dispute.freelancerMutedUntil?.toISOString() ?? null,
             },
             contract: {
                 id: contract.id,
@@ -195,7 +199,7 @@ export async function sendAdminMessage(
         if (!dispute) return { error: 'Dispute not found' };
 
         const message = await db.$transaction(async (tx) => {
-            return tx.disputeAdminMessage.create({
+            const msg = await tx.disputeAdminMessage.create({
                 data: {
                     disputeId,
                     senderId: adminId,
@@ -208,6 +212,16 @@ export async function sendAdminMessage(
                     recipient: { select: { id: true, name: true } },
                 },
             });
+
+            // Set inquiry flag only when not already open
+            if (!dispute.adminInquiryOpen) {
+                await tx.dispute.update({
+                    where: { id: disputeId },
+                    data: { adminInquiryOpen: true },
+                });
+            }
+
+            return msg;
         });
 
         // Socket emit (fire-and-forget)
@@ -361,5 +375,214 @@ export async function adminResolveDispute(
     } catch (error) {
         console.error('[adminResolveDispute] Error:', error);
         return { error: 'Failed to resolve dispute' };
+    }
+}
+
+// ============================================================================
+// getAdminConversationMessages — Read contract chat for admin dispute review
+// ============================================================================
+
+export async function getAdminConversationMessages(
+    contractId: string,
+    cursor?: string | null,
+    limit: number = 100
+): Promise<{
+    messages?: any[];
+    nextCursor?: string | null;
+    participants?: { clientUserId: string; clientName: string; freelancerUserId: string; freelancerName: string };
+    totalCount?: number;
+    error?: string;
+}> {
+    try {
+        await assertAdmin();
+
+        // Safety: only load contract-linked conversations (not proposal-only)
+        const conversation = await db.conversation.findFirst({
+            where: {
+                contractId: contractId,
+                NOT: { contractId: null },
+            },
+            include: {
+                participants: {
+                    include: {
+                        user: { select: { id: true, name: true, image: true, role: true } },
+                    },
+                },
+            },
+        });
+
+        if (!conversation) {
+            return { error: 'No conversation found for this contract' };
+        }
+
+        // Identify client and freelancer from participants
+        const clientParticipant = conversation.participants.find(
+            p => (p.user as any).role === 'CLIENT'
+        );
+        const freelancerParticipant = conversation.participants.find(
+            p => (p.user as any).role === 'FREELANCER'
+        );
+
+        const totalCount = await db.message.count({
+            where: { conversationId: conversation.id },
+        });
+
+        // Cursor-based pagination: fetch newest messages first, then reverse for chronological order
+        const messages = await db.message.findMany({
+            where: { conversationId: conversation.id },
+            include: {
+                sender: {
+                    select: { id: true, name: true, image: true },
+                },
+                attachments: {
+                    select: {
+                        id: true,
+                        name: true,
+                        url: true,
+                        fileType: true,
+                        size: true,
+                    },
+                },
+                reactions: {
+                    select: {
+                        id: true,
+                        userId: true,
+                        emoji: true,
+                        createdAt: true,
+                    },
+                    orderBy: { createdAt: 'asc' as const },
+                },
+                replyTo: {
+                    select: {
+                        id: true,
+                        content: true,
+                        senderId: true,
+                        sender: { select: { id: true, name: true } },
+                        isDeleted: true,
+                        isEdited: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: limit,
+            ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+
+        // Reverse to get chronological order
+        const chronologicalMessages = [...messages].reverse();
+
+        // Parse callMeta JSON
+        const parsedMessages = chronologicalMessages.map((msg: any) => ({
+            ...msg,
+            createdAt: msg.createdAt.toISOString(),
+            deliveredAt: msg.deliveredAt?.toISOString() ?? null,
+            readAt: msg.readAt?.toISOString() ?? null,
+            editedAt: msg.editedAt?.toISOString() ?? null,
+            callMeta: msg.callMeta ? JSON.parse(msg.callMeta) : null,
+            reactions: msg.reactions.map((r: any) => ({
+                ...r,
+                createdAt: r.createdAt?.toISOString() ?? null,
+            })),
+        }));
+
+        // Next cursor is the oldest message in the current batch (for loading older messages)
+        const nextCursor = messages.length === limit ? messages[messages.length - 1].id : null;
+
+        return {
+            messages: parsedMessages,
+            nextCursor,
+            participants: {
+                clientUserId: clientParticipant?.user.id ?? '',
+                clientName: clientParticipant?.user.name ?? 'Client',
+                freelancerUserId: freelancerParticipant?.user.id ?? '',
+                freelancerName: freelancerParticipant?.user.name ?? 'Freelancer',
+            },
+            totalCount,
+        };
+    } catch (error) {
+        console.error('[getAdminConversationMessages] Error:', error);
+        return { error: 'Failed to load conversation messages' };
+    }
+}
+
+// ============================================================================
+// muteParticipant — Admin mutes a dispute participant for a specified duration
+// ============================================================================
+
+export async function muteParticipant(
+    disputeId: string,
+    target: 'client' | 'freelancer',
+    durationMinutes: number
+): Promise<{ success?: boolean; error?: string }> {
+    try {
+        await assertAdmin();
+
+        if (durationMinutes <= 0 || durationMinutes > 1440) {
+            return { error: 'Duration must be between 1 and 1440 minutes' };
+        }
+
+        const muteUntil = new Date(Date.now() + durationMinutes * 60 * 1000);
+
+        await db.dispute.update({
+            where: { id: disputeId },
+            data: target === 'client'
+                ? { clientMutedUntil: muteUntil }
+                : { freelancerMutedUntil: muteUntil },
+        });
+
+        emitScopedUpdate('dispute:updated');
+        return { success: true };
+    } catch (error) {
+        console.error('[muteParticipant] Error:', error);
+        return { error: 'Failed to mute participant' };
+    }
+}
+
+// ============================================================================
+// unmuteParticipant — Admin unmutes a dispute participant immediately
+// ============================================================================
+
+export async function unmuteParticipant(
+    disputeId: string,
+    target: 'client' | 'freelancer'
+): Promise<{ success?: boolean; error?: string }> {
+    try {
+        await assertAdmin();
+
+        await db.dispute.update({
+            where: { id: disputeId },
+            data: target === 'client'
+                ? { clientMutedUntil: null }
+                : { freelancerMutedUntil: null },
+        });
+
+        emitScopedUpdate('dispute:updated');
+        return { success: true };
+    } catch (error) {
+        console.error('[unmuteParticipant] Error:', error);
+        return { error: 'Failed to unmute participant' };
+    }
+}
+
+// ============================================================================
+// endInquiry — Admin manually unlocks the settlement panel
+// ============================================================================
+
+export async function endInquiry(
+    disputeId: string
+): Promise<{ success?: boolean; error?: string }> {
+    try {
+        await assertAdmin();
+
+        await db.dispute.update({
+            where: { id: disputeId },
+            data: { adminInquiryOpen: false },
+        });
+
+        emitScopedUpdate('dispute:updated');
+        return { success: true };
+    } catch (error) {
+        console.error('[endInquiry] Error:', error);
+        return { error: 'Failed to end inquiry' };
     }
 }

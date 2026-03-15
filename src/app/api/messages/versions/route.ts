@@ -38,11 +38,13 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Message not found' }, { status: 404 });
         }
 
-        // Authorization: user must be a participant in the conversation
+        // Authorization: user must be a participant in the conversation, OR an ADMIN
+        const userRole = (session.user as { role?: string }).role;
+        const isAdmin = userRole === 'ADMIN';
         const isParticipant = message.conversation.participants.some(
             p => p.userId === session.user.id
         );
-        if (!isParticipant) {
+        if (!isParticipant && !isAdmin) {
             return NextResponse.json({ error: 'Access denied' }, { status: 403 });
         }
 

@@ -11,8 +11,9 @@ import {
 } from 'lucide-react';
 import {
     getDispute, submitDisputeMessage, uploadDisputeEvidence,
-    submitProposal, escalateToAdmin, requestPhaseTransition
+    submitProposal, escalateToAdmin, requestPhaseTransition, sendArbitrationMessage
 } from '@/actions/dispute-actions';
+import { ArbitrationChat } from '@/components/dispute/arbitration-chat';
 import { toast } from 'sonner';
 
 const statusConfig: Record<string, { color: string; bg: string; label: string }> = {
@@ -336,6 +337,24 @@ export default function FreelancerDisputeDetailPage() {
                         </div>
                         );
                     })()}
+
+                    {/* Admin Arbitration Chat — visible during ADMIN_REVIEW */}
+                    {dispute.status === 'ADMIN_REVIEW' && (
+                        <ArbitrationChat
+                            disputeId={dispute.id}
+                            messages={dispute.adminMessages ?? []}
+                            currentUserId={currentUserId}
+                            clientUserId={contract.clientUserId}
+                            freelancerUserId={contract.freelancerUserId}
+                            clientName={contract.clientName}
+                            freelancerName={contract.freelancerName}
+                            isResolved={isResolved}
+                            isMuted={!!(dispute.freelancerMutedUntil && new Date(dispute.freelancerMutedUntil) > new Date())}
+                            mutedUntil={dispute.freelancerMutedUntil ?? null}
+                            onSend={(content, isPrivate) => sendArbitrationMessage(dispute.id, content, isPrivate)}
+                            viewerRole="freelancer"
+                        />
+                    )}
                 </div>
 
                 {/* RIGHT — Status + Actions + Proposals + Snapshot */}

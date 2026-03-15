@@ -506,6 +506,11 @@ model Dispute {
   escalatedAt         DateTime?
   resolvedAt          DateTime?
 
+  // Admin Arbitration Moderation
+  adminInquiryOpen       Boolean   @default(false)
+  clientMutedUntil       DateTime?
+  freelancerMutedUntil   DateTime?
+
   // Relations
   messages            DisputeMessage[]
   evidence            DisputeEvidence[]

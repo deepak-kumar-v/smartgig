@@ -1273,6 +1273,13 @@ export async function getDispute(disputeId: string) {
                 messages: { orderBy: { createdAt: 'asc' } },
                 evidence: { orderBy: { createdAt: 'desc' } },
                 proposals: { orderBy: { createdAt: 'desc' } },
+                adminMessages: {
+                    orderBy: { createdAt: 'asc' },
+                    include: {
+                        sender: { select: { id: true, name: true, image: true, role: true } },
+                        recipient: { select: { id: true, name: true } },
+                    },
+                },
                 milestone: {
                     include: {
                         contract: {
@@ -1377,6 +1384,29 @@ export async function getDispute(disputeId: string) {
                     createdAt: p.createdAt.toISOString(),
                     respondedAt: p.respondedAt?.toISOString() ?? null,
                 })),
+                // Admin messages filtered by viewer role
+                adminMessages: dispute.adminMessages
+                    .filter(m => {
+                        if (isAdmin) return true; // Admin sees all
+                        if (!m.isPrivate) return true; // Group messages visible to all
+                        // Private messages: only visible if user is sender or recipient
+                        return m.senderId === session.user.id || m.recipientId === session.user.id;
+                    })
+                    .map(m => ({
+                        id: m.id,
+                        senderId: m.senderId,
+                        recipientId: m.recipientId,
+                        content: m.content,
+                        isPrivate: m.isPrivate,
+                        senderName: (m.sender as any).name ?? 'Unknown',
+                        senderRole: (m.sender as any).role ?? 'ADMIN',
+                        recipientName: (m.recipient as any)?.name ?? null,
+                        createdAt: m.createdAt.toISOString(),
+                    })),
+                // Moderation fields
+                adminInquiryOpen: dispute.adminInquiryOpen,
+                clientMutedUntil: dispute.clientMutedUntil?.toISOString() ?? null,
+                freelancerMutedUntil: dispute.freelancerMutedUntil?.toISOString() ?? null,
             },
             contract: {
                 id: contract.id,
@@ -1473,5 +1503,147 @@ export async function getDisputesForUser() {
     } catch (error) {
         console.error('[getDisputesForUser] Error:', error);
         return { error: 'Failed to load disputes' };
+    }
+}
+
+// ============================================================================
+// sendArbitrationMessage — Client/Freelancer sends message in admin arbitration chat
+// ============================================================================
+
+export async function sendArbitrationMessage(
+    disputeId: string,
+    content: string,
+    isPrivate: boolean = false // when true, it's a private message to admin
+): Promise<{ success?: boolean; error?: string }> {
+    try {
+        const session = await auth();
+        if (!session?.user?.id) return { error: 'Unauthorized' };
+
+        if (!content || content.trim().length === 0) {
+            return { error: 'Message cannot be empty' };
+        }
+
+        const dispute = await db.dispute.findUnique({
+            where: { id: disputeId },
+            include: {
+                milestone: {
+                    include: {
+                        contract: {
+                            select: {
+                                client: { select: { userId: true } },
+                                freelancer: { select: { userId: true } },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!dispute) return { error: 'Dispute not found' };
+        if (dispute.status !== DisputeStatus.ADMIN_REVIEW) {
+            return { error: 'Arbitration chat is only available during admin review' };
+        }
+
+        const clientUserId = dispute.milestone.contract.client.userId;
+        const freelancerUserId = dispute.milestone.contract.freelancer.userId;
+        const userId = session.user.id;
+
+        const isClient = userId === clientUserId;
+        const isFreelancer = userId === freelancerUserId;
+
+        if (!isClient && !isFreelancer) {
+            return { error: 'You are not a party in this dispute' };
+        }
+
+        // Check mute status
+        const now = new Date();
+        if (isClient && dispute.clientMutedUntil && dispute.clientMutedUntil > now) {
+            return { error: 'You are temporarily muted by the dispute moderator.' };
+        }
+        if (isFreelancer && dispute.freelancerMutedUntil && dispute.freelancerMutedUntil > now) {
+            return { error: 'You are temporarily muted by the dispute moderator.' };
+        }
+
+        // For private messages from client/freelancer, recipientId is null (goes to admin)
+        // For group messages, recipientId is also null but isPrivate is false
+        const message = await db.$transaction(async (tx) => {
+            const msg = await tx.disputeAdminMessage.create({
+                data: {
+                    disputeId,
+                    senderId: userId,
+                    recipientId: null, // client/freelancer messages go to admin (or group)
+                    content: content.trim(),
+                    isPrivate,
+                },
+                include: {
+                    sender: { select: { id: true, name: true, image: true, role: true } },
+                },
+            });
+
+            // Auto-unlock inquiry when both parties have responded
+            if (dispute.adminInquiryOpen) {
+                // Find the latest admin message timestamp
+                const latestAdminMsg = await tx.disputeAdminMessage.findFirst({
+                    where: {
+                        disputeId,
+                        sender: { role: 'ADMIN' },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    select: { createdAt: true },
+                });
+
+                if (latestAdminMsg) {
+                    // Check if both parties have responded after the admin's last message
+                    const clientReplied = await tx.disputeAdminMessage.findFirst({
+                        where: {
+                            disputeId,
+                            senderId: clientUserId,
+                            createdAt: { gt: latestAdminMsg.createdAt },
+                        },
+                    });
+                    const freelancerReplied = await tx.disputeAdminMessage.findFirst({
+                        where: {
+                            disputeId,
+                            senderId: freelancerUserId,
+                            createdAt: { gt: latestAdminMsg.createdAt },
+                        },
+                    });
+
+                    if (clientReplied && freelancerReplied) {
+                        await tx.dispute.update({
+                            where: { id: disputeId },
+                            data: { adminInquiryOpen: false },
+                        });
+                    }
+                }
+            }
+
+            return msg;
+        });
+
+        // Socket emit
+        try {
+            const io = (globalThis as any).__socketIO;
+            if (io) {
+                io.to(`dispute:${disputeId}`).emit('dispute:admin-message', {
+                    id: message.id,
+                    disputeId,
+                    senderId: message.senderId,
+                    recipientId: message.recipientId,
+                    content: message.content,
+                    isPrivate: message.isPrivate,
+                    senderName: message.sender.name ?? 'Unknown',
+                    senderRole: (message.sender as any).role ?? 'CLIENT',
+                    recipientName: null,
+                    createdAt: message.createdAt.toISOString(),
+                });
+            }
+        } catch {}
+
+        emitScopedUpdate('dispute:updated');
+        return { success: true };
+    } catch (error) {
+        console.error('[sendArbitrationMessage] Error:', error);
+        return { error: 'Failed to send message' };
     }
 }
