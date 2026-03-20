@@ -2,13 +2,17 @@ import React from 'react';
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { getWalletDashboardData } from '@/actions/wallet-actions';
+import { getMyWithdrawalRequests } from '@/actions/withdrawal-actions';
 import WalletDashboard from '@/components/wallet/wallet-dashboard';
 
 export default async function FreelancerWalletPage() {
     const session = await auth();
     if (!session?.user?.id) redirect('/login');
 
-    const data = await getWalletDashboardData();
+    const [data, withdrawalResult] = await Promise.all([
+        getWalletDashboardData(),
+        getMyWithdrawalRequests(),
+    ]);
 
     if ('error' in data) {
         return (
@@ -18,5 +22,8 @@ export default async function FreelancerWalletPage() {
         );
     }
 
-    return <WalletDashboard data={data} role="FREELANCER" />;
+    const withdrawalRequests = 'requests' in withdrawalResult ? withdrawalResult.requests : [];
+
+    return <WalletDashboard data={data} role="FREELANCER" withdrawalRequests={withdrawalRequests} />;
 }
+

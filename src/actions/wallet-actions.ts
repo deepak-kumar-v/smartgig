@@ -367,3 +367,88 @@ export async function getWalletDashboardData(): Promise<WalletDashboardData | { 
         return { error: 'Failed to load wallet data' };
     }
 }
+
+// ============================================================================
+// depositFunds — Wallet Deposit (Both Client & Freelancer)
+// ============================================================================
+
+/**
+ * Deposits funds into the authenticated user's wallet.
+ *
+ * Inside db.$transaction (Serializable):
+ *   1. Get or create wallet
+ *   2. Create WalletLedger entry: amount = +amount, type = DEPOSIT
+ *   3. Write financialMutationLog
+ *
+ * Returns { success, balance } or { error }.
+ */
+export async function depositFunds(
+    amount: number
+): Promise<{ success?: boolean; error?: string; balance?: string }> {
+    try {
+        const session = await auth();
+        if (!session?.user?.id) {
+            return { error: 'Unauthorized' };
+        }
+
+        const userId = session.user.id;
+        const amt = new Prisma.Decimal(amount);
+
+        if (!amt.isPositive()) {
+            return { error: 'Amount must be positive' };
+        }
+
+        await db.$transaction(async (tx) => {
+            // 1. Get or create wallet
+            let wallet = await tx.wallet.findUnique({
+                where: { userId },
+            });
+
+            if (!wallet) {
+                wallet = await tx.wallet.create({
+                    data: { userId },
+                });
+            }
+
+            // 2. Create ledger entry (DEPOSIT, positive amount)
+            await tx.walletLedger.create({
+                data: {
+                    walletId: wallet.id,
+                    amount: amt,
+                    type: WalletTransactionType.DEPOSIT,
+                },
+            });
+
+            // 3. Mutation log (append-only, inside tx)
+            await tx.financialMutationLog.create({
+                data: {
+                    action: 'DEPOSIT_FUNDS',
+                    userId,
+                    metadata: { amount: amt.toFixed(2) },
+                },
+            });
+        }, { isolationLevel: 'Serializable' });
+
+        // Compute new balance after deposit
+        const newBalance = await getWalletBalance(userId);
+
+        revalidatePath('/client/wallet');
+        revalidatePath('/client/wallet/deposit');
+        revalidatePath('/freelancer/wallet');
+        revalidatePath('/freelancer/wallet/withdraw');
+
+        emitScopedUpdate('wallet:updated');
+
+        return { success: true, balance: newBalance.toFixed(2) };
+    } catch (error) {
+        db.financialErrorLog.create({
+            data: {
+                action: 'DEPOSIT_FUNDS',
+                userId: undefined,
+                errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                stackTrace: error instanceof Error ? error.stack ?? null : null,
+            },
+        }).catch(() => { });
+        return { error: error instanceof Error ? error.message : 'Financial operation failed' };
+    }
+}
