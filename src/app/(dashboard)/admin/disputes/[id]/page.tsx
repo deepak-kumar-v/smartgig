@@ -710,8 +710,7 @@ export default function AdminDisputeDetailPage() {
                                 {/* Breakdown */}
                                 <div className="bg-zinc-800/50 rounded-lg p-3 text-sm space-y-1.5">
                                     <div className="flex justify-between"><span className="text-zinc-500">Escrow Amount</span><span className="text-white font-medium">${escrow.lockAmount}</span></div>
-                                    <div className="flex justify-between"><span className="text-zinc-500">Freelancer Payout</span><span className="text-emerald-400">${(lockAmount * settlementPercent / 100 * 0.98).toFixed(2)}</span></div>
-                                    <div className="flex justify-between"><span className="text-zinc-500">Arbitration Fee (2%)</span><span className="text-amber-400">${(lockAmount * settlementPercent / 100 * 0.02).toFixed(2)}</span></div>
+                                    <div className="flex justify-between"><span className="text-zinc-500">Freelancer Payout</span><span className="text-emerald-400">${(lockAmount * settlementPercent / 100).toFixed(2)}</span></div>
                                     <div className="flex justify-between"><span className="text-zinc-500">Client Refund</span><span className="text-blue-400">${(lockAmount * (100 - settlementPercent) / 100).toFixed(2)}</span></div>
                                     <div className="flex justify-between border-t border-zinc-700 pt-1.5 mt-1"><span className="text-zinc-400 font-medium">Total</span><span className="text-white font-medium">${escrow.lockAmount}</span></div>
                                 </div>
@@ -748,8 +747,7 @@ export default function AdminDisputeDetailPage() {
                         <div className="bg-zinc-800/50 rounded-lg p-4 space-y-2 text-sm">
                             <div className="flex justify-between"><span className="text-zinc-500">Escrow Amount</span><span className="text-white font-medium">${escrow.lockAmount}</span></div>
                             <div className="flex justify-between"><span className="text-zinc-500">Freelancer %</span><span className="text-emerald-400">{settlementPercent}%</span></div>
-                            <div className="flex justify-between"><span className="text-zinc-500">Freelancer Payout</span><span className="text-emerald-400">${(lockAmount * settlementPercent / 100 * 0.98).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span className="text-zinc-500">Arbitration Fee</span><span className="text-amber-400">${(lockAmount * settlementPercent / 100 * 0.02).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-zinc-500">Freelancer Payout</span><span className="text-emerald-400">${(lockAmount * settlementPercent / 100).toFixed(2)}</span></div>
                             <div className="flex justify-between"><span className="text-zinc-500">Client Refund</span><span className="text-blue-400">${(lockAmount * (100 - settlementPercent) / 100).toFixed(2)}</span></div>
                         </div>
 

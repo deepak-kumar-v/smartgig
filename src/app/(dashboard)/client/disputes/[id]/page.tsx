@@ -131,7 +131,7 @@ export default function ClientDisputeDetailPage() {
         );
     }
 
-    const { dispute, contract, milestone, lockAmount, currentUserId, isAdmin, arbitrationFeePercent } = data;
+    const { dispute, contract, milestone, lockAmount, currentUserId, isAdmin } = data;
     const status = statusConfig[dispute.status] || statusConfig.OPEN;
     const isResolved = ['RESOLVED', 'CLOSED'].includes(dispute.status);
     const canMessage = !isResolved;
@@ -375,11 +375,8 @@ export default function ClientDisputeDetailPage() {
                         const escrowAmt = parseFloat(lockAmount);
                         const fPct = dispute.freelancerPercent;
                         const cPct = 100 - fPct;
-                        const freelancerAmount = escrowAmt * fPct / 100;
-                        const feeRate = parseFloat(arbitrationFeePercent ?? '2') / 100;
-                        const fee = freelancerAmount > 0 ? freelancerAmount * feeRate : 0;
-                        const freelancerPayout = freelancerAmount - fee;
-                        const clientRefund = escrowAmt - freelancerAmount;
+                        const freelancerPayout = escrowAmt * fPct / 100;
+                        const clientRefund = escrowAmt * cPct / 100;
                         const isAutoSettled = !dispute.resolvedById || dispute.resolvedById === 'SYSTEM';
                         return (
                             <GlassCard className="p-5 border border-emerald-500/30 bg-emerald-500/5">
@@ -393,7 +390,6 @@ export default function ClientDisputeDetailPage() {
                                     <div className="flex justify-between"><span className="text-zinc-400">Escrow amount</span><span className="text-white font-bold">${escrowAmt.toFixed(2)}</span></div>
                                     <div className="flex justify-between"><span className="text-zinc-400">Freelancer payout</span><span className="text-emerald-400">${freelancerPayout.toFixed(2)}</span></div>
                                     <div className="flex justify-between"><span className="text-zinc-400">Client refund</span><span className="text-blue-400">${clientRefund.toFixed(2)}</span></div>
-                                    <div className="flex justify-between items-center"><span className="text-zinc-400 flex items-center gap-1">Arbitration fee ({arbitrationFeePercent}%)<span className="relative group cursor-help"><Info className="w-3 h-3 text-zinc-500" /><span className="absolute bottom-full right-0 mb-1 px-3 py-2 bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 rounded w-64 opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none leading-relaxed"><span className="font-medium text-amber-400 block mb-1">Arbitration fee</span>A small dispute resolution fee charged only from the freelancer&apos;s payout when the SmartGIG system automatically settles a dispute.<br/><br/>The client&apos;s refund is not reduced by this fee.</span></span></span><span className="text-amber-400">${fee.toFixed(2)}</span></div>
                                     <div className="border-t border-zinc-800 my-2" />
                                     <div className="flex justify-between"><span className="text-zinc-400">Resolution type</span><span className="text-zinc-300">{isAutoSettled ? 'Auto Settlement (≤15% diff)' : 'Admin Decision'}</span></div>
                                     <div className="flex justify-between"><span className="text-zinc-400">Resolved by</span><span className="text-zinc-300">{isAutoSettled ? 'System' : 'Admin'}</span></div>

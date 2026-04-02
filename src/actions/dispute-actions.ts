@@ -591,7 +591,7 @@ export async function submitProposal(
                 userMessage: `Dispute auto-settled: ${result.settledPercent}% → freelancer ($${r.freelancerPayout}), ${100 - result.settledPercent}% → client ($${r.clientRefund})`,
                 actorId: 'SYSTEM',
                 actorRole: 'SYSTEM',
-                metadata: { disputeId, outcome: r.outcome, payout: r.freelancerPayout, refund: r.clientRefund, fee: r.arbitrationFee },
+                metadata: { disputeId, outcome: r.outcome, payout: r.freelancerPayout, refund: r.clientRefund },
             });
 
             // Notify both parties
@@ -931,7 +931,7 @@ async function executeResolutionCore(
     resolvedById: string | null,
     resolutionNote: string,
     idempotencyKey?: string
-): Promise<{ outcome: string; freelancerPayout: string; clientRefund: string; arbitrationFee: string }> {
+): Promise<{ outcome: string; freelancerPayout: string; clientRefund: string }> {
     // Idempotency guard inside tx
     if (idempotencyKey) {
         const existing = await tx.idempotencyKey.findUnique({ where: { key: idempotencyKey } });
@@ -947,21 +947,10 @@ async function executeResolutionCore(
         throw new Error('LOCK_ALREADY_RELEASED: concurrent resolution detected');
     }
 
-    // Read arbitration fee from SystemConfig
-    const feeConfig = await tx.systemConfig.findUnique({
-        where: { key: 'DISPUTE_ARBITRATION_FEE_PERCENT' },
-    });
-    const arbitrationFeePercent = new Prisma.Decimal(feeConfig?.value ?? '2');
-
+    // Fee-free dispute settlement: escrow is split 100% between freelancer and client
     const lockAmount = new Prisma.Decimal(lock.amount as Prisma.Decimal.Value);
-    const freelancerAmount = lockAmount.mul(new Prisma.Decimal(freelancerPercent)).div(new Prisma.Decimal(100));
-    const clientRefund = lockAmount.minus(freelancerAmount);
-
-    // Arbitration fee ONLY on freelancer payout (replaces commission)
-    const arbitrationFee = freelancerAmount.isPositive()
-        ? freelancerAmount.mul(arbitrationFeePercent).div(new Prisma.Decimal(100))
-        : new Prisma.Decimal(0);
-    const freelancerPayout = freelancerAmount.minus(arbitrationFee);
+    const freelancerPayout = lockAmount.mul(new Prisma.Decimal(freelancerPercent)).div(new Prisma.Decimal(100));
+    const clientRefund = lockAmount.minus(freelancerPayout);
 
     // Determine outcome
     let outcome: DisputeOutcome;
@@ -969,14 +958,13 @@ async function executeResolutionCore(
     else if (freelancerPercent === 0) outcome = DisputeOutcome.FULL_REFUND;
     else outcome = DisputeOutcome.PARTIAL_SPLIT;
 
-    // Invariant: payout + fee + refund === lockAmount
-    const total = freelancerPayout.plus(arbitrationFee).plus(clientRefund);
+    // Invariant: payout + refund === lockAmount
+    const total = freelancerPayout.plus(clientRefund);
     if (!total.equals(lockAmount)) {
-        throw new Error(`SPLIT_INCONSISTENT: payout=${freelancerPayout} + fee=${arbitrationFee} + refund=${clientRefund} = ${total} != lock=${lockAmount}`);
+        throw new Error(`SPLIT_INCONSISTENT: payout=${freelancerPayout} + refund=${clientRefund} = ${total} != lock=${lockAmount}`);
     }
 
     assertDecimalNonNegative(freelancerPayout, 'freelancerPayout');
-    assertDecimalNonNegative(arbitrationFee, 'arbitrationFee');
     assertDecimalNonNegative(clientRefund, 'clientRefund');
 
     const isAutoSettled = resolvedById === null;
@@ -998,8 +986,8 @@ async function executeResolutionCore(
         throw new Error('DOUBLE_SETTLEMENT: settlement already exists for this milestone');
     }
 
-    // A. Freelancer payout (ESCROW_RELEASE — matches normal release ledger pattern)
-    //    ESCROW_RELEASE + PLATFORM_FEE + REFUND = lockAmount
+    // A. Freelancer payout (ESCROW_RELEASE)
+    //    ESCROW_RELEASE + REFUND = lockAmount (fee-free dispute settlement)
     if (freelancerPayout.isPositive()) {
         let freelancerWallet = await tx.wallet.findUnique({ where: { userId: freelancerUserId } });
         if (!freelancerWallet) {
@@ -1010,20 +998,6 @@ async function executeResolutionCore(
                 walletId: freelancerWallet.id,
                 amount: freelancerPayout,
                 type: WalletTransactionType.ESCROW_RELEASE,
-                contractId: contract.id,
-                milestoneId: dispute.milestoneId,
-            },
-        });
-    }
-
-    // B. Platform fee
-    if (arbitrationFee.isPositive()) {
-        const platformWallet = await getPlatformWallet(tx);
-        await tx.walletLedger.create({
-            data: {
-                walletId: platformWallet.id,
-                amount: arbitrationFee,
-                type: WalletTransactionType.PLATFORM_FEE,
                 contractId: contract.id,
                 milestoneId: dispute.milestoneId,
             },
@@ -1078,7 +1052,7 @@ async function executeResolutionCore(
         data: {
             disputeId,
             senderId: resolvedById ?? 'SYSTEM',
-            content: `Dispute ${isAutoSettled ? 'auto-settled' : 'resolved by admin'}: ${freelancerPercent}% to freelancer ($${freelancerPayout.toFixed(2)}), ${100 - freelancerPercent}% refund to client ($${clientRefund.toFixed(2)}). Arbitration fee: $${arbitrationFee.toFixed(2)}.`,
+            content: `Dispute ${isAutoSettled ? 'auto-settled' : 'resolved by admin'}: ${freelancerPercent}% to freelancer ($${freelancerPayout.toFixed(2)}), ${100 - freelancerPercent}% refund to client ($${clientRefund.toFixed(2)}).`,
             isSystem: true,
         },
     });
@@ -1133,7 +1107,6 @@ async function executeResolutionCore(
                 freelancerPercent,
                 payout: freelancerPayout.toFixed(2),
                 refund: clientRefund.toFixed(2),
-                platformFee: arbitrationFee.toFixed(2),
                 isAutoSettled,
             },
         },
@@ -1143,7 +1116,6 @@ async function executeResolutionCore(
         outcome,
         freelancerPayout: freelancerPayout.toFixed(2),
         clientRefund: clientRefund.toFixed(2),
-        arbitrationFee: arbitrationFee.toFixed(2),
     };
 }
 
@@ -1220,7 +1192,7 @@ async function executeResolution(
             userMessage: `Dispute ${isAutoSettled ? 'auto-settled' : 'resolved'}: ${freelancerPercent}% → freelancer ($${resolutionResult.freelancerPayout}), ${100 - freelancerPercent}% → client ($${resolutionResult.clientRefund})`,
             actorId: resolvedById ?? 'SYSTEM',
             actorRole: isAutoSettled ? 'SYSTEM' : 'CLIENT',
-            metadata: { disputeId, outcome: resolutionResult.outcome, payout: resolutionResult.freelancerPayout, refund: resolutionResult.clientRefund, fee: resolutionResult.arbitrationFee },
+            metadata: { disputeId, outcome: resolutionResult.outcome, payout: resolutionResult.freelancerPayout, refund: resolutionResult.clientRefund },
         });
 
         // Notify both parties
@@ -1423,10 +1395,7 @@ export async function getDispute(disputeId: string) {
             lockAmount: lock ? new Prisma.Decimal(lock.amount).toFixed(2) : (dispute.snapshot as Record<string, string>).escrowLockAmount ?? '0.00',
             currentUserId: session.user.id,
             isAdmin,
-            arbitrationFeePercent: await (async () => {
-                const cfg = await db.systemConfig.findUnique({ where: { key: 'DISPUTE_ARBITRATION_FEE_PERCENT' } });
-                return cfg?.value ?? '2';
-            })(),
+
         };
     } catch (error) {
         console.error('[getDispute] Error:', error);
