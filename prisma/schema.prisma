@@ -48,6 +48,8 @@ enum WalletTransactionType {
   PLATFORM_FEE
   ADJUSTMENT
   DISPUTE_RESOLUTION
+  ARBITRATION_FEE
+  ARBITRATION_FEE_REFUND
 }
 
 enum RefundReason {
@@ -440,12 +442,14 @@ model WalletLedger {
   refundReason RefundReason?
   contractId  String?
   milestoneId String?
+  disputeId   String?
   createdAt   DateTime              @default(now())
 
   @@index([walletId, createdAt(sort: Desc)])
   @@index([milestoneId, type])
   @@index([contractId, type])
   @@index([type, createdAt(sort: Desc)])
+  @@index([disputeId, type])
 }
 
 model MilestoneChangeRequest {
@@ -497,6 +501,22 @@ model Dispute {
   discussionEndedAt   DateTime?
   proposalEndedAt     DateTime?
 
+  // Discussion phase early-end tracking (mutual agreement)
+  discussionEndedRequestedById  String?
+  discussionEndedRequestedAt    DateTime?
+  discussionEndedAcceptedById   String?
+  discussionEndedAcceptedAt     DateTime?
+
+  // Proposal phase start tracking (who requested/accepted the transition)
+  proposalRequestedById  String?
+  proposalRequestedAt    DateTime?
+  proposalAcceptedById   String?
+  proposalAcceptedAt     DateTime?
+
+  // Proposal escalation tracking (who triggered the escalation)
+  proposalEscalatedById  String?
+  proposalEscalatedAt    DateTime?
+
   // Mutual phase fast-forward flags (reset on every phase transition)
   phaseAdvanceClient     Boolean @default(false)
   phaseAdvanceFreelancer Boolean @default(false)
@@ -510,6 +530,10 @@ model Dispute {
   adminInquiryOpen       Boolean   @default(false)
   clientMutedUntil       DateTime?
   freelancerMutedUntil   DateTime?
+
+  // Arbitration Fee Tracking
+  arbitrationFeePaid     Boolean   @default(false)
+  arbitrationFeePayerId  String?
 
   // Relations
   messages            DisputeMessage[]

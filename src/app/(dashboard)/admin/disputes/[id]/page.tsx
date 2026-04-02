@@ -74,6 +74,7 @@ export default function AdminDisputeDetailPage() {
     const [settlementPercent, setSettlementPercent] = useState(50);
     const [settlementNote, setSettlementNote] = useState('');
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [refundArbitrationFee, setRefundArbitrationFee] = useState(false);
 
     // Contract conversation (read-only chat) state
     const [conversationMessages, setConversationMessages] = useState<ChatMessage[]>([]);
@@ -187,9 +188,9 @@ export default function AdminDisputeDetailPage() {
         setShowConfirmModal(false);
         const key = `admin_resolve_${disputeId}_${Date.now()}`;
         startTransition(async () => {
-            const result = await adminResolveDispute(disputeId, settlementPercent, settlementNote, key);
+            const result = await adminResolveDispute(disputeId, settlementPercent, settlementNote, key, refundArbitrationFee);
             if (result.success) {
-                toast.success('Dispute resolved successfully');
+                toast.success(refundArbitrationFee ? 'Dispute resolved — arbitration fee refunded' : 'Dispute resolved successfully');
                 loadData();
             } else {
                 toast.error(result.error || 'Resolution failed');
@@ -721,13 +722,32 @@ export default function AdminDisputeDetailPage() {
                                     <textarea value={settlementNote} onChange={e => setSettlementNote(e.target.value)} rows={3} placeholder="Explain the rationale for this decision..." className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm resize-none focus:outline-none focus:border-indigo-500" />
                                 </div>
 
+                                {/* Arbitration Fee Refund Checkbox */}
+                                {dispute.arbitrationFeePaid && (
+                                    <label className="flex items-center gap-2 px-3 py-2.5 bg-zinc-800/50 rounded-lg border border-zinc-700/50 cursor-pointer hover:bg-zinc-800 transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={refundArbitrationFee}
+                                            onChange={e => setRefundArbitrationFee(e.target.checked)}
+                                            className="accent-emerald-500 w-4 h-4"
+                                        />
+                                        <div>
+                                            <p className="text-sm text-zinc-300">Refund arbitration fee ($10)</p>
+                                            <p className="text-xs text-zinc-500">Credit $10 back to the payer&apos;s wallet</p>
+                                        </div>
+                                    </label>
+                                )}
+
                                 {/* Resolve Button */}
+                                {settlementNote.trim().length > 0 && settlementNote.trim().length < 5 && (
+                                    <p className="text-red-400 text-xs -mt-2">Resolution note must be at least 5 characters.</p>
+                                )}
                                 <button
                                     onClick={handleResolve}
                                     disabled={isPending || settlementNote.trim().length < 5 || dispute.adminInquiryOpen}
                                     className="w-full px-4 py-3 bg-indigo-500/20 text-indigo-400 rounded-lg hover:bg-indigo-500/30 transition-colors font-medium disabled:opacity-40"
                                 >
-                                    {dispute.adminInquiryOpen ? 'Settlement locked — inquiry in progress' : isPending ? 'Resolving...' : `Resolve — ${settlementPercent}% to Freelancer`}
+                                    {dispute.adminInquiryOpen ? 'Settlement locked — inquiry in progress' : isPending ? 'Resolving...' : !settlementNote.trim() ? 'Enter a resolution note to continue' : settlementNote.trim().length < 5 ? 'Note too short (min 5 characters)' : `Resolve — ${settlementPercent}% to Freelancer`}
                                 </button>
                             </div>
                         )}
@@ -749,6 +769,9 @@ export default function AdminDisputeDetailPage() {
                             <div className="flex justify-between"><span className="text-zinc-500">Freelancer %</span><span className="text-emerald-400">{settlementPercent}%</span></div>
                             <div className="flex justify-between"><span className="text-zinc-500">Freelancer Payout</span><span className="text-emerald-400">${(lockAmount * settlementPercent / 100).toFixed(2)}</span></div>
                             <div className="flex justify-between"><span className="text-zinc-500">Client Refund</span><span className="text-blue-400">${(lockAmount * (100 - settlementPercent) / 100).toFixed(2)}</span></div>
+                            {refundArbitrationFee && (
+                                <div className="flex justify-between border-t border-zinc-700 pt-2 mt-1"><span className="text-zinc-500">Arbitration Fee Refund</span><span className="text-emerald-400">$10.00 → payer</span></div>
+                            )}
                         </div>
 
                         <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">

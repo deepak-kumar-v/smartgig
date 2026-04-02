@@ -140,6 +140,9 @@ export async function getAdminDisputeDetail(disputeId: string) {
                 adminInquiryOpen: dispute.adminInquiryOpen,
                 clientMutedUntil: dispute.clientMutedUntil?.toISOString() ?? null,
                 freelancerMutedUntil: dispute.freelancerMutedUntil?.toISOString() ?? null,
+                // Arbitration fee tracking
+                arbitrationFeePaid: dispute.arbitrationFeePaid,
+                arbitrationFeePayerId: dispute.arbitrationFeePayerId,
             },
             contract: {
                 id: contract.id,
@@ -342,13 +345,14 @@ export async function adminResolveDispute(
     disputeId: string,
     freelancerPercent: number,
     resolutionNote: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    refundArbitrationFee: boolean = false
 ): Promise<{ success?: boolean; error?: string }> {
     try {
         const adminId = await assertAdmin();
 
         // Delegate to existing financial resolution engine
-        const result = await resolveDisputeAdmin(disputeId, freelancerPercent, resolutionNote, idempotencyKey);
+        const result = await resolveDisputeAdmin(disputeId, freelancerPercent, resolutionNote, idempotencyKey, refundArbitrationFee);
 
         if (result.success) {
             // Audit log — fire-and-forget via lifecycle events
@@ -356,7 +360,7 @@ export async function adminResolveDispute(
                 contractId: undefined,
                 milestoneId: undefined,
                 eventType: 'ADMIN_DISPUTE_RESOLUTION',
-                userMessage: `Admin resolved dispute ${disputeId}: ${freelancerPercent}% to freelancer. Note: ${resolutionNote}`,
+                userMessage: `Admin resolved dispute ${disputeId}: ${freelancerPercent}% to freelancer. Note: ${resolutionNote}${refundArbitrationFee ? ' (arbitration fee refunded)' : ''}`,
                 actorId: adminId,
                 actorRole: 'SYSTEM',
                 metadata: {
@@ -365,6 +369,7 @@ export async function adminResolveDispute(
                     disputeId,
                     freelancerPercent,
                     resolutionNote,
+                    refundArbitrationFee,
                     timestamp: new Date().toISOString(),
                 },
                 category: 'BUSINESS',

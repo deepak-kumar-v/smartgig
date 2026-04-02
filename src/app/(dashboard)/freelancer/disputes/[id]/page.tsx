@@ -7,7 +7,7 @@ import { useSocket } from '@/providers/socket-provider';
 import { useGlobalRefresh } from '@/providers/global-refresh-provider';
 import {
     Scale, Clock, MessageSquare, FileText, Upload, Send,
-    AlertTriangle, Shield, CheckCircle, ArrowLeft, ChevronUp, Info, Lock, Unlock, Zap
+    AlertTriangle, Shield, CheckCircle, ArrowLeft, ChevronUp, Info, Lock, Unlock, Zap, DollarSign
 } from 'lucide-react';
 import {
     getDispute, submitDisputeMessage, uploadDisputeEvidence,
@@ -131,7 +131,7 @@ export default function FreelancerDisputeDetailPage() {
         );
     }
 
-    const { dispute, contract, milestone, lockAmount, currentUserId } = data;
+    const { dispute, contract, milestone, lockAmount, currentUserId, walletBalance } = data;
     const status = statusConfig[dispute.status] || statusConfig.OPEN;
     const isResolved = ['RESOLVED', 'CLOSED'].includes(dispute.status);
     const canMessage = !isResolved;
@@ -180,10 +180,10 @@ export default function FreelancerDisputeDetailPage() {
     };
 
     const handleEscalate = () => {
-        if (!confirm('Escalate this dispute to admin review? This cannot be undone.')) return;
+        if (!confirm('Escalate this dispute to admin review? A $10 arbitration fee will be charged from your wallet. This cannot be undone.')) return;
         startTransition(async () => {
             const result = await escalateToAdmin(disputeId);
-            if (result.success) { toast.success('Escalated to admin'); loadData(); }
+            if (result.success) { toast.success('Escalated to admin — $10 arbitration fee charged'); loadData(); }
             else toast.error(result.error || 'Failed to escalate');
         });
     };
@@ -487,6 +487,24 @@ export default function FreelancerDisputeDetailPage() {
                         const wasAutoSettled = isResolved && (!dispute.resolvedById || dispute.resolvedById === 'SYSTEM');
                         const wasAdminResolved = isResolved && !wasAutoSettled;
                         const wentToAdmin = dispute.status === 'ADMIN_REVIEW' || wasAdminResolved;
+                        const fmt = (d: string | null) => {
+                            if (!d) return '';
+                            const dt = new Date(d);
+                            const day = String(dt.getDate()).padStart(2, '0');
+                            const mon = dt.toLocaleString('en-US', { month: 'short' });
+                            const year = dt.getFullYear();
+                            const time = dt.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                            return `${day} ${mon} ${year}, ${time}`;
+                        };
+                        const roleName = (uid: string | null) => !uid ? 'Unknown' : uid === contract.clientUserId ? contract.clientName : contract.freelancerName;
+                        const Tip = ({ children }: { children: React.ReactNode }) => (
+                            <span className="relative group/tip cursor-help inline-flex ml-0.5">
+                                <Info className="w-3.5 h-3.5 text-blue-400/70 hover:text-blue-400 transition-colors shrink-0" />
+                                <span className="absolute bottom-full right-0 mb-2 w-64 px-3 py-2 bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-300 rounded-lg opacity-0 invisible group-hover/tip:opacity-100 group-hover/tip:visible transition-all z-50 pointer-events-none shadow-xl leading-[1.6] break-words">
+                                    {children}
+                                </span>
+                            </span>
+                        );
                         return (
                     <GlassCard className="p-5">
                         <h2 className="text-white font-semibold mb-4">Phase Timeline</h2>
@@ -494,20 +512,37 @@ export default function FreelancerDisputeDetailPage() {
                             {/* Opened */}
                             <div className="relative">
                                 <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-zinc-400 border-2 border-zinc-900" />
-                                <p className="text-xs text-zinc-500">Opened</p>
-                                <p className="text-sm text-white">{new Date(dispute.createdAt).toLocaleDateString()}</p>
+                                <p className="text-xs text-zinc-500 inline-flex items-center gap-1">
+                                    Opened
+                                    <Tip>Dispute created • {fmt(dispute.createdAt)}</Tip>
+                                </p>
+                                <p className="text-sm text-white">{fmt(dispute.createdAt)}</p>
                             </div>
                             {/* Discussion Phase */}
                             <div className="relative">
                                 <div className={`absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full border-2 border-zinc-900 ${dispute.status === 'DISCUSSION' ? 'bg-blue-400 animate-pulse' : dispute.discussionEndedAt ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-                                <p className="text-xs text-zinc-500">Discussion Phase</p>
+                                <p className="text-xs text-zinc-500 inline-flex items-center gap-1">
+                                    Discussion Phase
+                                    <Tip>
+                                        Dispute raised by {contract.clientName}<br/>
+                                        Entered discussion phase • {fmt(dispute.createdAt)}
+                                    </Tip>
+                                </p>
                                 <p className="text-sm text-white">
                                     {dispute.status === 'DISCUSSION' ? (
                                         <span className="text-blue-400">Active</span>
                                     ) : dispute.discussionEndedAt ? (
                                         dispute.discussionDeadline && new Date(dispute.discussionEndedAt) < new Date(dispute.discussionDeadline)
-                                            ? <span className="text-emerald-400">Ended early by mutual agreement</span>
-                                            : <span className="text-zinc-400">Ended by deadline</span>
+                                            ? <span className="text-emerald-400 inline-flex items-center gap-1 flex-wrap">
+                                                Ended early by mutual agreement
+                                                {dispute.discussionEndedRequestedById && (
+                                                    <Tip>
+                                                        Requested by {roleName(dispute.discussionEndedRequestedById)} • {fmt(dispute.discussionEndedRequestedAt)}<br/>
+                                                        Accepted by {roleName(dispute.discussionEndedAcceptedById)} • {fmt(dispute.discussionEndedAcceptedAt)}
+                                                    </Tip>
+                                                )}
+                                              </span>
+                                            : <span className="text-zinc-400">Ended by deadline • {fmt(dispute.discussionEndedAt)}</span>
                                     ) : (
                                         <span className="text-zinc-600">Pending</span>
                                     )}
@@ -517,27 +552,61 @@ export default function FreelancerDisputeDetailPage() {
                             {(dispute.status !== 'DISCUSSION' || dispute.discussionEndedAt) && (
                                 <div className="relative">
                                     <div className={`absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full border-2 border-zinc-900 ${dispute.status === 'PROPOSAL' ? 'bg-violet-400 animate-pulse' : (wasAutoSettled || dispute.proposalEndedAt) ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-                                    <p className="text-xs text-zinc-500">Proposal Phase</p>
+                                    <p className="text-xs text-zinc-500 inline-flex items-center gap-1">
+                                        Proposal Phase
+                                        {dispute.proposalRequestedById ? (
+                                            <Tip>
+                                                Requested by {roleName(dispute.proposalRequestedById)} • {fmt(dispute.proposalRequestedAt)}<br/>
+                                                Accepted by {roleName(dispute.proposalAcceptedById)} • {fmt(dispute.proposalAcceptedAt)}
+                                            </Tip>
+                                        ) : (
+                                            <Tip>Transitioned automatically after discussion deadline</Tip>
+                                        )}
+                                    </p>
                                     <p className="text-sm text-white">
                                         {dispute.status === 'PROPOSAL' ? (
                                             <span className="text-violet-400">Active</span>
                                         ) : wasAutoSettled ? (
                                             <span className="text-emerald-400">Resolved automatically via settlement</span>
+                                        ) : dispute.proposalEscalatedById ? (
+                                            <span className="text-orange-400 inline-flex items-center gap-1 flex-wrap">
+                                                Ended early by escalation
+                                                <Tip>Escalated by {roleName(dispute.proposalEscalatedById)} • {fmt(dispute.proposalEscalatedAt)}</Tip>
+                                            </span>
                                         ) : dispute.proposalEndedAt ? (
                                             dispute.proposalDeadline && new Date(dispute.proposalEndedAt) < new Date(dispute.proposalDeadline)
                                                 ? <span className="text-emerald-400">Ended early by mutual agreement</span>
-                                                : <span className="text-zinc-400">Ended by deadline</span>
+                                                : <span className="text-zinc-400">Ended by deadline • {fmt(dispute.proposalEndedAt)}</span>
                                         ) : (
                                             <span className="text-zinc-600">Pending</span>
                                         )}
                                     </p>
                                 </div>
                             )}
-                            {/* Admin Review — only if dispute actually went to admin */}
+                            {/* Admin Review */}
                             {(dispute.status === 'ADMIN_REVIEW' || wentToAdmin || isResolved) && (
                                 <div className="relative">
                                     <div className={`absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full border-2 border-zinc-900 ${dispute.status === 'ADMIN_REVIEW' ? 'bg-orange-400 animate-pulse' : wentToAdmin ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-                                    <p className="text-xs text-zinc-500">Admin Review</p>
+                                    <p className="text-xs text-zinc-500 inline-flex items-center gap-1">
+                                        Admin Review
+                                        {dispute.status === 'ADMIN_REVIEW' ? (
+                                            <Tip>
+                                                Entered admin review<br/>
+                                                {dispute.proposalEscalatedById
+                                                    ? <>Escalated by {roleName(dispute.proposalEscalatedById)} • {fmt(dispute.proposalEscalatedAt)}</>
+                                                    : <>Escalated by mutual agreement • {fmt(dispute.escalatedAt)}</>
+                                                }
+                                            </Tip>
+                                        ) : wasAutoSettled ? (
+                                            <Tip>Not required — dispute resolved before escalation</Tip>
+                                        ) : (
+                                            <Tip>
+                                                Resolved by Admin • {fmt(dispute.resolvedAt)}
+                                                {dispute.freelancerPercent != null && (<><br/>Final split: {dispute.freelancerPercent}% Freelancer / {100 - dispute.freelancerPercent}% Client</>)}
+                                                {dispute.arbitrationFeePaid && (<><br/>Arbitration fee: Charged ($10)</>)}
+                                            </Tip>
+                                        )}
+                                    </p>
                                     <p className="text-sm text-white">
                                         {dispute.status === 'ADMIN_REVIEW' ? (
                                             <span className="text-orange-400">Active</span>
@@ -553,8 +622,14 @@ export default function FreelancerDisputeDetailPage() {
                             {(dispute.status === 'RESOLVED' || dispute.status === 'CLOSED') && (
                                 <div className="relative">
                                     <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-zinc-900" />
-                                    <p className="text-xs text-zinc-500">Resolved</p>
-                                    <p className="text-sm text-emerald-400">{dispute.resolvedAt ? new Date(dispute.resolvedAt).toLocaleDateString() : ''}</p>
+                                    <p className="text-xs text-zinc-500 inline-flex items-center gap-1">
+                                        Resolved
+                                        <Tip>
+                                            {wasAutoSettled ? 'Auto-settled via matching proposals' : 'Resolved by admin decision'}<br/>
+                                            {fmt(dispute.resolvedAt)}
+                                        </Tip>
+                                    </p>
+                                    <p className="text-sm text-emerald-400">{fmt(dispute.resolvedAt)}</p>
                                 </div>
                             )}
                         </div>
@@ -689,20 +764,21 @@ export default function FreelancerDisputeDetailPage() {
                                             </button>
                                         </div>
                                     ) : (
-                                        <button
-                                            onClick={() => startTransition(async () => {
-                                                const result = await requestPhaseTransition(disputeId);
-                                                if (result.success) {
-                                                    toast.success(result.transitioned ? 'Escalated to admin review!' : 'Request sent — waiting for other party');
-                                                    loadData();
-                                                } else toast.error(result.error || 'Failed');
-                                            })}
-                                            disabled={isPending}
-                                            className="w-full px-4 py-2 bg-orange-500/20 text-orange-400 rounded-lg hover:bg-orange-500/30 transition-colors text-sm disabled:opacity-40"
-                                        >
-                                            <Shield className="w-4 h-4 inline mr-2" />
-                                            Escalate to Admin Review
-                                        </button>
+                                        <div className="space-y-2">
+                                            {parseFloat(walletBalance) < 10 && (
+                                                <div className="px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                                    <p className="text-red-400 text-xs">Insufficient wallet balance (${walletBalance}). Deposit at least $10 to escalate.</p>
+                                                </div>
+                                            )}
+                                            <button
+                                                onClick={handleEscalate}
+                                                disabled={isPending || parseFloat(walletBalance) < 10}
+                                                className="w-full px-4 py-2 bg-orange-500/20 text-orange-400 rounded-lg hover:bg-orange-500/30 transition-colors text-sm disabled:opacity-40"
+                                            >
+                                                <Shield className="w-4 h-4 inline mr-2" />
+                                                Escalate to Admin Review ($10)
+                                            </button>
+                                        </div>
                                     )
                                 )}
                             </div>

@@ -650,7 +650,7 @@ export async function submitProposal(
 }
 
 // ============================================================================
-// escalateToAdmin — Move dispute to ADMIN_REVIEW phase
+// escalateToAdmin — Move dispute to ADMIN_REVIEW phase ($10 arbitration fee)
 // ============================================================================
 
 export async function escalateToAdmin(
@@ -689,34 +689,86 @@ export async function escalateToAdmin(
             return { error: 'Dispute can only be escalated during the Proposal phase.' };
         }
 
+        const ARBITRATION_FEE_AMOUNT = new Prisma.Decimal(10);
+
         await db.$transaction(async (tx) => {
+            // 1. Find or create wallet
+            let wallet = await tx.wallet.findUnique({ where: { userId: escalateUserId } });
+            if (!wallet) {
+                wallet = await tx.wallet.create({ data: { userId: escalateUserId } });
+            }
+
+            // 2. Compute balance from ledger
+            const balanceResult = await tx.walletLedger.aggregate({
+                where: { walletId: wallet.id },
+                _sum: { amount: true },
+            });
+            const balance = new Prisma.Decimal(balanceResult._sum.amount ?? 0);
+
+            // 3. Insufficient balance guard
+            if (balance.lessThan(ARBITRATION_FEE_AMOUNT)) {
+                throw new Error('INSUFFICIENT_BALANCE');
+            }
+
+            // 4. Deduct $10 arbitration fee
+            await tx.walletLedger.create({
+                data: {
+                    walletId: wallet.id,
+                    amount: ARBITRATION_FEE_AMOUNT.negated(),
+                    type: WalletTransactionType.ARBITRATION_FEE,
+                    disputeId,
+                },
+            });
+
+            // 5. Update dispute status + track fee payment
             await tx.dispute.update({
                 where: { id: disputeId },
                 data: {
                     status: DisputeStatus.ADMIN_REVIEW,
                     escalatedAt: new Date(),
+                    proposalEndedAt: new Date(),
+                    proposalEscalatedById: escalateUserId,
+                    proposalEscalatedAt: new Date(),
+                    arbitrationFeePaid: true,
+                    arbitrationFeePayerId: escalateUserId,
                 },
             });
 
+            // 6. System message
             await tx.disputeMessage.create({
                 data: {
                     disputeId,
                     senderId: escalateUserId,
-                    content: 'Dispute escalated to admin review.',
+                    content: 'Dispute escalated to admin review. A $10 arbitration fee has been charged.',
                     isSystem: true,
                 },
             });
-        });
+
+            // 7. Financial mutation log
+            await tx.financialMutationLog.create({
+                data: {
+                    action: 'ARBITRATION_FEE_CHARGED',
+                    userId: escalateUserId,
+                    contractId: contract.id,
+                    milestoneId: dispute.milestoneId,
+                    metadata: {
+                        disputeId,
+                        amount: ARBITRATION_FEE_AMOUNT.toFixed(2),
+                        payerId: escalateUserId,
+                    },
+                },
+            });
+        }, { isolationLevel: 'Serializable' });
 
         recordLifecycleEvent({
             contractId: contract.id,
             milestoneId: dispute.milestoneId,
             eventType: 'DISPUTE_ESCALATED',
             devState: 'ACTIVE',
-            userMessage: 'Dispute escalated to admin review',
+            userMessage: 'Dispute escalated to admin review ($10 arbitration fee charged)',
             actorId: escalateUserId,
             actorRole: contract.client.userId === escalateUserId ? 'CLIENT' : 'FREELANCER',
-            metadata: { disputeId },
+            metadata: { disputeId, arbitrationFee: '10.00' },
         });
 
         revalidatePath(`/client/disputes/${disputeId}`);
@@ -727,6 +779,9 @@ export async function escalateToAdmin(
 
         return { success: true };
     } catch (error) {
+        if (error instanceof Error && error.message === 'INSUFFICIENT_BALANCE') {
+            return { error: 'Insufficient wallet balance. Deposit at least $10 to escalate.' };
+        }
         console.error('[escalateToAdmin] Error:', error);
         return { error: 'Failed to escalate dispute' };
     }
@@ -795,12 +850,23 @@ export async function requestPhaseTransition(
             if (bothReady) {
                 // Both parties agree — transition!
                 if (dispute.status === DisputeStatus.DISCUSSION) {
+                    const requesterId = isClient ? contract.freelancer.userId : contract.client.userId;
                     await tx.dispute.update({
                         where: { id: disputeId },
                         data: {
                             ...flagUpdate,
                             status: DisputeStatus.PROPOSAL,
                             discussionEndedAt: new Date(),
+                            // Track who requested and who accepted
+                            discussionEndedRequestedById: requesterId,
+                            discussionEndedRequestedAt: new Date(),
+                            discussionEndedAcceptedById: userId,
+                            discussionEndedAcceptedAt: new Date(),
+                            // Proposal start tracking
+                            proposalRequestedById: requesterId,
+                            proposalRequestedAt: new Date(),
+                            proposalAcceptedById: userId,
+                            proposalAcceptedAt: new Date(),
                             phaseAdvanceClient: false,
                             phaseAdvanceFreelancer: false,
                         },
@@ -836,12 +902,14 @@ export async function requestPhaseTransition(
                     });
                 }
             } else {
-                // Only this user — just set flag + system message
+                // Only this user — just set flag + store as requester
+                const phaseLabel = dispute.status === DisputeStatus.DISCUSSION ? 'Proposal phase' : 'admin review';
                 await tx.dispute.update({
                     where: { id: disputeId },
-                    data: flagUpdate,
+                    data: {
+                        ...flagUpdate,
+                    },
                 });
-                const phaseLabel = dispute.status === DisputeStatus.DISCUSSION ? 'Proposal phase' : 'admin review';
                 await tx.disputeMessage.create({
                     data: {
                         disputeId,
@@ -888,7 +956,8 @@ export async function resolveDisputeAdmin(
     disputeId: string,
     freelancerPercent: number,
     resolutionNote: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    refundArbitrationFee: boolean = false
 ): Promise<{ success?: boolean; error?: string }> {
     try {
         const session = await auth();
@@ -904,7 +973,74 @@ export async function resolveDisputeAdmin(
             return { error: 'Resolution note must be at least 5 characters.' };
         }
 
-        return await executeResolution(disputeId, freelancerPercent, session.user.id, resolutionNote.trim(), idempotencyKey);
+        const result = await executeResolution(disputeId, freelancerPercent, session.user.id, resolutionNote.trim(), idempotencyKey);
+
+        // Handle arbitration fee refund (post-resolution, separate transaction)
+        if (result.success && refundArbitrationFee) {
+            try {
+                await db.$transaction(async (tx) => {
+                    // Fetch dispute to check fee state
+                    const dispute = await tx.dispute.findUnique({
+                        where: { id: disputeId },
+                        select: { arbitrationFeePaid: true, arbitrationFeePayerId: true },
+                    });
+
+                    if (!dispute?.arbitrationFeePaid || !dispute.arbitrationFeePayerId) {
+                        return; // No fee was paid — nothing to refund
+                    }
+
+                    // Double-refund guard: check for existing ARBITRATION_FEE_REFUND
+                    const existingRefund = await tx.walletLedger.findFirst({
+                        where: {
+                            disputeId,
+                            type: WalletTransactionType.ARBITRATION_FEE_REFUND,
+                        },
+                    });
+                    if (existingRefund) {
+                        return; // Already refunded — skip silently
+                    }
+
+                    // Find or create payer's wallet
+                    let payerWallet = await tx.wallet.findUnique({
+                        where: { userId: dispute.arbitrationFeePayerId },
+                    });
+                    if (!payerWallet) {
+                        payerWallet = await tx.wallet.create({
+                            data: { userId: dispute.arbitrationFeePayerId },
+                        });
+                    }
+
+                    // Credit refund
+                    await tx.walletLedger.create({
+                        data: {
+                            walletId: payerWallet.id,
+                            amount: new Prisma.Decimal(10),
+                            type: WalletTransactionType.ARBITRATION_FEE_REFUND,
+                            disputeId,
+                        },
+                    });
+
+                    // Mutation log
+                    await tx.financialMutationLog.create({
+                        data: {
+                            action: 'ARBITRATION_FEE_REFUNDED',
+                            userId: session.user.id,
+                            metadata: {
+                                disputeId,
+                                refundedTo: dispute.arbitrationFeePayerId,
+                                amount: '10.00',
+                                adminId: session.user.id,
+                            },
+                        },
+                    });
+                }, { isolationLevel: 'Serializable' });
+            } catch (refundError) {
+                console.error('[resolveDisputeAdmin] Refund error (non-fatal):', refundError);
+                // Resolution succeeded even if refund failed — don't fail the whole op
+            }
+        }
+
+        return result;
     } catch (error) {
         console.error('[resolveDisputeAdmin] Error:', error);
         return { error: 'Failed to resolve dispute' };
@@ -1343,6 +1479,19 @@ export async function getDispute(disputeId: string) {
                 proposalDeadline: dispute.proposalDeadline?.toISOString() ?? null,
                 discussionEndedAt: dispute.discussionEndedAt?.toISOString() ?? null,
                 proposalEndedAt: dispute.proposalEndedAt?.toISOString() ?? null,
+                // Discussion phase early-end tracking
+                discussionEndedRequestedById: dispute.discussionEndedRequestedById ?? null,
+                discussionEndedRequestedAt: dispute.discussionEndedRequestedAt?.toISOString() ?? null,
+                discussionEndedAcceptedById: dispute.discussionEndedAcceptedById ?? null,
+                discussionEndedAcceptedAt: dispute.discussionEndedAcceptedAt?.toISOString() ?? null,
+                // Proposal phase start tracking
+                proposalRequestedById: dispute.proposalRequestedById ?? null,
+                proposalRequestedAt: dispute.proposalRequestedAt?.toISOString() ?? null,
+                proposalAcceptedById: dispute.proposalAcceptedById ?? null,
+                proposalAcceptedAt: dispute.proposalAcceptedAt?.toISOString() ?? null,
+                // Proposal escalation tracking
+                proposalEscalatedById: dispute.proposalEscalatedById ?? null,
+                proposalEscalatedAt: dispute.proposalEscalatedAt?.toISOString() ?? null,
                 messages: dispute.messages.map(m => ({
                     ...m,
                     createdAt: m.createdAt.toISOString(),
@@ -1395,7 +1544,16 @@ export async function getDispute(disputeId: string) {
             lockAmount: lock ? new Prisma.Decimal(lock.amount).toFixed(2) : (dispute.snapshot as Record<string, string>).escrowLockAmount ?? '0.00',
             currentUserId: session.user.id,
             isAdmin,
-
+            // Wallet balance for escalation fee check
+            walletBalance: await (async () => {
+                const wallet = await db.wallet.findUnique({ where: { userId: session.user.id } });
+                if (!wallet) return '0.00';
+                const result = await db.walletLedger.aggregate({
+                    where: { walletId: wallet.id },
+                    _sum: { amount: true },
+                });
+                return new Prisma.Decimal(result._sum.amount ?? 0).toFixed(2);
+            })(),
         };
     } catch (error) {
         console.error('[getDispute] Error:', error);
