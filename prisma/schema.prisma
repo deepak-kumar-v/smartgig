@@ -169,7 +169,17 @@ model FreelancerProfile {
   title         String
   bio           String?
   hourlyRate    Float
-  availability  String?  @default("FULL_TIME") // Was Availability enum
+  availability  String?  @default("AVAILABLE")
+  country       String?
+  city          String?
+  timezone      String?
+  weeklyHours   Int?     @default(40)
+  experienceLevel String? @default("INTERMEDIATE") // ENTRY, INTERMEDIATE, EXPERT
+  currency      String?  @default("USD")
+  education     String?
+  experienceYears Int?
+  experienceSummary String?
+  languages     String[]
   skills        Skill[]
   
   portfolio     PortfolioItem[]

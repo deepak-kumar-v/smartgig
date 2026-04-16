@@ -1,17 +1,16 @@
-
 import React from 'react';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import Link from 'next/link';
 import {
-    MapPin, Globe, Clock, Star, CheckCircle, Shield,
-    Briefcase, GraduationCap, Award, MessageSquare,
-    DollarSign, Calendar, TrendingUp, Users, ExternalLink,
-    AlertCircle
+    MapPin, Clock, Star, CheckCircle, Shield,
+    Briefcase, DollarSign, Calendar, TrendingUp, Users,
+    AlertCircle, GraduationCap, Globe
 } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { redirect } from 'next/navigation';
+import { getCurrencySymbol } from '@/lib/currency';
 
 function ReputationBar({ label, score }: { label: string; score: number }) {
     return (
@@ -45,17 +44,18 @@ export default async function FreelancerProfilePage() {
                     skills: true,
                     portfolio: true,
                     reviews: true,
+                    contracts: {
+                        where: { status: 'COMPLETED' },
+                        select: { id: true },
+                    },
                 }
             },
-            wallet: true, // For earnings (if needed later)
         }
     });
 
     if (!user) {
         return (
-            <>
-                <div className="text-center text-zinc-400 mt-20">User not found</div>
-            </>
+            <div className="text-center text-zinc-400 mt-20">User not found</div>
         );
     }
 
@@ -63,43 +63,28 @@ export default async function FreelancerProfilePage() {
 
     if (!profile) {
         return (
-            <>
-                <div className="max-w-2xl mx-auto mt-20 text-center space-y-4">
-                    <div className="p-4 bg-zinc-800/50 rounded-xl inline-block">
-                        <AlertCircle className="w-10 h-10 text-zinc-500 mx-auto" />
-                    </div>
-                    <h1 className="text-2xl font-bold text-white">Profile Not Found</h1>
-                    <p className="text-zinc-400">Please complete your freelancer profile to view this page.</p>
-                    <Link href="/onboarding/freelancer">
-                        <GlassButton variant="primary">Create Profile</GlassButton>
-                    </Link>
+            <div className="max-w-2xl mx-auto mt-20 text-center space-y-4">
+                <div className="p-4 bg-zinc-800/50 rounded-xl inline-block">
+                    <AlertCircle className="w-10 h-10 text-zinc-500 mx-auto" />
                 </div>
-            </>
+                <h1 className="text-2xl font-bold text-white">Profile Not Found</h1>
+                <p className="text-zinc-400">Please complete your freelancer profile to view this page.</p>
+                <Link href="/onboarding/freelancer">
+                    <GlassButton variant="primary">Create Profile</GlassButton>
+                </Link>
+            </div>
         );
     }
 
-    // Adapt DB data to match UI expectations where possible
-    // Note: Some fields like City, Country, Timezone, Education, Certs are not in DB yet
-    // I will use placeholders or hide sections based on data availability
-
+    // Computed stats from real data
     const reviews = profile.reviews || [];
     const skills = profile.skills || [];
     const portfolio = profile.portfolio || [];
-
-    // Calculate aggregated stats if possible, or use defaults
-    const completedJobs = 0; // Requires Contract relation aggregation
-    const successRate = 100; // Default/Mock logic or calculate from reviews
-    const totalEarnings = 0; // Requires WalletLedger aggregation
-
-    // Default Mock Reputation for now (since not in DB)
-    const reputation = {
-        overallScore: user.trustScore,
-        totalReviews: reviews.length,
-        qualityScore: 98,
-        communicationScore: 95,
-        timelinessScore: 92,
-        cooperationScore: 99,
-    };
+    const completedJobs = profile.contracts?.length || 0;
+    const totalReviews = reviews.length;
+    const avgRating = totalReviews > 0
+        ? reviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews
+        : 0;
 
     return (
         <>
@@ -151,34 +136,96 @@ export default async function FreelancerProfilePage() {
                                     <p className="text-zinc-400 mb-4">{profile.title}</p>
 
                                     <div className="flex flex-wrap gap-4 text-sm text-zinc-500">
-                                        {/* Mock Location for now as not in DB */}
-                                        <span className="flex items-center gap-1">
-                                            <MapPin className="w-4 h-4" /> Global
-                                        </span>
+                                        {(profile.city || profile.country) && (
+                                            <span className="flex items-center gap-1">
+                                                <MapPin className="w-4 h-4" />
+                                                {[profile.city, profile.country].filter(Boolean).join(', ')}
+                                            </span>
+                                        )}
+                                        {profile.timezone && (
+                                            <span className="flex items-center gap-1">
+                                                <Clock className="w-4 h-4" /> {profile.timezone}
+                                            </span>
+                                        )}
                                         <span className="flex items-center gap-1">
                                             <Calendar className="w-4 h-4" /> Member since {new Date(user.createdAt).getFullYear()}
                                         </span>
                                     </div>
 
                                     <div className="flex items-center gap-6 mt-4">
-                                        <div className="flex items-center gap-1">
-                                            <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
-                                            <span className="text-white font-bold">{reputation.overallScore.toFixed(0)}</span>
-                                            <span className="text-zinc-500 text-sm">({reputation.totalReviews} reviews)</span>
-                                        </div>
-                                        <div className="text-sm text-zinc-500">
-                                            <span className="text-emerald-400 font-medium">{successRate}%</span> success rate
-                                        </div>
+                                        {totalReviews > 0 && (
+                                            <div className="flex items-center gap-1">
+                                                <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
+                                                <span className="text-white font-bold">{avgRating.toFixed(1)}</span>
+                                                <span className="text-zinc-500 text-sm">({totalReviews} reviews)</span>
+                                            </div>
+                                        )}
+                                        {completedJobs > 0 && (
+                                            <div className="text-sm text-zinc-500">
+                                                <span className="text-emerald-400 font-medium">{completedJobs}</span> jobs completed
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
                         </GlassCard>
 
-                        {/* Bio */}
+                        {/* About */}
                         {profile.bio && (
                             <GlassCard className="p-6">
                                 <h2 className="text-lg font-semibold text-white mb-4">About</h2>
                                 <p className="text-zinc-400 whitespace-pre-line leading-relaxed">{profile.bio}</p>
+                            </GlassCard>
+                        )}
+
+                        {/* Professional Details */}
+                        {(profile.education || profile.experienceYears != null || profile.experienceSummary || (profile.languages && profile.languages.length > 0)) && (
+                            <GlassCard className="p-6">
+                                <h2 className="text-lg font-semibold text-white mb-4">Professional Details</h2>
+                                <div className="space-y-4">
+                                    {profile.education && (
+                                        <div className="flex items-start gap-3">
+                                            <GraduationCap className="w-5 h-5 text-violet-400 mt-0.5 flex-shrink-0" />
+                                            <div>
+                                                <p className="text-sm text-zinc-500">Education</p>
+                                                <p className="text-white">{profile.education}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {profile.experienceYears != null && (
+                                        <div className="flex items-start gap-3">
+                                            <Briefcase className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+                                            <div>
+                                                <p className="text-sm text-zinc-500">Experience</p>
+                                                <p className="text-white">{profile.experienceYears} {profile.experienceYears === 1 ? 'year' : 'years'} experience</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {profile.experienceSummary && (
+                                        <div className="flex items-start gap-3">
+                                            <TrendingUp className="w-5 h-5 text-cyan-400 mt-0.5 flex-shrink-0" />
+                                            <div>
+                                                <p className="text-sm text-zinc-500">Experience Summary</p>
+                                                <p className="text-zinc-400 whitespace-pre-line leading-relaxed">{profile.experienceSummary}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {profile.languages && profile.languages.length > 0 && (
+                                        <div className="flex items-start gap-3">
+                                            <Globe className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
+                                            <div>
+                                                <p className="text-sm text-zinc-500 mb-2">Languages</p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {profile.languages.map((lang: string) => (
+                                                        <span key={lang} className="px-3 py-1 rounded-full text-sm bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                                                            {lang}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </GlassCard>
                         )}
 
@@ -197,7 +244,7 @@ export default async function FreelancerProfilePage() {
                                     ))}
                                 </div>
                             ) : (
-                                <p className="text-zinc-500 text-sm">No skills listed yet.</p>
+                                <p className="text-zinc-500 text-sm">No skills listed yet. <Link href="/freelancer/profile/edit" className="text-indigo-400 hover:text-indigo-300">Add skills</Link></p>
                             )}
                         </GlassCard>
 
@@ -215,11 +262,9 @@ export default async function FreelancerProfilePage() {
                                                     <Briefcase className="w-8 h-8 text-zinc-500" />
                                                 )}
                                             </div>
-                                            <div className="flex items-start justify-between">
-                                                <div>
-                                                    <h3 className="font-medium text-white">{item.title}</h3>
-                                                    <p className="text-sm text-zinc-500 line-clamp-2">{item.description}</p>
-                                                </div>
+                                            <div>
+                                                <h3 className="font-medium text-white">{item.title}</h3>
+                                                <p className="text-sm text-zinc-500 line-clamp-2">{item.description}</p>
                                             </div>
                                         </div>
                                     ))}
@@ -233,7 +278,7 @@ export default async function FreelancerProfilePage() {
                         <GlassCard className="p-6">
                             <div className="flex items-center justify-between mb-6">
                                 <h2 className="text-lg font-semibold text-white">Work History & Reviews</h2>
-                                <span className="text-sm text-zinc-500">{reviews.length} reviews</span>
+                                <span className="text-sm text-zinc-500">{totalReviews} reviews</span>
                             </div>
                             {reviews.length > 0 ? (
                                 <div className="space-y-6">
@@ -241,7 +286,6 @@ export default async function FreelancerProfilePage() {
                                         <div key={review.id} className="pb-6 border-b border-zinc-800 last:border-0">
                                             <div className="flex items-start justify-between mb-3">
                                                 <div>
-                                                    {/* Ideally fetch Project Name from Contract/Review relation if user included */}
                                                     <h3 className="font-medium text-white">Project Review</h3>
                                                     <div className="flex items-center gap-1">
                                                         {[...Array(5)].map((_, i) => (
@@ -280,10 +324,7 @@ export default async function FreelancerProfilePage() {
                                 </div>
                             </div>
                             <div className="space-y-3">
-                                <ReputationBar label="Quality" score={reputation.qualityScore} />
-                                <ReputationBar label="Communication" score={reputation.communicationScore} />
-                                <ReputationBar label="Timeliness" score={reputation.timelinessScore} />
-                                <ReputationBar label="Cooperation" score={reputation.cooperationScore} />
+                                <ReputationBar label="Platform Standing" score={Math.round(user.trustScore)} />
                             </div>
                         </GlassCard>
 
@@ -299,22 +340,46 @@ export default async function FreelancerProfilePage() {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-zinc-500 flex items-center gap-2">
-                                        <TrendingUp className="w-4 h-4" /> Success Rate
+                                        <Star className="w-4 h-4" /> Avg Rating
                                     </span>
-                                    <span className="text-emerald-400 font-medium">{successRate}%</span>
+                                    <span className="text-white font-medium">
+                                        {totalReviews > 0 ? `${avgRating.toFixed(1)}/5` : 'N/A'}
+                                    </span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-zinc-500 flex items-center gap-2">
                                         <DollarSign className="w-4 h-4" /> Hourly Rate
                                     </span>
-                                    <span className="text-white font-medium">${profile.hourlyRate}/hr</span>
+                                    <span className="text-white font-medium">
+                                        {getCurrencySymbol(profile.currency)}{profile.hourlyRate}/hr
+                                    </span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-zinc-500 flex items-center gap-2">
                                         <Users className="w-4 h-4" /> Availability
                                     </span>
-                                    <span className="text-white font-medium capitalize">{profile.availability?.toLowerCase().replace('_', ' ')}</span>
+                                    <span className="text-white font-medium capitalize">
+                                        {profile.availability?.toLowerCase().replace('_', ' ')}
+                                    </span>
                                 </div>
+                                {profile.weeklyHours && (
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500 flex items-center gap-2">
+                                            <Clock className="w-4 h-4" /> Weekly Hours
+                                        </span>
+                                        <span className="text-white font-medium">{profile.weeklyHours}h/week</span>
+                                    </div>
+                                )}
+                                {profile.experienceLevel && (
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500 flex items-center gap-2">
+                                            <TrendingUp className="w-4 h-4" /> Experience
+                                        </span>
+                                        <span className="text-white font-medium capitalize">
+                                            {profile.experienceLevel.toLowerCase()}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </GlassCard>
 
@@ -332,7 +397,7 @@ export default async function FreelancerProfilePage() {
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <CheckCircle className={`w-5 h-5 ${user.phone ? 'text-emerald-400' : 'text-zinc-600'}`} />
-                                    <span className={user.phone ? 'text-zinc-300' : 'text-zinc-500'}>Phone Verified</span>
+                                    <span className={user.phone ? 'text-zinc-300' : 'text-zinc-500'}>Phone Number</span>
                                 </div>
                             </div>
                         </GlassCard>
