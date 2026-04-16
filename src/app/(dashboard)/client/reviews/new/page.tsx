@@ -1,34 +1,17 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassTextarea } from '@/components/ui/glass-textarea';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
     Star, Send, ArrowLeft, CheckCircle, Clock, MessageSquare,
-    RefreshCw, DollarSign, Loader2, Lock, AlertCircle
+    Loader2, AlertCircle, Shield, Zap
 } from 'lucide-react';
-import { useSession } from 'next-auth/react';
-
-// Mock contract data
-const mockContract = {
-    id: 'contract-1',
-    title: 'Backend API Development',
-    freelancer: { id: 'f-1', name: 'David Kim', avatar: null },
-    client: { id: 'c-1', name: 'Sarah Chen', company: 'TechCorp Solutions' },
-    totalAmount: 6500,
-    completedAt: '2025-01-15',
-};
-
-interface RatingCategory {
-    id: string;
-    label: string;
-    description: string;
-    icon: React.ElementType;
-    value: number;
-}
+import { submitReview } from '@/actions/review-actions';
+import { toast } from 'sonner';
 
 function StarRating({
     value,
@@ -68,47 +51,124 @@ function StarRating({
     );
 }
 
-export default function NewReviewPage() {
-    const searchParams = useSearchParams();
-    const contractId = searchParams.get('contractId') || mockContract.id;
-    const { data: session } = useSession();
-    const userRole = session?.user?.role ? session.user.role.toLowerCase() as 'freelancer' | 'client' | 'admin' : 'freelancer';
-    const isFreelancer = userRole === 'freelancer';
+interface ContractData {
+    id: string;
+    title: string;
+    otherPartyName: string;
+    totalBudget: number;
+    type: string;
+}
 
+interface RatingCategory {
+    id: string;
+    label: string;
+    description: string;
+    icon: React.ElementType;
+    value: number;
+}
+
+export default function ClientNewReviewPage() {
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const contractId = searchParams.get('contractId') || '';
+
+    const [contract, setContract] = useState<ContractData | null>(null);
+    const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    // Rating categories
     const [ratings, setRatings] = useState<RatingCategory[]>([
-        { id: 'overall', label: 'Overall Experience', description: 'How was your overall experience?', icon: Star, value: 0 },
         { id: 'quality', label: 'Quality of Work', description: 'How was the quality of deliverables?', icon: CheckCircle, value: 0 },
-        { id: 'timeliness', label: 'Timeliness', description: 'Were deadlines met consistently?', icon: Clock, value: 0 },
         { id: 'communication', label: 'Communication', description: 'How responsive and clear was communication?', icon: MessageSquare, value: 0 },
-        { id: 'revisions', label: 'Revision Handling', description: 'How well were revision requests handled?', icon: RefreshCw, value: 0 },
-        { id: 'value', label: isFreelancer ? 'Payment Fairness' : 'Value for Money', description: isFreelancer ? 'Was payment timely and fair?' : 'Was the work worth the cost?', icon: DollarSign, value: 0 },
+        { id: 'timeliness', label: 'Timeliness', description: 'Were deadlines met consistently?', icon: Clock, value: 0 },
+        { id: 'professionalism', label: 'Professionalism', description: 'How professional was the overall conduct?', icon: Shield, value: 0 },
+        { id: 'reliability', label: 'Reliability', description: 'How dependable and consistent was the work?', icon: Zap, value: 0 },
     ]);
 
     const [publicReview, setPublicReview] = useState('');
-    const [privateNote, setPrivateNote] = useState('');
-    const [wouldRecommend, setWouldRecommend] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        async function loadContract() {
+            if (!contractId) {
+                // Redirect to reviews page instead of showing error
+                router.replace('/client/reviews');
+                return;
+            }
+            try {
+                const res = await fetch(`/api/contracts/${contractId}/review-data`);
+                if (!res.ok) {
+                    setError('Contract not found or not eligible for review');
+                    setLoading(false);
+                    return;
+                }
+                const data = await res.json();
+                setContract(data);
+            } catch {
+                setError('Failed to load contract data');
+            }
+            setLoading(false);
+        }
+        loadContract();
+    }, [contractId]);
 
     const updateRating = (id: string, value: number) => {
         setRatings(prev => prev.map(r => r.id === id ? { ...r, value } : r));
     };
 
     const averageRating = ratings.reduce((sum, r) => sum + r.value, 0) / ratings.length;
-    const canSubmit = ratings.every(r => r.value > 0) && publicReview.length >= 50 && wouldRecommend !== null;
+    const canSubmit = ratings.every(r => r.value > 0) && publicReview.length >= 20;
 
     const handleSubmit = async () => {
-        if (!canSubmit) return;
+        if (!canSubmit || !contractId) return;
 
         setSubmitting(true);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        const result = await submitReview({
+            contractId,
+            quality: ratings.find(r => r.id === 'quality')!.value,
+            communication: ratings.find(r => r.id === 'communication')!.value,
+            timeliness: ratings.find(r => r.id === 'timeliness')!.value,
+            professionalism: ratings.find(r => r.id === 'professionalism')!.value,
+            reliability: ratings.find(r => r.id === 'reliability')!.value,
+            comment: publicReview,
+        });
+
         setSubmitting(false);
+
+        if (result.error) {
+            toast.error(result.error);
+            return;
+        }
+
         setSubmitted(true);
+        toast.success('Review submitted successfully!');
     };
 
-    // Success state
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+            </div>
+        );
+    }
+
+    if (error || !contract) {
+        return (
+            <>
+                <div className="max-w-2xl mx-auto text-center py-12">
+                    <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+                        <AlertCircle className="w-8 h-8 text-red-400" />
+                    </div>
+                    <h1 className="text-xl font-bold text-white mb-2">{error || 'Contract not found'}</h1>
+                    <p className="text-zinc-400 mb-6">Please select a valid completed contract to review.</p>
+                    <Link href="/client/dashboard">
+                        <GlassButton variant="secondary">Back to Dashboard</GlassButton>
+                    </Link>
+                </div>
+            </>
+        );
+    }
+
     if (submitted) {
         return (
             <>
@@ -125,15 +185,8 @@ export default function NewReviewPage() {
                         <p className="text-white font-bold text-lg mt-2">{averageRating.toFixed(1)} / 5.0</p>
                     </div>
                     <div className="flex gap-4 justify-center">
-                        <Link href={`/contracts/${contractId}`}>
-                            <GlassButton variant="secondary">
-                                View Contract
-                            </GlassButton>
-                        </Link>
-                        <Link href={isFreelancer ? '/freelancer/dashboard' : '/client/dashboard'}>
-                            <GlassButton variant="primary">
-                                Go to Dashboard
-                            </GlassButton>
+                        <Link href="/client/dashboard">
+                            <GlassButton variant="primary">Go to Dashboard</GlassButton>
                         </Link>
                     </div>
                 </div>
@@ -144,40 +197,32 @@ export default function NewReviewPage() {
     return (
         <>
             <div className="max-w-3xl mx-auto space-y-6">
-                {/* Header */}
                 <div>
-                    <Link href={`/contracts/${contractId}`} className="text-zinc-500 hover:text-white text-sm inline-flex items-center gap-1 mb-2">
-                        <ArrowLeft className="w-4 h-4" /> Back to Contract
+                    <Link href="/client/dashboard" className="text-zinc-500 hover:text-white text-sm inline-flex items-center gap-1 mb-2">
+                        <ArrowLeft className="w-4 h-4" /> Back to Dashboard
                     </Link>
                     <h1 className="text-2xl font-bold text-white">Leave a Review</h1>
-                    <p className="text-zinc-400">Share your experience working on this project</p>
+                    <p className="text-zinc-400">Share your experience working with this freelancer</p>
                 </div>
 
-                {/* Contract Summary */}
                 <GlassCard className="p-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
                             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold">
-                                {isFreelancer
-                                    ? mockContract.client.name.split(' ').map(n => n[0]).join('')
-                                    : mockContract.freelancer.name.split(' ').map(n => n[0]).join('')
-                                }
+                                {contract.otherPartyName.split(' ').map(n => n[0]).join('').slice(0, 2)}
                             </div>
                             <div>
-                                <p className="text-white font-medium">{mockContract.title}</p>
-                                <p className="text-zinc-500 text-sm">
-                                    {isFreelancer ? `Client: ${mockContract.client.name}` : `Freelancer: ${mockContract.freelancer.name}`}
-                                </p>
+                                <p className="text-white font-medium">{contract.title}</p>
+                                <p className="text-zinc-500 text-sm">Freelancer: {contract.otherPartyName}</p>
                             </div>
                         </div>
                         <div className="text-right">
-                            <p className="text-emerald-400 font-bold">${mockContract.totalAmount.toLocaleString()}</p>
-                            <p className="text-zinc-500 text-xs">Completed {mockContract.completedAt}</p>
+                            <p className="text-emerald-400 font-bold">${contract.totalBudget.toLocaleString()}</p>
+                            <span className="text-xs px-2 py-0.5 rounded bg-zinc-700 text-zinc-400">{contract.type}</span>
                         </div>
                     </div>
                 </GlassCard>
 
-                {/* Rating Categories */}
                 <GlassCard className="p-6">
                     <h2 className="text-lg font-semibold text-white mb-6">Rate Your Experience</h2>
                     <div className="space-y-6">
@@ -192,15 +237,11 @@ export default function NewReviewPage() {
                                         <p className="text-zinc-500 text-sm">{rating.description}</p>
                                     </div>
                                 </div>
-                                <StarRating
-                                    value={rating.value}
-                                    onChange={(val) => updateRating(rating.id, val)}
-                                />
+                                <StarRating value={rating.value} onChange={(val) => updateRating(rating.id, val)} />
                             </div>
                         ))}
                     </div>
 
-                    {/* Average Display */}
                     {ratings.every(r => r.value > 0) && (
                         <div className="mt-6 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-center">
                             <p className="text-indigo-400 text-sm mb-2">Average Rating</p>
@@ -212,75 +253,25 @@ export default function NewReviewPage() {
                     )}
                 </GlassCard>
 
-                {/* Written Review */}
                 <GlassCard className="p-6">
                     <h2 className="text-lg font-semibold text-white mb-4">Written Review</h2>
-
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-white text-sm font-medium">Public Review *</label>
-                            <GlassTextarea
-                                value={publicReview}
-                                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPublicReview(e.target.value)}
-                                placeholder="Share your experience. What went well? What could be improved? This will be visible on their profile."
-                                rows={5}
-                            />
-                            <div className="flex justify-between text-xs">
-                                <span className="text-zinc-500">{publicReview.length}/2000 characters</span>
-                                <span className={publicReview.length >= 50 ? 'text-emerald-400' : 'text-amber-400'}>
-                                    Minimum 50 characters required
-                                </span>
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-white text-sm font-medium flex items-center gap-2">
-                                <Lock className="w-4 h-4 text-zinc-500" />
-                                Private Note for SmartGIG (Optional)
-                            </label>
-                            <GlassTextarea
-                                value={privateNote}
-                                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPrivateNote(e.target.value)}
-                                placeholder="Any private feedback for our team? This won't be shared with the other party."
-                                rows={3}
-                            />
-                            <p className="text-zinc-500 text-xs">Only SmartGIG admins will see this</p>
+                    <div className="space-y-2">
+                        <label className="text-white text-sm font-medium">Public Review *</label>
+                        <GlassTextarea
+                            value={publicReview}
+                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPublicReview(e.target.value)}
+                            placeholder="Share your experience. What went well? What could be improved?"
+                            rows={5}
+                        />
+                        <div className="flex justify-between text-xs">
+                            <span className="text-zinc-500">{publicReview.length}/2000 characters</span>
+                            <span className={publicReview.length >= 20 ? 'text-emerald-400' : 'text-amber-400'}>
+                                Minimum 20 characters required
+                            </span>
                         </div>
                     </div>
                 </GlassCard>
 
-                {/* Recommendation */}
-                <GlassCard className="p-6">
-                    <h2 className="text-lg font-semibold text-white mb-4">Would you recommend?</h2>
-                    <div className="flex gap-4">
-                        <button
-                            onClick={() => setWouldRecommend(true)}
-                            className={`flex-1 p-4 rounded-xl border transition-all ${wouldRecommend === true
-                                ? 'border-emerald-500 bg-emerald-500/10'
-                                : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
-                                }`}
-                        >
-                            <span className="text-3xl mb-2">👍</span>
-                            <p className={`font-medium ${wouldRecommend === true ? 'text-emerald-400' : 'text-white'}`}>
-                                Yes, I would!
-                            </p>
-                        </button>
-                        <button
-                            onClick={() => setWouldRecommend(false)}
-                            className={`flex-1 p-4 rounded-xl border transition-all ${wouldRecommend === false
-                                ? 'border-rose-500 bg-rose-500/10'
-                                : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
-                                }`}
-                        >
-                            <span className="text-3xl mb-2">👎</span>
-                            <p className={`font-medium ${wouldRecommend === false ? 'text-rose-400' : 'text-white'}`}>
-                                No, not really
-                            </p>
-                        </button>
-                    </div>
-                </GlassCard>
-
-                {/* Validation Warning */}
                 {!canSubmit && (
                     <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                         <div className="flex items-start gap-3">
@@ -289,34 +280,22 @@ export default function NewReviewPage() {
                                 <p className="text-amber-400 font-medium">Please complete all fields</p>
                                 <ul className="text-amber-400/70 text-sm mt-1 space-y-1">
                                     {ratings.some(r => r.value === 0) && <li>• Rate all categories</li>}
-                                    {publicReview.length < 50 && <li>• Write at least 50 characters in your review</li>}
-                                    {wouldRecommend === null && <li>• Select whether you would recommend</li>}
+                                    {publicReview.length < 20 && <li>• Write at least 20 characters</li>}
                                 </ul>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* Submit */}
                 <div className="flex justify-end gap-4">
-                    <Link href={`/contracts/${contractId}`}>
+                    <Link href="/client/dashboard">
                         <GlassButton variant="secondary">Cancel</GlassButton>
                     </Link>
-                    <GlassButton
-                        variant="primary"
-                        onClick={handleSubmit}
-                        disabled={!canSubmit || submitting}
-                    >
+                    <GlassButton variant="primary" onClick={handleSubmit} disabled={!canSubmit || submitting}>
                         {submitting ? (
-                            <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Submitting...
-                            </>
+                            <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Submitting...</>
                         ) : (
-                            <>
-                                <Send className="w-4 h-4 mr-2" />
-                                Submit Review
-                            </>
+                            <><Send className="w-4 h-4 mr-2" />Submit Review</>
                         )}
                     </GlassButton>
                 </div>

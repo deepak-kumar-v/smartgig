@@ -13,6 +13,8 @@ import {
     Globe
 } from 'lucide-react';
 import { getCurrencySymbol } from '@/lib/currency';
+import { getFreelancerWorkload } from '@/lib/workload';
+import { getReviewBreakdown } from '@/actions/review-actions';
 
 function ReputationBar({ label, score }: { label: string; score: number }) {
     return (
@@ -104,6 +106,12 @@ export default async function PublicFreelancerProfilePage({
     const avgRating = totalReviews > 0
         ? reviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews
         : 0;
+
+    // Workload data — pure read-only, no sensitive data exposed
+    const workload = await getFreelancerWorkload(resolvedProfile.id);
+
+    // Review breakdown — pure read-only
+    const reviewBreakdown = await getReviewBreakdown(resolvedProfile.id);
 
     return (
         <div className="min-h-screen bg-background">
@@ -361,6 +369,43 @@ export default async function PublicFreelancerProfilePage({
                                 )}
                             </GlassCard>
 
+                            {/* Availability Status */}
+                            <GlassCard className="p-6">
+                                <h3 className="font-semibold text-white mb-4">Availability Status</h3>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <div className={`w-3 h-3 rounded-full ${
+                                        workload.status === 'AVAILABLE' ? 'bg-emerald-400 animate-pulse' :
+                                        workload.status === 'LIMITED' ? 'bg-amber-400' : 'bg-red-400'
+                                    }`} />
+                                    <span className={`text-sm font-medium ${
+                                        workload.status === 'AVAILABLE' ? 'text-emerald-400' :
+                                        workload.status === 'LIMITED' ? 'text-amber-400' : 'text-red-400'
+                                    }`}>
+                                        {workload.status === 'AVAILABLE' ? '🟢 Available for new work' :
+                                         workload.status === 'LIMITED' ? '🟡 Limited availability' : '🔴 Fully booked'}
+                                    </span>
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-zinc-500">Trial Contracts</span>
+                                        <span className="text-white">{workload.trialContracts}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-zinc-500">Standard Contracts</span>
+                                        <span className="text-white">{workload.standardContracts}</span>
+                                    </div>
+                                    <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                                        <div
+                                            className={`h-full rounded-full ${
+                                                workload.status === 'AVAILABLE' ? 'bg-emerald-500' :
+                                                workload.status === 'LIMITED' ? 'bg-amber-500' : 'bg-red-500'
+                                            }`}
+                                            style={{ width: `${Math.min(workload.utilization, 100)}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            </GlassCard>
+
                             {/* Trust Score */}
                             <GlassCard className="p-6">
                                 <div className="flex items-center justify-between mb-4">
@@ -373,6 +418,40 @@ export default async function PublicFreelancerProfilePage({
                                 <div className="space-y-3">
                                     <ReputationBar label="Platform Standing" score={Math.round(user.trustScore)} />
                                 </div>
+                            </GlassCard>
+
+                            {/* Rating Breakdown */}
+                            <GlassCard className="p-6">
+                                <h3 className="font-semibold text-white mb-4">Rating Breakdown</h3>
+                                {reviewBreakdown.totalReviews > 0 ? (
+                                    <div className="space-y-3">
+                                        {[
+                                            { label: 'Quality', value: reviewBreakdown.avgQuality },
+                                            { label: 'Communication', value: reviewBreakdown.avgCommunication },
+                                            { label: 'Timeliness', value: reviewBreakdown.avgTimeliness },
+                                            { label: 'Professionalism', value: reviewBreakdown.avgProfessionalism },
+                                            { label: 'Reliability', value: reviewBreakdown.avgReliability },
+                                        ].map(dim => (
+                                            <div key={dim.label}>
+                                                <div className="flex justify-between text-sm mb-1">
+                                                    <span className="text-zinc-400">{dim.label}</span>
+                                                    <span className="text-white">{dim.value.toFixed(1)}/5</span>
+                                                </div>
+                                                <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-amber-500 rounded-full"
+                                                        style={{ width: `${(dim.value / 5) * 100}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <div className="pt-2 text-center text-xs text-zinc-500">
+                                            Based on {reviewBreakdown.totalReviews} review{reviewBreakdown.totalReviews > 1 ? 's' : ''}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <p className="text-zinc-500 text-sm text-center py-2">No ratings yet</p>
+                                )}
                             </GlassCard>
 
                             {/* Stats */}

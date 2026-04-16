@@ -328,9 +328,35 @@ model Review {
   id               String            @id @default(cuid())
   freelancerId     String
   freelancer       FreelancerProfile @relation(fields: [freelancerId], references: [id])
+
+  // Contract linkage
+  contractId       String
+  contract         Contract          @relation(fields: [contractId], references: [id])
+
+  // Who reviewed whom
+  reviewerId       String            // userId of reviewer
+  revieweeId       String            // userId of reviewee
+  reviewerRole     String            // "CLIENT" | "FREELANCER"
+
+  // Dimensional ratings (1-5)
+  quality          Int
+  communication    Int
+  timeliness       Int
+  professionalism  Int
+  reliability      Int
+
+  // Overall (computed avg of dimensions, stored for fast queries)
   rating           Int
   comment          String
+
+  // Context (optional — prepares future portfolio linkage)
+  reviewTitle      String?
+  projectSummary   String?
+
   createdAt        DateTime          @default(now())
+
+  // One review per user per contract
+  @@unique([contractId, reviewerId])
 }
 
 model ServiceListing {
@@ -379,6 +405,7 @@ model Contract {
   milestones    Milestone[]
   escrowAccount EscrowAccount?
   conversation  Conversation?
+  reviews       Review[]
 
   // Allow one TRIAL and one FULL contract per proposal
   @@unique([proposalId, type])

@@ -10,6 +10,7 @@ import {
     CheckCircle, XCircle, ArrowRight
 } from 'lucide-react';
 import Link from 'next/link';
+import { getReviewBreakdown, type ReviewBreakdown } from '@/actions/review-actions';
 // import { formatCurrency } from '@/lib/utils'; 
 const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -34,7 +35,8 @@ async function getDashboardData(userId: string) {
             ],
             recentProposals: [
                 { id: '1', jobTitle: 'Full Stack Dashboard', client: 'StartupXYZ', status: 'PENDING', date: new Date() }
-            ]
+            ],
+            reviewBreakdown: null,
         };
     }
 
@@ -50,15 +52,17 @@ async function getDashboardData(userId: string) {
 
         if (!user || !user.freelancerProfile) return null;
 
-        // [HYBRID] Using real Trust Score, but fallback/default for metrics not yet aggregated
+        // [REAL] Using real data with fallbacks
+        const reviewBreakdown = user.freelancerProfile ? await getReviewBreakdown(user.freelancerProfile.id) : null;
         return {
-            earnings: 0, // [TODO] Connect to Transaction Ledger Sum
-            pendingProposals: 0, // [TODO] Connect to db.proposal.count()
-            activeJobs: 0, // [TODO] Connect to db.contract.count()
-            jobSuccess: 100, // [MOCK] Default
-            trustScore: user.trustScore || 100, // [REAL]
+            earnings: 0,
+            pendingProposals: 0,
+            activeJobs: 0,
+            jobSuccess: 100,
+            trustScore: user.trustScore || 100,
             recentJobs: [],
-            recentProposals: []
+            recentProposals: [],
+            reviewBreakdown,
         };
 
     } catch (error) {
@@ -81,7 +85,8 @@ export default async function FreelancerOverviewPage() {
         jobSuccess: 0,
         trustScore: 0,
         recentJobs: [],
-        recentProposals: []
+        recentProposals: [],
+        reviewBreakdown: null as ReviewBreakdown | null,
     };
 
     return (
@@ -165,40 +170,44 @@ export default async function FreelancerOverviewPage() {
                     {/* Left Column (2 spans) */}
                     <div className="lg:col-span-2 space-y-6">
 
-                        {/* Reputation Metrics (Restored) */}
+                        {/* Reputation Metrics — Real Data */}
                         <GlassCard className="p-6">
                             <div className="flex items-center justify-between mb-6">
                                 <h3 className="text-lg font-semibold text-white">Reputation</h3>
-                                <div className="flex items-center gap-2 text-sm text-emerald-400">
-                                    <Star className="w-4 h-4 fill-emerald-400" />
-                                    <span>Top Rated</span>
-                                </div>
+                                {data.reviewBreakdown && data.reviewBreakdown.totalReviews > 0 && (
+                                    <div className="flex items-center gap-2 text-sm text-emerald-400">
+                                        <Star className="w-4 h-4 fill-emerald-400" />
+                                        <span>{data.reviewBreakdown.avgOverall.toFixed(1)}/5 ({data.reviewBreakdown.totalReviews} reviews)</span>
+                                    </div>
+                                )}
                             </div>
-                            <div className="space-y-4">
-                                <div>
-                                    <div className="flex justify-between text-sm mb-2">
-                                        <span className="text-zinc-400">Job Success Score</span>
-                                        <span className="text-white">98%</span>
-                                    </div>
-                                    <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: '98%' }} />
-                                    </div>
+                            {data.reviewBreakdown && data.reviewBreakdown.totalReviews > 0 ? (
+                                <div className="space-y-4">
+                                    {[
+                                        { label: 'Quality', value: data.reviewBreakdown.avgQuality },
+                                        { label: 'Communication', value: data.reviewBreakdown.avgCommunication },
+                                        { label: 'Timeliness', value: data.reviewBreakdown.avgTimeliness },
+                                        { label: 'Professionalism', value: data.reviewBreakdown.avgProfessionalism },
+                                        { label: 'Reliability', value: data.reviewBreakdown.avgReliability },
+                                    ].map(dim => (
+                                        <div key={dim.label}>
+                                            <div className="flex justify-between text-sm mb-1">
+                                                <span className="text-zinc-400">{dim.label}</span>
+                                                <span className="text-white">{dim.value.toFixed(1)}/5</span>
+                                            </div>
+                                            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                                                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(dim.value / 5) * 100}%` }} />
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                                <div className="grid grid-cols-3 gap-4 pt-2">
-                                    <div className="text-center p-3 bg-white/5 rounded-xl border border-white/5">
-                                        <div className="text-emerald-400 font-bold mb-1">4.9/5</div>
-                                        <div className="text-xs text-zinc-500">Communication</div>
-                                    </div>
-                                    <div className="text-center p-3 bg-white/5 rounded-xl border border-white/5">
-                                        <div className="text-emerald-400 font-bold mb-1">5.0/5</div>
-                                        <div className="text-xs text-zinc-500">Quality</div>
-                                    </div>
-                                    <div className="text-center p-3 bg-white/5 rounded-xl border border-white/5">
-                                        <div className="text-emerald-400 font-bold mb-1">4.8/5</div>
-                                        <div className="text-xs text-zinc-500">Deadlines</div>
-                                    </div>
+                            ) : (
+                                <div className="text-center py-6">
+                                    <Star className="w-10 h-10 text-zinc-700 mx-auto mb-3" />
+                                    <p className="text-zinc-500 text-sm">No reviews yet</p>
+                                    <p className="text-zinc-600 text-xs mt-1">Ratings will appear here after completing contracts</p>
                                 </div>
-                            </div>
+                            )}
                         </GlassCard>
 
                         {/* Active Contracts */}

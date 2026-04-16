@@ -13,7 +13,7 @@ const clientNavItems: NavItem[] = [
     { name: 'Messages', href: '/client/messages', icon: 'message' },
     { name: 'Wallet', href: '/client/wallet', icon: 'wallet' },
     { name: 'Disputes', href: '/client/disputes', icon: 'alert' },
-    { name: 'Reviews', href: '/client/reviews/new', icon: 'star' },
+    { name: 'Reviews', href: '/client/reviews', icon: 'star' },
     { name: 'Notifications', href: '/client/notifications', icon: 'bell' },
     { name: 'Settings', href: '/client/settings/security', icon: 'settings' },
 ];

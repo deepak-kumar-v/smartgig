@@ -15,7 +15,7 @@ const freelancerNavItems: NavItem[] = [
     { name: 'My Services', href: '/freelancer/services', icon: 'briefcase' },
     { name: 'Wallet', href: '/freelancer/wallet', icon: 'wallet' },
     { name: 'Disputes', href: '/freelancer/disputes', icon: 'alert' },
-    { name: 'Reviews', href: '/freelancer/reviews/new', icon: 'star' },
+    { name: 'Reviews', href: '/freelancer/reviews', icon: 'star' },
     { name: 'Notifications', href: '/freelancer/notifications', icon: 'bell' },
     { name: 'Trust & Safety', href: '/freelancer/trust', icon: 'shield' },
     { name: 'Settings', href: '/freelancer/settings', icon: 'settings' },

@@ -2083,6 +2083,70 @@ register({
 });
 
 // ============================================================================
+// FREELANCER REVIEWS
+// ============================================================================
+
+register({
+    route: '/freelancer/reviews',
+    domain: PageDomain.CONTRACT,
+    version: '1.0.0',
+    lastUpdated: '2026-04-17',
+    description: 'Freelancer reviews hub — lists pending reviews (non-blocking nudge) and submitted reviews with dimensional breakdown.',
+
+    currentPage: {
+        capabilities: [
+            'View pending reviews for completed contracts',
+            'View submitted reviews with dimensional ratings',
+            'Navigate to review form with contractId',
+        ],
+        features: [
+            'Pending reviews fetched via getPendingReviews(userId)',
+            'Submitted reviews fetched from DB with contract details',
+            'Each pending review links to /freelancer/reviews/new?contractId=...',
+        ],
+        safeguards: [
+            'Purely read-only — no mutations',
+            'Non-blocking — no forced actions or redirects',
+            'Session-gated — redirects to /login if unauthenticated',
+        ],
+        dependencies: ['review-actions.ts'],
+        accessControl: ['Authenticated freelancer'],
+    },
+});
+
+// ============================================================================
+// CLIENT REVIEWS
+// ============================================================================
+
+register({
+    route: '/client/reviews',
+    domain: PageDomain.CONTRACT,
+    version: '1.0.0',
+    lastUpdated: '2026-04-17',
+    description: 'Client reviews hub — lists pending reviews (non-blocking nudge) and submitted reviews with dimensional breakdown.',
+
+    currentPage: {
+        capabilities: [
+            'View pending reviews for completed contracts',
+            'View submitted reviews with dimensional ratings',
+            'Navigate to review form with contractId',
+        ],
+        features: [
+            'Pending reviews fetched via getPendingReviews(userId)',
+            'Submitted reviews fetched from DB with contract details',
+            'Each pending review links to /client/reviews/new?contractId=...',
+        ],
+        safeguards: [
+            'Purely read-only — no mutations',
+            'Non-blocking — no forced actions or redirects',
+            'Session-gated — redirects to /login if unauthenticated',
+        ],
+        dependencies: ['review-actions.ts'],
+        accessControl: ['Authenticated client'],
+    },
+});
+
+// ============================================================================
 // Deep Freeze — Full Recursive Immutability
 // ============================================================================
 

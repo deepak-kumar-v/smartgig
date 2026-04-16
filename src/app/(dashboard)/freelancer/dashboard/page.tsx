@@ -4,6 +4,8 @@ import { GlassButton } from '@/components/ui/glass-button';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { redirect } from 'next/navigation';
+import { getFreelancerWorkloadByUserId, type WorkloadData } from '@/lib/workload';
+import { getReviewBreakdown, getPendingReviews, type ReviewBreakdown, type PendingReview } from '@/actions/review-actions';
 import {
     Activity, DollarSign, Star, Clock,
     Briefcase, TrendingUp, AlertCircle,
@@ -34,7 +36,9 @@ async function getDashboardData(userId: string) {
             ],
             recentProposals: [
                 { id: '1', jobTitle: 'Full Stack Dashboard', client: 'StartupXYZ', status: 'PENDING', date: new Date() }
-            ]
+            ],
+            reviewBreakdown: null,
+            pendingReviews: [],
         };
     }
 
@@ -50,15 +54,23 @@ async function getDashboardData(userId: string) {
 
         if (!user || !user.freelancerProfile) return null;
 
-        // [HYBRID] Using real Trust Score, but fallback/default for metrics not yet aggregated
+        // [REAL] Fetching workload, review breakdown, and pending reviews
+        const [workload, reviewBreakdown, pendingReviews] = await Promise.all([
+            getFreelancerWorkloadByUserId(userId),
+            user.freelancerProfile ? getReviewBreakdown(user.freelancerProfile.id) : null,
+            getPendingReviews(userId),
+        ]);
         return {
             earnings: 0, // [TODO] Connect to Transaction Ledger Sum
             pendingProposals: 0, // [TODO] Connect to db.proposal.count()
-            activeJobs: 0, // [TODO] Connect to db.contract.count()
-            jobSuccess: 100, // [MOCK] Default
+            activeJobs: workload?.activeProjects || 0, // [REAL]
+            jobSuccess: 100, // [TODO] Compute from contract stats
             trustScore: user.trustScore || 100, // [REAL]
             recentJobs: [],
-            recentProposals: []
+            recentProposals: [],
+            workload: workload || null,
+            reviewBreakdown: reviewBreakdown || null,
+            pendingReviews: pendingReviews || [],
         };
 
     } catch (error) {
@@ -81,7 +93,10 @@ export default async function FreelancerDashboardPage() {
         jobSuccess: 0,
         trustScore: 0,
         recentJobs: [],
-        recentProposals: []
+        recentProposals: [],
+        workload: null as WorkloadData | null,
+        reviewBreakdown: null as ReviewBreakdown | null,
+        pendingReviews: [] as PendingReview[],
     };
 
     return (
@@ -99,6 +114,24 @@ export default async function FreelancerDashboardPage() {
                         </Link>
                     </div>
                 </div>
+
+                {/* Pending Reviews Banner — NON-BLOCKING, soft nudge only */}
+                {data.pendingReviews.length > 0 && (
+                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <Star className="w-5 h-5 text-amber-400" />
+                                <div>
+                                    <p className="text-amber-400 font-medium">You have {data.pendingReviews.length} pending review{data.pendingReviews.length > 1 ? 's' : ''}</p>
+                                    <p className="text-amber-400/70 text-sm">Share your experience to help the community</p>
+                                </div>
+                            </div>
+                            <Link href={`/${data.pendingReviews[0].userRole === 'CLIENT' ? 'client' : 'freelancer'}/reviews/new?contractId=${data.pendingReviews[0].contractId}`}>
+                                <GlassButton variant="secondary" size="sm" asDiv>Leave Review</GlassButton>
+                            </Link>
+                        </div>
+                    </div>
+                )}
 
                 {/* Metrics Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -165,40 +198,44 @@ export default async function FreelancerDashboardPage() {
                     {/* Left Column (2 spans) */}
                     <div className="lg:col-span-2 space-y-6">
 
-                        {/* Reputation Metrics (Restored) */}
+                        {/* Reputation Metrics — Real Data */}
                         <GlassCard className="p-6">
                             <div className="flex items-center justify-between mb-6">
                                 <h3 className="text-lg font-semibold text-white">Reputation</h3>
-                                <div className="flex items-center gap-2 text-sm text-emerald-400">
-                                    <Star className="w-4 h-4 fill-emerald-400" />
-                                    <span>Top Rated</span>
-                                </div>
+                                {data.reviewBreakdown && data.reviewBreakdown.totalReviews > 0 && (
+                                    <div className="flex items-center gap-2 text-sm text-emerald-400">
+                                        <Star className="w-4 h-4 fill-emerald-400" />
+                                        <span>{data.reviewBreakdown.avgOverall.toFixed(1)}/5 ({data.reviewBreakdown.totalReviews} reviews)</span>
+                                    </div>
+                                )}
                             </div>
-                            <div className="space-y-4">
-                                <div>
-                                    <div className="flex justify-between text-sm mb-2">
-                                        <span className="text-zinc-400">Job Success Score</span>
-                                        <span className="text-white">98%</span>
-                                    </div>
-                                    <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: '98%' }} />
-                                    </div>
+                            {data.reviewBreakdown && data.reviewBreakdown.totalReviews > 0 ? (
+                                <div className="space-y-4">
+                                    {[
+                                        { label: 'Quality', value: data.reviewBreakdown.avgQuality },
+                                        { label: 'Communication', value: data.reviewBreakdown.avgCommunication },
+                                        { label: 'Timeliness', value: data.reviewBreakdown.avgTimeliness },
+                                        { label: 'Professionalism', value: data.reviewBreakdown.avgProfessionalism },
+                                        { label: 'Reliability', value: data.reviewBreakdown.avgReliability },
+                                    ].map(dim => (
+                                        <div key={dim.label}>
+                                            <div className="flex justify-between text-sm mb-1">
+                                                <span className="text-zinc-400">{dim.label}</span>
+                                                <span className="text-white">{dim.value.toFixed(1)}/5</span>
+                                            </div>
+                                            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                                                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(dim.value / 5) * 100}%` }} />
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                                <div className="grid grid-cols-3 gap-4 pt-2">
-                                    <div className="text-center p-3 bg-white/5 rounded-xl border border-white/5">
-                                        <div className="text-emerald-400 font-bold mb-1">4.9/5</div>
-                                        <div className="text-xs text-zinc-500">Communication</div>
-                                    </div>
-                                    <div className="text-center p-3 bg-white/5 rounded-xl border border-white/5">
-                                        <div className="text-emerald-400 font-bold mb-1">5.0/5</div>
-                                        <div className="text-xs text-zinc-500">Quality</div>
-                                    </div>
-                                    <div className="text-center p-3 bg-white/5 rounded-xl border border-white/5">
-                                        <div className="text-emerald-400 font-bold mb-1">4.8/5</div>
-                                        <div className="text-xs text-zinc-500">Deadlines</div>
-                                    </div>
+                            ) : (
+                                <div className="text-center py-6">
+                                    <Star className="w-10 h-10 text-zinc-700 mx-auto mb-3" />
+                                    <p className="text-zinc-500 text-sm">No reviews yet</p>
+                                    <p className="text-zinc-600 text-xs mt-1">Ratings will appear here after completing contracts</p>
                                 </div>
-                            </div>
+                            )}
                         </GlassCard>
 
                         {/* Active Contracts */}
@@ -242,31 +279,71 @@ export default async function FreelancerDashboardPage() {
                     {/* Right Column (1 span) */}
                     <div className="space-y-6">
 
-                        {/* Workload (Restored) */}
-                        <GlassCard className="p-6">
-                            <h3 className="text-lg font-semibold text-white mb-4">Current Workload</h3>
-                            <div className="relative flex items-center justify-center aspect-square max-w-[180px] mx-auto mb-4">
-                                {/* Simple CSS Donut Chart Representation using conic-gradient */}
-                                <div className="absolute inset-0 rounded-full" style={{
-                                    background: 'conic-gradient(#8b5cf6 70%, rgba(255,255,255,0.05) 0)'
-                                }} />
-                                <div className="absolute inset-2 bg-[#0A0A0A] rounded-full flex flex-col items-center justify-center z-10">
-                                    <span className="text-2xl font-bold text-white">70%</span>
-                                    <span className="text-xs text-zinc-500">Capacity</span>
+                        {/* Pending Reviews Card — NON-BLOCKING */}
+                        {data.pendingReviews.length > 0 && (
+                            <GlassCard className="p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-lg font-semibold text-white">Pending Reviews</h3>
+                                    <span className="px-2 py-1 bg-amber-500/20 text-amber-400 text-xs rounded-full">
+                                        {data.pendingReviews.length}
+                                    </span>
                                 </div>
-                            </div>
-                            <div className="space-y-3">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-zinc-400">Weekly Hours</span>
-                                    <span className="text-white">28/40h</span>
+                                <div className="space-y-3">
+                                    {data.pendingReviews.slice(0, 5).map((pr) => (
+                                        <div key={pr.contractId} className="p-3 bg-zinc-800/50 rounded-lg flex items-center justify-between">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-white text-sm font-medium truncate">{pr.title}</p>
+                                                <p className="text-zinc-500 text-xs">{pr.otherPartyName} • {pr.type}</p>
+                                            </div>
+                                            <Link href={`/${pr.userRole === 'CLIENT' ? 'client' : 'freelancer'}/reviews/new?contractId=${pr.contractId}`}>
+                                                <GlassButton variant="secondary" size="sm" asDiv>Review</GlassButton>
+                                            </Link>
+                                        </div>
+                                    ))}
                                 </div>
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-zinc-400">Active Projects</span>
-                                    <span className="text-white">2</span>
-                                </div>
-                                <GlassButton className="w-full mt-2" variant="secondary" size="sm">Update Availability</GlassButton>
-                            </div>
-                        </GlassCard>
+                            </GlassCard>
+                        )}
+                        {(() => {
+                            const w = data.workload;
+                            const util = w?.utilization ?? 0;
+                            const statusColor = w?.status === 'AVAILABLE' ? '#22c55e' : w?.status === 'LIMITED' ? '#f59e0b' : '#ef4444';
+                            const statusLabel = w?.status === 'AVAILABLE' ? '🟢 Available' : w?.status === 'LIMITED' ? '🟡 Limited' : '🔴 Fully Booked';
+                            return (
+                                <GlassCard className="p-6">
+                                    <h3 className="text-lg font-semibold text-white mb-4">Workload Status</h3>
+                                    <div className="relative flex items-center justify-center aspect-square max-w-[180px] mx-auto mb-4">
+                                        <div className="absolute inset-0 rounded-full" style={{
+                                            background: `conic-gradient(${statusColor} ${Math.min(util, 100)}%, rgba(255,255,255,0.05) 0)`
+                                        }} />
+                                        <div className="absolute inset-2 bg-[#0A0A0A] rounded-full flex flex-col items-center justify-center z-10">
+                                            <span className="text-2xl font-bold text-white">{util}%</span>
+                                            <span className="text-xs text-zinc-500">Utilization</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-center mb-4">
+                                        <span className="text-sm font-medium" style={{ color: statusColor }}>{statusLabel}</span>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-zinc-400">Current Load</span>
+                                            <span className="text-white">{w?.currentWorkload ?? 0}h / {w?.capacity ?? 40}h</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-zinc-400">Trial Contracts</span>
+                                            <span className="text-white">{w?.trialContracts ?? 0}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-zinc-400">Standard Contracts</span>
+                                            <span className="text-white">{w?.standardContracts ?? 0}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-zinc-400">Active Projects</span>
+                                            <span className="text-white">{w?.activeProjects ?? 0}</span>
+                                        </div>
+                                    </div>
+                                </GlassCard>
+                            );
+                        })()}
 
                         {/* Skills Verification (Restored) */}
                         <GlassCard className="p-6">
