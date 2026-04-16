@@ -5,7 +5,7 @@ import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
-import { FileText, Clock, AlertTriangle, Shield, CheckCircle } from 'lucide-react';
+import { FileText, Clock, AlertTriangle, Shield, CheckCircle, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/empty-state';
 
@@ -24,7 +24,11 @@ async function getContracts(userId: string) {
             freelancer: {
                 include: { user: true }
             },
-            milestones: true
+            milestones: true,
+            reviews: {
+                where: { reviewerId: userId },
+                select: { id: true },
+            },
         },
         orderBy: { startDate: 'desc' }
     });
@@ -57,6 +61,9 @@ export default async function ClientContractsPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {contracts.map((contract: any) => {
                         const isTrial = contract.type === 'TRIAL';
+                        const isCompleted = ['COMPLETED', 'CLOSED'].includes(contract.status);
+                        const hasReviewed = contract.reviews && contract.reviews.length > 0;
+
                         return (
                             <GlassCard key={contract.id} className={cn(
                                 "relative p-6 transition-all hover:border-violet-500/30",
@@ -84,7 +91,8 @@ export default async function ClientContractsPage() {
                                         <span className={cn(
                                             "font-medium",
                                             contract.status === 'ACTIVE' ? "text-emerald-400" :
-                                                contract.status === 'DRAFT' ? "text-amber-400" : "text-white"
+                                                contract.status === 'DRAFT' ? "text-amber-400" :
+                                                    isCompleted ? "text-blue-400" : "text-white"
                                         )}>
                                             {contract.status}
                                         </span>
@@ -112,9 +120,25 @@ export default async function ClientContractsPage() {
                                 ) : null}
 
                                 <div className="flex gap-2">
-                                    <GlassButton variant="primary" size="sm" className="flex-1">
-                                        View Details
-                                    </GlassButton>
+                                    <Link href={`/client/contracts/${contract.id}`} className="flex-1">
+                                        <GlassButton variant="primary" size="sm" className="w-full" asDiv>
+                                            View Details
+                                        </GlassButton>
+                                    </Link>
+                                    {isCompleted && !hasReviewed && (
+                                        <Link href={`/client/reviews/new?contractId=${contract.id}`} className="flex-1">
+                                            <GlassButton variant="secondary" size="sm" className="w-full border-amber-500/30 text-amber-300" asDiv>
+                                                <Star className="w-3.5 h-3.5 mr-1" />
+                                                Leave Review
+                                            </GlassButton>
+                                        </Link>
+                                    )}
+                                    {isCompleted && hasReviewed && (
+                                        <div className="flex items-center gap-1 px-3 text-emerald-400 text-xs">
+                                            <CheckCircle className="w-3.5 h-3.5" />
+                                            Reviewed
+                                        </div>
+                                    )}
                                     {isTrial && contract.status === 'DRAFT' && (
                                         <GlassButton variant="secondary" size="sm" className="flex-1 border-violet-500/30 text-violet-300">
                                             Fund Trial
