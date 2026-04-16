@@ -2019,6 +2019,70 @@ register({
 });
 
 // ============================================================================
+// ADMIN PORTFOLIO VERIFICATION
+// ============================================================================
+
+register({
+    route: '/admin/portfolio',
+    domain: PageDomain.ADMIN,
+    version: '1.0.0',
+    lastUpdated: '2026-04-16',
+    description: 'Admin panel for reviewing and verifying freelancer portfolio work samples. Approve sets status to VERIFIED, reject resets to PENDING.',
+    currentPage: {
+        capabilities: [
+            'View all freelancer portfolio items',
+            'Approve portfolio items (status → VERIFIED)',
+            'Reject portfolio items (status → PENDING)',
+            'View stats: total, pending, verified counts',
+        ],
+        features: [
+            'Items grouped by status: Pending Review, Verified',
+            'Each item shows thumbnail, title, description, tech stack, freelancer info',
+            'External links to live demo and GitHub source',
+        ],
+        safeguards: [
+            'Admin role required (checked in server action)',
+            'verifyPortfolioItem/rejectPortfolioItem: role check before mutation',
+            'revalidatePath on both /admin/portfolio and /freelancer/portfolio after mutation',
+        ],
+        dependencies: ['portfolio-actions.ts'],
+        accessControl: ['Admin role required'],
+    },
+});
+
+// ============================================================================
+// FREELANCER PORTFOLIO DETAIL
+// ============================================================================
+
+register({
+    route: '/freelancer/portfolio/[id]',
+    domain: PageDomain.GENERIC,
+    version: '1.0.0',
+    lastUpdated: '2026-04-16',
+    description: 'Portfolio item detail view. Shows full thumbnail, description, tech stack, status badge, and external links (live demo, GitHub).',
+    currentPage: {
+        capabilities: [
+            'View full portfolio item details',
+            'View verification status',
+            'Navigate to external project links',
+        ],
+        features: [
+            'Full-size thumbnail display',
+            'Tech stack tags with violet styling',
+            'Status badge: Verified (emerald) or Pending Review (amber)',
+            'Freelancer info: name, title, avatar initial',
+            'External links: Live Demo, Source Code',
+        ],
+        safeguards: [
+            'notFound() if item does not exist',
+            'Data fetched server-side via getPortfolioById',
+        ],
+        dependencies: ['portfolio-actions.ts'],
+        accessControl: ['Authenticated freelancer'],
+    },
+});
+
+// ============================================================================
 // Deep Freeze — Full Recursive Immutability
 // ============================================================================
 

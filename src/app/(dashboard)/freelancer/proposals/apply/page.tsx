@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { db } from '@/lib/db';
+import { getMyPortfolio } from '@/actions/portfolio-actions';
 import ProposalForm from './proposal-form';
 
 // ============================================================================
@@ -80,6 +81,9 @@ export default async function SubmitProposalPage({ searchParams }: PageProps) {
         }
     }
 
+    // Fetch real portfolio items for the freelancer
+    const portfolioItems = await getMyPortfolio();
+
     // Transform to match ProposalForm's JobData interface
     const jobData = {
         id: job.id,
@@ -108,5 +112,12 @@ export default async function SubmitProposalPage({ searchParams }: PageProps) {
         }
     };
 
-    return <ProposalForm job={jobData} />;
+    const portfolioData = portfolioItems.map(p => ({
+        id: p.id,
+        title: p.title,
+        techStack: p.techStack,
+        status: p.status,
+    }));
+
+    return <ProposalForm job={jobData} portfolioItems={JSON.parse(JSON.stringify(portfolioData))} />;
 }

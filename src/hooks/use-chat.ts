@@ -66,6 +66,7 @@ export interface Conversation {
         id: string;
         name: string | null;
         image: string | null;
+        freelancerProfileId?: string | null;
     } | null;
     lastMessage: {
         id: string;

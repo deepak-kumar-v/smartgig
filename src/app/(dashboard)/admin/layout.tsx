@@ -14,6 +14,7 @@ const adminNavItems: NavItem[] = [
     { name: 'Withdrawals', href: '/admin/withdrawals', icon: 'wallet' },
     { name: 'Diagnostics', href: '/admin/financial-diagnostics', icon: 'shield' },
     { name: 'Trust & Safety', href: '/admin/trust', icon: 'shield' },
+    { name: 'Portfolio', href: '/admin/portfolio', icon: 'briefcase' },
 ];
 
 function getInitials(name: string) {

@@ -119,22 +119,23 @@ interface ProposalPayload {
     hourlyWorkPlan?: HourlyWorkPlanEntry[];
 }
 
-interface ProposalFormProps {
-    job: JobData;
+interface PortfolioItemProp {
+    id: string;
+    title: string;
+    techStack: string[];
+    status: string;
 }
 
-// Mock portfolio items - TODO: fetch from freelancer profile
-const portfolioItems = [
-    { id: 'port-1', title: 'E-Commerce Platform', category: 'Web Development', isVerified: true },
-    { id: 'port-2', title: 'SaaS Dashboard', category: 'Web Development', isVerified: true },
-    { id: 'port-3', title: 'Mobile Banking App', category: 'Mobile Development', isVerified: false },
-];
+interface ProposalFormProps {
+    job: JobData;
+    portfolioItems?: PortfolioItemProp[];
+}
 
 // ============================================================================
 // Component
 // ============================================================================
 
-export default function ProposalForm({ job }: ProposalFormProps) {
+export default function ProposalForm({ job, portfolioItems = [] }: ProposalFormProps) {
     const router = useRouter();
     const [currentStep, setCurrentStep] = useState(0);
     const [submitting, setSubmitting] = useState(false);
@@ -705,6 +706,7 @@ Best regards,
                                 </div>
                             </div>
 
+                            {portfolioItems.length > 0 ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {portfolioItems.map((item) => (
                                     <button
@@ -727,9 +729,9 @@ Best regards,
                                         <div className="flex items-start justify-between">
                                             <div>
                                                 <h3 className="font-medium text-white">{item.title}</h3>
-                                                <p className="text-sm text-zinc-500">{item.category}</p>
+                                                <p className="text-sm text-zinc-500">{item.techStack.slice(0, 3).join(', ')}</p>
                                             </div>
-                                            {item.isVerified && (
+                                            {item.status === 'VERIFIED' && (
                                                 <span className="text-xs text-emerald-400 flex items-center gap-1">
                                                     <CheckCircle className="w-3 h-3" /> Verified
                                                 </span>
@@ -738,6 +740,13 @@ Best regards,
                                     </button>
                                 ))}
                             </div>
+                            ) : (
+                                <div className="text-center py-8">
+                                    <Briefcase className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
+                                    <p className="text-zinc-400 text-sm">No portfolio items yet.</p>
+                                    <p className="text-zinc-500 text-xs mt-1">Add work samples from your Portfolio page first.</p>
+                                </div>
+                            )}
 
                             <div className="border-2 border-dashed border-zinc-700 rounded-xl p-6 text-center hover:border-indigo-500/50 transition-colors cursor-pointer">
                                 <Paperclip className="w-8 h-8 text-zinc-500 mx-auto mb-2" />

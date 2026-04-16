@@ -5,7 +5,8 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import {
     User, Calendar, Clock, DollarSign, FileText, CheckCircle, XCircle,
-    ArrowLeft, Briefcase, Star, ListChecks, MessageSquare, Paperclip
+    ArrowLeft, Briefcase, Star, ListChecks, MessageSquare, Paperclip,
+    Image, ExternalLink
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
@@ -35,6 +36,7 @@ interface ProposalDetailData {
     jobTitle: string;
 
     // Freelancer
+    freelancerProfileId: string;
     freelancerName: string;
     freelancerTitle: string;
     freelancerImage: string | null;
@@ -59,6 +61,14 @@ interface ProposalDetailData {
     totalMilestoneAmount: number | null;
     screeningAnswers: Record<string, string>;
     selectedPortfolioIds: string[];
+    portfolioItems?: {
+        id: string;
+        title: string;
+        description: string;
+        techStack: string[];
+        status: string;
+        projectUrl: string | null;
+    }[];
 
     // Meta
     status: string;
@@ -152,16 +162,20 @@ export function ProposalDetailView({ proposal }: ProposalDetailViewProps) {
             {/* Header */}
             <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
-                    <div className="w-16 h-16 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center overflow-hidden">
-                        {proposal.freelancerImage ? (
-                            <img src={proposal.freelancerImage} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                            <User className="w-8 h-8 text-zinc-500" />
-                        )}
-                    </div>
+                    <Link href={`/freelancer/${proposal.freelancerProfileId}`} className="shrink-0">
+                        <div className="w-16 h-16 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center overflow-hidden hover:border-indigo-500/50 transition-colors cursor-pointer">
+                            {proposal.freelancerImage ? (
+                                <img src={proposal.freelancerImage} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                                <User className="w-8 h-8 text-zinc-500" />
+                            )}
+                        </div>
+                    </Link>
                     <div>
                         <div className="flex items-center gap-3 mb-1">
-                            <h1 className="text-2xl font-bold text-white">{proposal.freelancerName}</h1>
+                            <Link href={`/freelancer/${proposal.freelancerProfileId}`} className="hover:text-indigo-400 transition-colors">
+                                <h1 className="text-2xl font-bold text-white hover:text-indigo-400 transition-colors">{proposal.freelancerName}</h1>
+                            </Link>
                             <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                                 {proposal.freelancerTrustScore.toFixed(0)} Trust
                             </span>
@@ -174,6 +188,13 @@ export function ProposalDetailView({ proposal }: ProposalDetailViewProps) {
                             <Briefcase className="w-4 h-4" />
                             Applied to: <span className="text-white">{proposal.jobTitle}</span>
                         </div>
+                        <Link
+                            href={`/freelancer/${proposal.freelancerProfileId}`}
+                            className="inline-flex items-center gap-1.5 mt-2 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                        >
+                            <ExternalLink className="w-3 h-3" />
+                            View Full Profile
+                        </Link>
                     </div>
                 </div>
                 <div className="text-right text-sm text-zinc-500">
@@ -292,6 +313,52 @@ export function ProposalDetailView({ proposal }: ProposalDetailViewProps) {
                                 <p className="text-sm font-medium text-zinc-400 mb-2">Q: {question}</p>
                                 <p className="text-white">{answer}</p>
                             </div>
+                        ))}
+                    </div>
+                </GlassCard>
+            )}
+
+            {/* Portfolio / Work Samples */}
+            {proposal.portfolioItems && proposal.portfolioItems.length > 0 && (
+                <GlassCard className="p-6">
+                    <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                        <Image className="w-5 h-5 text-zinc-400" />
+                        Attached Work Samples
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {proposal.portfolioItems.map((item) => (
+                            <Link
+                                key={item.id}
+                                href={`/freelancer/portfolio/${item.id}`}
+                                className="block p-4 bg-zinc-800/30 rounded-lg border border-zinc-800 hover:border-indigo-500/30 transition-colors"
+                            >
+                                <div className="flex items-start justify-between mb-2">
+                                    <h4 className="font-medium text-white">{item.title}</h4>
+                                    <div className="flex items-center gap-2">
+                                        {item.status === 'VERIFIED' && (
+                                            <span className="text-xs text-emerald-400 flex items-center gap-1">
+                                                <CheckCircle className="w-3 h-3" /> Verified
+                                            </span>
+                                        )}
+                                        {item.projectUrl && (
+                                            <span
+                                                onClick={(e) => { e.preventDefault(); window.open(item.projectUrl!, '_blank'); }}
+                                                className="text-indigo-400 hover:text-indigo-300"
+                                            >
+                                                <ExternalLink className="w-3.5 h-3.5" />
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                <p className="text-sm text-zinc-400 line-clamp-2 mb-2">{item.description}</p>
+                                {item.techStack.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {item.techStack.slice(0, 4).map((t, i) => (
+                                            <span key={i} className="px-2 py-0.5 text-xs bg-zinc-700 text-zinc-300 rounded">{t}</span>
+                                        ))}
+                                    </div>
+                                )}
+                            </Link>
                         ))}
                     </div>
                 </GlassCard>

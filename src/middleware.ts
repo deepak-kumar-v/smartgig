@@ -86,8 +86,18 @@ export default auth((req) => {
     }
 
     // Role-based route protection
-    // Freelancer routes
-    if (pathname.startsWith('/freelancer')) {
+    // Freelancer dashboard routes (public profile /freelancer/[id] and portfolio detail are excluded)
+    const freelancerDashboardPrefixes = [
+        '/freelancer/dashboard', '/freelancer/contracts', '/freelancer/proposals',
+        '/freelancer/messages', '/freelancer/wallet', '/freelancer/settings',
+        '/freelancer/profile', '/freelancer/find-work', '/freelancer/disputes',
+        '/freelancer/notifications', '/freelancer/overview', '/freelancer/services',
+        '/freelancer/trust', '/freelancer/jobs', '/freelancer/reviews',
+    ];
+    const isFreelancerDashboard = freelancerDashboardPrefixes.some(p => pathname.startsWith(p));
+    // /freelancer/portfolio is dashboard, but /freelancer/portfolio/[id] is public detail
+    const isFreelancerPortfolioDashboard = pathname === '/freelancer/portfolio';
+    if (isFreelancerDashboard || isFreelancerPortfolioDashboard) {
         if (userRole !== 'FREELANCER') {
             return Response.redirect(new URL('/access-denied?reason=role', nextUrl));
         }

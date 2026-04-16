@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useIdentity } from '@/providers/identity-provider';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
@@ -874,12 +875,26 @@ export default function MessagesPage() {
                                     <ChevronLeft className="w-5 h-5 text-zinc-400" />
                                 </button>
                                 <div className="relative">
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
-                                        {activeConversation.otherParticipant?.name?.split(' ').map(n => n[0]).join('') || '?'}
-                                    </div>
+                                    {activeConversation.otherParticipant?.freelancerProfileId ? (
+                                        <Link href={`/freelancer/${activeConversation.otherParticipant.freelancerProfileId}`}>
+                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm hover:ring-2 hover:ring-indigo-400/50 transition-all cursor-pointer">
+                                                {activeConversation.otherParticipant?.name?.split(' ').map(n => n[0]).join('') || '?'}
+                                            </div>
+                                        </Link>
+                                    ) : (
+                                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
+                                            {activeConversation.otherParticipant?.name?.split(' ').map(n => n[0]).join('') || '?'}
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
-                                    <p className="text-white font-medium">{activeConversation.otherParticipant?.name || 'Unknown'}</p>
+                                    {activeConversation.otherParticipant?.freelancerProfileId ? (
+                                        <Link href={`/freelancer/${activeConversation.otherParticipant.freelancerProfileId}`} className="hover:text-indigo-400 transition-colors">
+                                            <p className="text-white font-medium hover:text-indigo-400 transition-colors">{activeConversation.otherParticipant?.name || 'Unknown'}</p>
+                                        </Link>
+                                    ) : (
+                                        <p className="text-white font-medium">{activeConversation.otherParticipant?.name || 'Unknown'}</p>
+                                    )}
 
                                     {/* Active Chat Header Subtitle */}
                                     <div className="flex items-center gap-1.5">

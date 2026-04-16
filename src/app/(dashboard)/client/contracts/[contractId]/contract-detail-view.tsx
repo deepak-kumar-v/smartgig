@@ -102,6 +102,7 @@ interface ContractDetailData {
     startDate: Date | null;
     endDate: Date | null;
 
+    freelancerProfileId: string;
     freelancerName: string;
     freelancerEmail: string;
     freelancerImage: string | null;

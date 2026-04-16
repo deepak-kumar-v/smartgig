@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
                 participants: {
                     include: {
                         user: {
-                            select: { id: true, name: true, image: true }
+                            select: { id: true, name: true, image: true, freelancerProfile: { select: { id: true } } }
                         }
                     }
                 },
@@ -134,7 +134,8 @@ export async function GET(request: NextRequest) {
                 otherParticipant: otherParticipant ? {
                     id: otherParticipant.id,
                     name: otherParticipant.name,
-                    image: otherParticipant.image
+                    image: otherParticipant.image,
+                    freelancerProfileId: (otherParticipant as any).freelancerProfile?.id || null
                 } : null,
                 lastMessage: lastMessage ? {
                     id: lastMessage.id,

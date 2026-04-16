@@ -2,6 +2,7 @@ import React from 'react';
 import { notFound, redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { getPortfolioByIds } from '@/actions/portfolio-actions';
 import { ProposalDetailView } from './proposal-detail-view';
 
 interface PageProps {
@@ -90,6 +91,11 @@ export default async function ProposalDetailPage({ params }: PageProps) {
         console.error("Failed to parse hourlyWorkPlan", e);
     }
 
+    // Fetch real portfolio items from IDs
+    const portfolioItems = selectedPortfolioIds.length > 0
+        ? await getPortfolioByIds(selectedPortfolioIds)
+        : [];
+
     // Map to view data
     const proposalData = {
         id: proposal.id,
@@ -97,6 +103,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
         jobTitle: proposal.job.title,
 
         // Freelancer
+        freelancerProfileId: proposal.freelancer.id,
         freelancerName: proposal.freelancer.user.name || 'Unknown Freelancer',
         freelancerTitle: proposal.freelancer.title || 'Freelancer',
         freelancerImage: proposal.freelancer.user.image || null,
@@ -121,6 +128,14 @@ export default async function ProposalDetailPage({ params }: PageProps) {
         totalMilestoneAmount: proposal.totalMilestoneAmount,
         screeningAnswers,
         selectedPortfolioIds,
+        portfolioItems: portfolioItems.map(p => ({
+            id: p.id,
+            title: p.title,
+            description: p.description,
+            techStack: p.techStack,
+            status: p.status,
+            projectUrl: p.projectUrl,
+        })),
 
         // Meta
         status: proposal.status,
@@ -142,7 +157,7 @@ export default async function ProposalDetailPage({ params }: PageProps) {
 
     return (
         <>
-            <ProposalDetailView proposal={proposalData} />
+            <ProposalDetailView proposal={JSON.parse(JSON.stringify(proposalData))} />
         </>
     );
 }

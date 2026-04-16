@@ -220,6 +220,9 @@ model PortfolioItem {
   description  String
   thumbnailUrl String
   projectUrl   String?
+  githubUrl    String?
+  techStack    String[]
+  status       String             @default("PENDING") // PENDING | VERIFIED
   createdAt    DateTime           @default(now())
 }
 

@@ -81,6 +81,7 @@ export default async function ClientContractDetailPage({ params }: PageProps) {
         endDate: contract.endDate,
 
         // Freelancer
+        freelancerProfileId: contract.freelancer.id,
         freelancerName: contract.freelancer.user.name || 'Freelancer',
         freelancerEmail: contract.freelancer.user.email,
         freelancerImage: contract.freelancer.user.image,
